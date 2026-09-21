@@ -45,8 +45,16 @@ permissions:
 
 # A second push while an apply is in-flight must queue, not race - cancelling a terraform
 # apply mid-way can leave a stuck state lock or a partially-created resource.
+# D-306 (2026-09-21): renamed from `cd-develop` to `terraform-dev-lock`, shared with
+# ci.yml's `infra` job's own job-level concurrency group of the same name - both jobs
+# contend over the same S3-native lock on the single `dev` Terraform state
+# (bucket=expiration-tracker-dev-tfstate), regardless of which branch/PR triggered either
+# one. Before this, ci.yml's `infra` job only locked per-branch/PR (`ci-${{ github.ref }}`),
+# so a `terraform plan` here and one in a differently-named branch's CI run - or this
+# `apply` - could run concurrently and hit "Error acquiring the state lock" against each
+# other (real incident, this session).
 concurrency:
-  group: cd-develop
+  group: terraform-dev-lock
   cancel-in-progress: false
 
 env:

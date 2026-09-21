@@ -105,7 +105,12 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
     voltar.
 11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
-13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
+13. ~~`ci.yml` sem fila global de lock do Terraform~~ — **RESOLVIDO 2026-09-21 (D-318)**: job
+    `infra` ganhou `concurrency` de nível-job próprio (`group: terraform-dev-lock`,
+    `cancel-in-progress: false`), e `cd.yml` renomeado de `cd-develop` para o mesmo
+    `terraform-dev-lock` — os dois agora disputam a mesma fila real em vez de duas filas
+    com nomes diferentes. `ci-${{ github.ref }}` de nível-workflow continua intacto para os
+    outros jobs de `ci.yml`.
 14. ~~Endpoint agregado de contagem por urgência para a Visão Geral~~ — **RESOLVIDO 2026-09-21
     (D-316, `PENDING_PROTOCOL_REVIEW`)**: `GET /dashboard/summary` já existia (Roadmap P0.6) e já
     computava os 3 números internamente — só faltava expor `itemsOverdueCount`/
@@ -152,9 +157,8 @@ tem (não uma escolha técnica razoável que já cabe a esta sessão decidir soz
    — protocolo Claude↔Codex normalmente exigido está suspenso (Codex bloqueado até 2026-09-23):
    decidir e implementar mesmo assim, registrando como `PENDING_PROTOCOL_REVIEW` (mesmo padrão de
    D-315/D-316), nunca `APPROVED_BY_OWNER`.
-3. **Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)**: dar ao job "Validate
-   Infra (Terraform)" um concurrency group compartilhado com `cd.yml` (ou lock/fila própria) para
-   parar de colidir com pushes simultâneos em branches diferentes. Mecânico, nível 3-4.
+3. ~~Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)~~ — **RESOLVIDO 2026-09-21
+   (D-318)**, ver item 13 da lista consolidada de pendências acima.
 4. **Item #21 — Página de login customizada**: hoje é a Hosted UI padrão do Cognito. Investigar
    diretamente a documentação oficial AWS (`AGENTS.md` §4) antes de propor caminho — Cognito
    Managed Login (branding dentro do domínio Cognito) vs. UI totalmente própria (Cognito só como
