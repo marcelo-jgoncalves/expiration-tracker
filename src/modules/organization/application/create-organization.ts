@@ -33,6 +33,7 @@ import { buildVersionedCreate, type TransactWriteEntry } from "../../../shared/d
 import { ValidationError } from "../../../shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { defaultEntitlement } from "../../subject/domain/entitlement.js";
+import { defaultNotificationEntitlements } from "../../notification/domain/notification-entitlements.js";
 import { organizationKey, pickDefaultReminderLocalTime, type Organization } from "../domain/organization.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
@@ -126,12 +127,18 @@ export class CreateOrganizationService {
     };
 
     const entitlement = defaultEntitlement(tenantId, now);
+    // PENDING_PROTOCOL_REVIEW (decisions-log.md) - before this, NO tenant ever got a
+    // NotificationEntitlements record, so every reminder retried forever
+    // (`routeNotificationIntent`'s fail-closed RETRY on a missing record) and never reached a
+    // delivery attempt. Seeded atomically here, same discipline as `TenantEntitlement` above.
+    const notificationEntitlements = defaultNotificationEntitlements(tenantId, now);
 
     const entries: TransactWriteEntry[] = [
       { Put: buildVersionedCreate(this.tableName, organization as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, membership as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, lifecycle as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, entitlement as unknown as Record<string, unknown> & { PK: string; SK: string }) },
+      { Put: buildVersionedCreate(this.tableName, notificationEntitlements as unknown as Record<string, unknown> & { PK: string; SK: string }) },
     ];
 
     return { entries, organization, membership };

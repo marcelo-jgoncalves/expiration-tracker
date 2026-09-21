@@ -637,11 +637,13 @@ export class BffAuthService {
    * Cap is TRANSACTIONAL, not check-then-act (Codex Rodada 3 achado): `GlobalUser.
    * hasCreatedOrganization` is set via a `Update` (`buildAttributeOnceUpdate`, tenantless -
    * `GlobalUser` has no `tenantId` for `buildVersionedUpdate`'s reserved condition to check)
-   * inside the SAME `TransactWriteItems` as the 4 `Put`s `CreateOrganizationService.
-   * buildCreateEntries()` builds - 5 items, not 4, committed atomically. The cap entry is index
-   * 0 - only ITS `ConditionalCheckFailed` means "already created an organization"; any other
-   * index failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as
-   * a genuine unexpected error instead of being misreported as the cap (Codex Rodada 3 achado).
+   * inside the SAME `TransactWriteItems` as the `Put`s `CreateOrganizationService.
+   * buildCreateEntries()` builds (5 as of the NotificationEntitlements addition,
+   * PENDING_PROTOCOL_REVIEW - see decisions-log.md) - committed atomically. The cap entry is
+   * index 0, prepended via spread regardless of how many entries `buildCreateEntries()` returns
+   * - only ITS `ConditionalCheckFailed` means "already created an organization"; any other index
+   * failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as a
+   * genuine unexpected error instead of being misreported as the cap (Codex Rodada 3 achado).
    *
    * Takes an already-resolved `Session` (same pattern as `ProxyService.forward(session, ...)`)
    * instead of a cookie - the handler already resolves the session once to run its own CSRF

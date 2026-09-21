@@ -5,6 +5,7 @@ import { organizationKey, type Organization } from "../../../src/modules/organiz
 import { membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { entitlementKey, type TenantEntitlement } from "../../../src/modules/subject/domain/entitlement.js";
+import { notificationEntitlementsKey, type NotificationEntitlements } from "../../../src/modules/notification/domain/notification-entitlements.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
@@ -48,6 +49,22 @@ describe("CreateOrganizationService", () => {
     const entitlement = await store.get<TenantEntitlement>(entitlementKey(authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId })));
     expect(entitlement).toBeDefined();
     expect(entitlement?.planId).toBe("free");
+  });
+
+  // PENDING_PROTOCOL_REVIEW (decisions-log.md): antes desta mudança, nenhum tenant recebia
+  // NotificationEntitlements, e o router fail-closed em RETRY para sempre. Mutação: remover o
+  // 5º entry (`NotificationEntitlements`) da transação faria este registro ficar `undefined`.
+  it("seeds NotificationEntitlements atomically - email enabled by default, WhatsApp disabled pending legal clearance (E-019)", async () => {
+    const store = new InMemoryOrganizationStore();
+    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+
+    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "UTC" });
+
+    const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId });
+    const notificationEntitlements = await store.get<NotificationEntitlements>(notificationEntitlementsKey(tenantId));
+    expect(notificationEntitlements).toBeDefined();
+    expect(notificationEntitlements?.email.enabled).toBe(true);
+    expect(notificationEntitlements?.whatsapp.enabled).toBe(false);
   });
 
   // Mutação: esquecer de chamar `this.pickReminderLocalTime()` (ou não passar o resultado para
