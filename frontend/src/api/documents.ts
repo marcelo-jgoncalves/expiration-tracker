@@ -8,7 +8,7 @@
  * spec calls out explicitly.
  */
 import { apiClient } from "./apiClient.js";
-import type { DocumentResponse, DocumentsListResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
+import type { DocumentDownloadResponse, DocumentResponse, DocumentsListResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
 
 export function listDocuments(itemId: string, options?: { signal?: AbortSignal }): Promise<DocumentsListResponse> {
   return apiClient.get<DocumentsListResponse>(`/items/${encodeURIComponent(itemId)}/documents`, { signal: options?.signal });
@@ -24,6 +24,13 @@ export function reserveDocumentUpload(itemId: string, input: ReserveUploadInput,
 
 export function deleteDocument(itemId: string, documentId: string): Promise<void> {
   return apiClient.delete<void>(`/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}`);
+}
+
+/** D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned S3 URL
+ * (5min TTL, mirrors the backend's `DOWNLOAD_PRESIGN_TTL_SECONDS`) - the caller navigates the
+ * browser to it directly, never routes it back through this app's own fetch/apiClient. */
+export function requestDocumentDownload(itemId: string, documentId: string): Promise<DocumentDownloadResponse> {
+  return apiClient.get<DocumentDownloadResponse>(`/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}/download`);
 }
 
 /** Phase 2 of the two-phase model - a direct-to-storage PUT, deliberately NOT going through

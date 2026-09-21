@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryDocumentStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { DocumentService } from "../../../src/modules/document/application/document-service.js";
 import type { UploadUrlSigner } from "../../../src/modules/document/ports/upload-url-signer.js";
+import type { DocumentDownloadUrlSigner } from "../../../src/modules/document/ports/document-download-url-signer.js";
 import type { DocumentIdGenerator } from "../../../src/modules/document/application/id-generator.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
@@ -42,10 +43,34 @@ function fakeIds(): DocumentIdGenerator {
   };
 }
 
+function fakeDownloadSigner(): DocumentDownloadUrlSigner {
+  return {
+    async presignDownload(input) {
+      return `https://s3.example/${input.objectRef.bucket}/${input.objectRef.key}?fileName=${encodeURIComponent(input.fileName)}`;
+    },
+  };
+}
+
 function buildService() {
   const store = new InMemoryDocumentStore([activeLifecycleRecord("t1"), activeLifecycleRecord("t2")]);
-  const service = new DocumentService({ store, tableName: TABLE, quarantineBucket: BUCKET, ids: fakeIds(), signer: fakeSigner(), now: () => "2026-08-22T00:00:00.000Z" });
+  const service = new DocumentService({
+    store,
+    tableName: TABLE,
+    quarantineBucket: BUCKET,
+    ids: fakeIds(),
+    signer: fakeSigner(),
+    downloadSigner: fakeDownloadSigner(),
+    now: () => "2026-08-22T00:00:00.000Z",
+  });
   return { store, service };
+}
+
+/** Mutates a just-reserved Document straight to CLEAN with a `cleanObject`, the same
+ * end-state the malware-scan/promotion worker produces for real (out of scope of this unit
+ * suite) - same "manually advance the stored row" convention the DELETED test above uses. */
+async function promoteToClean(store: InMemoryDocumentStore, documentId: string): Promise<void> {
+  const doc = store.allItems().find((i) => i["entityType"] === "Document" && i["documentId"] === documentId) as Record<string, unknown> & { PK: string; SK: string };
+  await store.update({ ...doc, status: "CLEAN", cleanObject: { bucket: "clean-bucket", key: `clean/t1/item1/${documentId}`, versionId: "v1" } });
 }
 
 describe("DocumentService.reserveUpload", () => {
@@ -214,5 +239,37 @@ describe("DocumentService.getDocument/listDocuments (BLOCKER-A)", () => {
       const rows = store.allItems().filter((i) => i["entityType"] === "Document" || i["entityType"] === "UploadSlot");
       expect(rows).toHaveLength(0);
     });
+  });
+});
+
+// D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned URL.
+describe("DocumentService.downloadDocument", () => {
+  it("returns a presigned URL for a CLEAN document, presigned against cleanObject (never quarantineObject)", async () => {
+    const { store, service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-dl-1");
+    await promoteToClean(store, reserved.documentId);
+
+    const result = await service.downloadDocument(ctx(), "item1", reserved.documentId);
+    expect(result.downloadUrl).toContain("clean-bucket");
+    expect(result.downloadUrl).toContain("fileName=a.pdf");
+    expect(result.expiresInSeconds).toBeGreaterThan(0);
+  });
+
+  // G-V3: removing the `document.status !== "CLEAN"` check above would let a caller download a
+  // document still SCANNING/PENDING_UPLOAD - this test fails if that guard is deleted, since
+  // `cleanObject` is never set outside promoteToClean() above.
+  it("throws a real ConflictError (never a silent/generic failure) for a document that never reached CLEAN", async () => {
+    const { service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-dl-2");
+
+    await expect(service.downloadDocument(ctx(), "item1", reserved.documentId)).rejects.toThrow(/not available for download/i);
+  });
+
+  it("cross-tenant: tenant B cannot download tenant A's document, even knowing the real itemId/documentId", async () => {
+    const { store, service } = buildService();
+    const reserved = await service.reserveUpload(ctx(), "item1", { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 100, checksumSha256: VALID_SHA256 }, "idem-dl-3");
+    await promoteToClean(store, reserved.documentId);
+
+    await expect(service.downloadDocument(ctxFor("t2"), "item1", reserved.documentId)).rejects.toThrow(/not found/i);
   });
 });
