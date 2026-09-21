@@ -112,7 +112,16 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
     continua removido por redundância (detalhe: `decisions-log.md` D-308/D-316).
 15. ~~Resolução de nome de usuário (Responsável)~~ — **RESOLVIDO 2026-09-21**: `GET /organizations/members` agora resolve `email`/`displayName` do `GlobalUser` (só quando identidade ACTIVE, mesma regra do `recipient-resolver.ts`); nome capturado via claim OIDC `name` no login (escopo `profile` adicionado). Frontend (Membros, "Responsável" no Detalhe) mostra nome/e-mail resolvido com fallback pro ID.
 16. ~~Filtro de atividade por item/recurso~~ — **RESOLVIDO 2026-09-21**: `GET /activity` aceita `resourceId`, mesmo padrão já usado por `resourceType`. Card "Histórico de auditoria" do Detalhe agora mostra contagem real e leva a um log pré-filtrado.
-17. **PR #382 (`develop`→`main`) aberto, não mergeado** — criado por engano (Claude leu "pode fazer o push também" como pedido de merge; Marcelo corrigiu pra "push pra dev"). Confirmar com ele se ainda quer esse merge ou se o PR deve ser fechado sem mergear.
+17. ~~PR #382 (`develop`→`main`) aberto, não mergeado~~ — **RESOLVIDO 2026-09-21**: fechado sem
+    merge (defasado, só 7/18 telas) a pedido explícito de Marcelo; PR #383 novo aberto com o
+    estado atual de `develop` (31/31 telas + D-313 a D-316) e mergeado em `main`. CI da PR pegou
+    3 regressões reais de e2e/a11y nunca detectadas localmente (vitest não cobre Playwright):
+    sidebar sticky quebrando o check "nada é sticky/fixed" (SC 2.4.11) em 5 specs — corrigido
+    allowlisting `.app-shell__nav` por nome, não é violação real (própria coluna flex, nunca
+    sobrepõe conteúdo); label stale com "*" literal em 2 testes do guest wizard após reskin pro
+    `SelectField` real; back-link "← Voltar" (`PageHeader`'s `above`) abaixo do mínimo de 24px do
+    WCAG 2.5.8, corrigido na CSS compartilhada `.ui-page-header__back`. Suíte e2e completa
+    (158/158) verde após as correções, commit `590d40a3`.
 18. ~~Falha pré-existente em `documents.test.ts` (`computeChecksumSha256`)~~ — **RESOLVIDA (achado
     2026-09-21)**: os 2 casos passam de forma estável e reproduzível (3 reruns isolados + 2 rodadas
     completas da suíte) — provavelmente resolvida por um bump de dependência jsdom/Node desde D-311,
