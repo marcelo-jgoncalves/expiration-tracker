@@ -24,48 +24,34 @@ DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de M
 concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
 Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
 `docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
-`docs/frontend/design-system-v2/`. **Porte para o código real: 13/13 telas do protótipo original
-FECHADAS** (avaliar protótipo → corrigir inconsistência → adequar à realidade do projeto quando o
-protótipo simplifica demais → aplicar → screenshot → validação de Marcelo → próxima) — as 7
-anteriores (Visão Geral/Vencimentos/Fornecedores/Criar/Detalhe/Renovar/Configurações, D-308/D-309)
-mais 6 nesta sessão (2026-09-21, **NENHUM COMMIT AINDA** — ver aviso de estado abaixo): Documento
-(`ItemDocuments.tsx`, manteve lista de N arquivos real em vez do modelo de 1 arquivo do protótipo),
-Alerta (`ItemReminderPolicy.tsx`), Fornecedor Detalhe (`SubjectHub.tsx` — painel de Conformidade
-que era HTML cru virou v2), Requisito Detalhe (**tela nova, não existia** — rota
-`subjects/:subjectId/requirements/:requirementId`, construída só com dados/endpoints já reais),
-Importar CSV (`ImportWizard.tsx`), Guest Submission (`GuestDocumentRequest.tsx`). Achado real no
-processo: barra lateral virou sticky (`position: sticky` em `.app-shell__nav`) + rodapé de
-identidade (avatar+nome+papel+logout só-ícone, `SidebarUserFooter`) — exigiu estender
-`GET /bff/session` com `displayName`/`email` (nunca `userId`, que segue excluído por D-095/D-096).
+`docs/frontend/design-system-v2/`. **Porte para o código real: 31/31 telas FECHADAS** (as 13 do
+protótipo original + as 18 do levantamento de rotas reais sem protótipo, ver abaixo) — todas
+commitadas e pushadas em `develop` (2026-09-21, commits `637d1a0d`..`eebb3ebb`). Falta só a
+validação visual de Marcelo (screenshots em `prototype/_tmp_validacao/01` a `25`).
 
-**Próxima ação real deste workstream — NOVA RODADA, 2026-09-21**: levantamento completo de rotas
-reais (`App.tsx`) encontrou **18 telas reais que nunca passaram pelo processo de protótipo**
-(Onboarding, Aceitar convite, Form de Fornecedor, Requisitos/lista geral, Solicitações e
-Recorrência, Rastreamento Legado, Exportar Dossiê, Fila de Revisão, Detalhe de Documento, Catálogo
-de Tipos de Documento, Editor de Tipo de Documento, Templates de Requisito, Preferência de Entrega,
-Preferências de Notificação, Membros, Log de Atividade, Relatórios, Upload Legado de Convidado —
-`LegacyGuestUpload`, distinta do `GuestDocumentRequest` já portado). **Achado real, verificado
-antes de gerar qualquer protótipo novo**: as 18 já importam os mesmos componentes v2 (`Panel`/
-`Section`/`DataTable`/`Button`/`StatusBadge`/`InlineNotice`/`Dialog`) que as 13 já reskinadas — não
-são HTML cru/v1, já herdam tokens/tipografia/radius do D-307 globalmente. Prints das 18 telas REAIS
-como rodam hoje (dados mockados via `page.route`, mesma técnica de sempre) salvos em
-`prototype/telas-sem-prototipo/` (18 arquivos `01-onboarding.png` a `18-guest-upload-legado.png`).
+**As 18 telas sem protótipo original** (Onboarding, Aceitar convite, Form de Fornecedor,
+Requisitos/lista geral, Solicitações e Recorrência, Rastreamento Legado, Exportar Dossiê, Fila de
+Revisão, Detalhe de Documento, Catálogo de Tipos de Documento, Editor de Tipo de Documento,
+Templates de Requisito, Preferência de Entrega, Preferências de Notificação, Membros, Log de
+Atividade, Relatórios, Upload Legado de Convidado) tiveram protótipos gerados via Claude Design a
+partir de prints reais (`prototype/telas-sem-prototipo/`) e foram portadas 01-06 numa sessão
+anterior, 07-18 nesta sessão (2026-09-21). Achados reais do processo: barra lateral sticky +
+rodapé de identidade (`SidebarUserFooter`, estendeu `GET /bff/session` com `displayName`/`email`,
+nunca `userId`/D-095-096); a maioria das 12 telas 07-18 já herdava os componentes v2 globalmente
+e precisou só de ícones Lucide + agrupamento em `Panel` — nenhum componente novo foi inventado em
+nenhuma das 18. Nomes/rótulos de papel e status de Membros passaram a usar `StatusBadge`/
+`presentMembershipRole` em vez de enum cru (novas `presentMembershipStatus`/
+`presentInvitationStatus` em `presentation.ts`).
 
-**PROTÓTIPOS NOVOS JÁ CHEGARAM (2026-09-21, Claude Design, a partir dos prints acima)**:
-`prototype/ui_kits_2/webapp/screens-package-2/standalone/` — 18 arquivos `.html`, mesma numeração/
-nomes dos prints (`01 - Onboarding.html` … `18 - Guest Upload Legado.html`). **Próxima sessão: retomar
-o mesmo processo tela-por-tela das 13 anteriores** (avaliar protótipo → corrigir inconsistência →
-adequar à realidade do projeto quando o protótipo simplificar/inventar algo que o backend não
-suporta → aplicar no código real → screenshot em `prototype/_tmp_validacao/` → validação de Marcelo
-→ próxima), reaproveitando os componentes v2 já existentes (nunca recriar `Panel`/`DataTable`/etc.).
-
-**AVISO DE ESTADO — nada desta sessão foi commitado ainda (2026-09-21, 79 arquivos modificados/
-novos)**: além das 6 telas acima, esta sessão também fechou #15/#16 (ver lista de pendências
-abaixo, já atualizada) e D-313 (download de documento) + D-314 (versionamento completo,
-`PENDING_PROTOCOL_REVIEW`, sem código escrito). Confirmar com Marcelo se ele quer revisar/commitar
-antes de continuar, ou se seguimos direto para a próxima rodada de protótipos.
+**Também fechados nesta sessão (2026-09-21)**: itens #15/#16 (resolução de nome/e-mail do
+responsável via claim OIDC, filtro de atividade por `resourceId`) e D-313 (download de documento).
+D-314 (versionamento completo de Document) segue `PENDING_PROTOCOL_REVIEW`, sem código escrito.
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
+
+**Próxima ação real deste workstream**: aguardar validação visual de Marcelo das 18 telas
+(screenshots `prototype/_tmp_validacao/08` a `25`) antes de considerar o workstream de identidade
+visual v2 encerrado. Nenhum protótipo novo pendente no momento.
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 
@@ -182,90 +168,28 @@ stream sequencialmente (~14 registros/s, `map-with-concurrency.ts` existe mas n�
 risco real se 100k/500k reproduzirem o gargalo do D-304. Decisão de Marcelo: não implementar agora,
 esperar o protocolo Claude↔Codex voltar antes de mexer no caminho crítico de dispatch.
 
-## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
+## Mandato autônomo da escada de performance — ENCERRADO (Marcelo, 2026-09-19; status 2026-09-21)
 
-**Status 2026-09-21 — ESCADA ENCERRADA, não retomar sem novo pedido explícito de Marcelo.** 10k
-revalidado (`accepted: true`, p100=230,26s). 100k rodou e teve seu resultado real confirmado
-(SLO NÃO atingido nesta escala, zero erro — ver Programa de Performance acima/D-310); Marcelo
-decidiu não perseguir 500k por ora. As regras desta seção (cohort padrão de tenants, cuidado com
-e-mail real, protocolo suspenso) continuam válidas caso ele peça pra retomar a escada no futuro.
-
-**Escada de escala, autônoma, sem parar para perguntar (SE retomada)**: rodar 10k → se `accepted:
-true` (SLO 300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar
-a escada (não avançar para o próximo degrau) só se um degrau reprovar — nesse caso, investigar a
-causa raiz real (nunca supor; só concluir com evidência direta de logs/AWS, mesmo padrão desta
-sessão), corrigir minimizando ao máximo o risco de regressão, e **re-rodar o MESMO degrau que
-falhou** antes de tentar avançar — nunca pular para o próximo tamanho com um bug conhecido não
-resolvido.
-
-**Limite técnico real, verificado**: `perf-reminder-burst.mjs` hoje só aceita até
-`PERF_REMINDER_BURST_SIZE=100000` (`requireThatBurstSize`, teto hardcoded). **500k não é possível
-sem alterar o script primeiro** — decidir e implementar esse aumento de teto com o mesmo cuidado
-de sempre (ler o motivo do teto atual antes de só apagar o número, considerar se o resto do
-harness — paginação, sessão Cognito de 15min, cutoff de criação — ainda se comporta bem numa carga
-5x maior) antes de tentar o degrau de 500k.
-
-**Cota real da AWS que também limita a escala, verificada nesta sessão**: SES `Max24HourSend =
-50.000`/24h. Qualquer tentativa de enviar e-mail real por item nos degraus de 100k/500k estouraria
-essa cota sozinha, sem nem precisar do problema abaixo.
-
-**MUITO IMPORTANTE — não repetir o problema dos e-mails reais chegando na caixa pessoal de
-Marcelo** (8 notificações de reclamação simulada da AWS, `complaints@email-abuse.amazonses.com`,
-recebidas durante a verificação de 1k desta sessão, quando o cohort `perf-12-email-tenants.json`
-— que inclui de propósito um tenant `complaint@simulator.amazonses.com` e um `bounce@...` — foi
-usado). Para os degraus de 10k/100k/500k, que servem para provar SLO/throughput de
-scan→claim→dispatch→`TRIGGERED` (não para reprovar entrega de e-mail, já comprovada nesta sessão
-em pequena escala): **usar o arquivo de tenants PADRÃO (`perf-11b-tenants.json`, sem passar
-`PERF_REMINDER_BURST_TENANTS_FILE`), que não define `assigneeUserId`** — sem isso, o item vira
-`NotificationIntent` `CANCELLED` de forma limpa e imediata (`RECIPIENT_NOT_FOUND`, comportamento
-documentado, já observado em todas as rodadas antes da correção de assignee), **nunca chega a
-tentar um envio real ao SES, nunca entra em `RETRY`**, e não afeta em nada o critério de sucesso
-do teste (`TRIGGERED`, não entrega). Não usar `perf-12-email-tenants.json` nestes 3 degraus sob
-hipótese alguma.
+Escada 10k→100k→500k **ENCERRADA, não retomar sem novo pedido explícito de Marcelo** — resultado
+real (D-310) já registrado na seção "Programa de Performance" acima. Regras operacionais completas
+para uma eventual retomada (cohort de tenants padrão vs. e-mail real, teto de
+`PERF_REMINDER_BURST_SIZE`, cota SES, protocolo de re-run por degrau reprovado) ficam preservadas
+em `docs/engineering/performance/TODO.md` e `decisions-log.md` (D-299 a D-310) — não recontadas
+aqui.
 
 **Protocolo Claude↔Codex SUSPENSO até novo aviso (Marcelo, 2026-09-19)** — Codex bloqueado até
-2026-09-23, Antigravity também sem cota até ~2026-09-26 (ver acima). Enquanto isso, Claude decide
-sozinho qualquer questão de nível 5-6 que normalmente exigiria o protocolo, **mas toda decisão
-tomada sem o protocolo formal deve ser marcada explicitamente com status `PENDING_PROTOCOL_REVIEW`**
-(no documento de decisão/review correspondente, nunca `APPROVED_BY_OWNER` nem "protocolo
-dispensado" — essas duas frases são para dispensa explícita por Marcelo, não para ausência de
-ferramenta) e listada aqui em `NEXT_SESSION_PROMPT.md` para retomar assim que Codex ou Antigravity
-voltarem a funcionar. Isto NÃO dispensa rigor — conclusões só a partir de fatos verificados ao
-vivo (nunca suposição), e toda correção de código passa pela suíte de testes completa antes de
-qualquer merge.
+2026-09-23, Antigravity sem cota até ~2026-09-26. Enquanto isso, decisões de nível 5-6 tomadas sem
+o protocolo formal devem ser marcadas `PENDING_PROTOCOL_REVIEW` (nunca `APPROVED_BY_OWNER`) e
+listadas aqui para retomar quando Codex/Antigravity voltarem.
 
-**Conclusão de cada etapa de ajuste**: só marcar uma correção como concluída depois de passar pela
-skill `/task-checklist` (`docs/engineering/task-completion-checklist.md`, `AGENTS.md` §1) — não
-antes. Isto vale para cada bug encontrado durante a escada de escala, individualmente.
+**Checklist de conclusão de tarefa (2026-09-18)**: `docs/engineering/task-completion-checklist.md`
++ skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, `AGENTS.md` §1.
 
-**Se a sessão começar com a pipeline ainda rodando** (Marcelo pode iniciar a próxima sessão sem
-esperar o teste atual terminar): primeiro checar `ps aux | grep perf-reminder-burst` e o estado
-real na AWS antes de presumir uma sessão limpa — nunca lançar um novo run sem antes confirmar se
-já existe um em andamento (risco de corrida de git/AWS entre dois runs concorrentes, já registrado
-em memória).
-
-**Achado incidental, não bloqueante, de sessão anterior**: gate `Authenticated k6 smoke`
-reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE
-(cold start sob rajada de poucas requests, não causado por D-303) — nota em `performance/TODO.md`
-§PERF-14, rerun resolve, threshold/concorrência do BFF é candidato a ajuste futuro.
-
-**Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
-
-**Manutenção paralela, não bloqueante**: fix de redeploy do canário Synthetics mergeado (expôs e corrigiu um bug real no próprio script do canário, API confirmada saudável o tempo todo); consolidação de 23 PRs Dependabot duplicados do Terraform em andamento (cada módulo tem seu próprio lock file — achado real, `npm run check-dependency-freshness` pegou a inconsistência da primeira tentativa).
-
-**Sweeper genérico de reconciliação** (mesma classe de gargalo do D-301/D-302/D-303 — partição compartilhada no GSI6) — corrigido e validado 2026-09-20 (10.000/10.000 sem gap pós-fix); proposta completa em `docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md` (Claude↔Antigravity, 9,5/10).
-
-**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` zerou tabela principal/sessão e filas, verificado pelo próprio script (evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`). 4 bugs reais do script achados e corrigidos em escala real (OOM, região errada, overflow de string, `ThrottlingException` não tratada) — teste novo cobre o caso do throttle.
-
-**Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
-
-**Achado real não corrigido, 2026-09-19 (`ladder-email-25k`/`-retry`) — gargalo cosmético de
-observabilidade, sem impacto funcional**: sob carga sustentada, o layer ADOT descarta lotes de
-trace inteiros (timeout app→coletor→X-Ray real); zero requisição falhou, só falta trace completo
-no X-Ray para as atingidas. Correção exigiria `collector.yaml` customizado empacotado em todas as
-~69 Lambdas — mudança sistêmica de observabilidade, arriscada se malfeita. Decisão de Marcelo:
-registrar como pendência, mesma categoria do débito técnico de infra do roadmap (`docs/project/
-roadmap-competitivo-2026-09-01.md` §17/§18.6), não implementar agora.
+**Achados incidentais registrados, não bloqueantes**: gate `Authenticated k6 smoke` com flakiness
+pré-existente de cold start (`performance/TODO.md` §PERF-14); ADOT descarta lotes de trace sob
+carga sustentada sem afetar requisições reais (correção exigiria `collector.yaml` customizado em
+~69 Lambdas, registrado como débito técnico); consolidação de 23 PRs Dependabot do Terraform em
+andamento; import CSV em massa para Items ainda não escopado (item 9 da lista de pendências abaixo).
 
 ## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 
