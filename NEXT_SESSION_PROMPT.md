@@ -94,7 +94,7 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
 7. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
-9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
+9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. **AUTORIZADO 2026-09-21** a virar iniciativa autônoma (ver "Próxima ação recomendada" abaixo) — protocolo suspenso, decidir e marcar `PENDING_PROTOCOL_REVIEW`.
 10. ~~`NotificationEntitlements` nunca provisionado~~ — **RESOLVIDO 2026-09-21 (D-315,
     `PENDING_PROTOCOL_REVIEW`)**: seedado atomicamente na criação da Organization
     (`CreateOrganizationService`), `email.enabled: true`/`whatsapp.enabled: false` por padrão.
@@ -132,18 +132,37 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 
 ## Próxima ação recomendada
 
-**P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Degrau de 100k do Programa de Performance encerrado (achado real confirmado,
-ver seção própria abaixo — não é mais pendência).
+**P0/P1/full-audit round2/auditoria externa/identidade visual v2 (31/31 telas) são contexto
+histórico já fechado, não a próxima ação — ver seções acima.** Degrau de 100k do Programa de
+Performance encerrado (achado real confirmado, ver seção própria acima — não é mais pendência).
 
-**Próxima ação real (2026-09-21)**: workstream de identidade visual v2 — os 18 protótipos novos já
-chegaram (`prototype/ui_kits_2/webapp/screens-package-2/standalone/`, ver seção "Identidade visual"
-acima). **Retomar o processo tela-por-tela** aplicando cada um ao código real, mesma disciplina das
-13 anteriores. **Antes disso, decidir com Marcelo o que fazer com os ~79 arquivos não commitados da
-sessão de 2026-09-21** (ver aviso de estado na seção "Identidade visual"). Fora isso, resta só:
-itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação por
-domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na seção do
-Roadmap).
+**MANDATO AUTÔNOMO EXPLÍCITO (Marcelo, 2026-09-21) — trabalhar sem parar para pedir permissão nos
+4 itens abaixo (numeração da lista consolidada de pendências acima), na ordem que fizer mais
+sentido tecnicamente. Só parar/perguntar se uma decisão genuinamente exigir informação que só ele
+tem (não uma escolha técnica razoável que já cabe a esta sessão decidir sozinha):**
+
+1. **Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)**: decidir um valor real
+   (medir a cobertura atual primeiro, nunca inventar um número às cegas) e configurar. Registrar
+   a decisão e o racional em `decisions-log.md`.
+2. **Item #9 — Import CSV em massa para Items**: autorizado a virar iniciativa agora. Prováveis
+   decisões de produto a tomar sozinho (mapeamento de colunas, se a Política de Lembrete vem na
+   mesma linha ou é configurada depois, estratégia de deduplicação) seguem o mesmo padrão já usado
+   para os outros 3 tipos de import (`src/modules/import/`). Nível 5-6 pela `change-risk-scale.md`
+   — protocolo Claude↔Codex normalmente exigido está suspenso (Codex bloqueado até 2026-09-23):
+   decidir e implementar mesmo assim, registrando como `PENDING_PROTOCOL_REVIEW` (mesmo padrão de
+   D-315/D-316), nunca `APPROVED_BY_OWNER`.
+3. **Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)**: dar ao job "Validate
+   Infra (Terraform)" um concurrency group compartilhado com `cd.yml` (ou lock/fila própria) para
+   parar de colidir com pushes simultâneos em branches diferentes. Mecânico, nível 3-4.
+4. **Item #21 — Página de login customizada**: hoje é a Hosted UI padrão do Cognito. Investigar
+   diretamente a documentação oficial AWS (`AGENTS.md` §4) antes de propor caminho — Cognito
+   Managed Login (branding dentro do domínio Cognito) vs. UI totalmente própria (Cognito só como
+   backend OIDC). Decidir e implementar o caminho de menor risco/esforço que atinja a identidade
+   visual v2, registrando a decisão.
+
+Cada item, ao terminar, passa pelo checklist completo (`docs/engineering/task-completion-checklist.md`)
+antes de ser marcado concluído — mesmo padrão desta sessão. Commit + push a cada item fechado, sem
+esperar os 4 para começar a commitar.
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
