@@ -84,19 +84,33 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 14. **Endpoint agregado de contagem por urgência para a Visão Geral (D-308)** — os 3 contadores da Visão Geral (vencidos/vence em breve/em acompanhamento) usam dado PLACEHOLDER hoje (`useItemsDashboardBounded` só cobre 30 itens, subcontaria em silêncio acima disso). Precisa de endpoint agregado novo antes de virar dado real; decisão de Marcelo, adiado. Link "Ver todos os vencimentos" removido por redundância — não recriar como link nem "4º card" a menos que cubra escopo que os 3 cards não cobrem (detalhe: `decisions-log.md` D-308).
 15. **Resolução de nome de usuário (Responsável) — achado real, 2026-09-20, tela Detalhe do Vencimento.** `assigneeUserId` guarda só o ID; nenhuma tela do sistema resolve nome/e-mail de outro membro (`GET /members` retorna só `userId`/`role`/`status`/`joinedAt`). Precisa de endpoint novo de resolução de usuário antes de qualquer tela mostrar um nome de verdade em vez do ID cru. Backlog de Marcelo, sem prioridade definida ainda.
 16. **Filtro de atividade por item/recurso — achado real, 2026-09-20, mesma sessão.** `GET /activity` só filtra por `month`/`resourceType`, sem `resourceId` — impede contagem real de eventos de auditoria por vencimento individual (o card "Histórico de auditoria" do Detalhe é estático por isso, não por bug de frontend). Backlog de Marcelo, sem prioridade definida ainda.
+17. **PR #382 (`develop`→`main`) aberto, não mergeado** — criado por engano (Claude leu "pode fazer o push também" como pedido de merge; Marcelo corrigiu pra "push pra dev"). Confirmar com ele se ainda quer esse merge ou se o PR deve ser fechado sem mergear.
+18. **Falha pré-existente, não corrigida: `frontend/test/api/documents.test.ts` (`computeChecksumSha256`), 2 dos 415 testes** — `crypto.subtle.digest` no ambiente jsdom/Node atual rejeita o buffer retornado por `readAsArrayBuffer` (`ERR_INVALID_ARG_TYPE`). Confirmado não relacionado a nenhuma mudança desta sessão (arquivo não tocado desde D-2xx). Não bloqueia CI (esses 2 casos já falhavam antes do fix do CI, isolados dos outros 413). Sem prioridade definida.
 
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Identidade visual v2 (7/7 telas) fechada. Ordem real: (1) confirmar/registrar
-o resultado oficial do degrau de 100k assim que a reconstrução do `cohort.json` terminar (ver
-Programa de Performance abaixo); (2) itens ainda não decididos de 2026-09-20 (seção própria
-abaixo, já reduzida a só "subagentes de aprovação por domínio" — horário padrão de lembretes
-já estava implementado, ver correção 2026-09-21 na seção do Roadmap).
+— ver seções acima.** Identidade visual v2 (7/7 telas) fechada. Degrau de 100k do Programa de
+Performance encerrado (achado real confirmado, ver seção própria abaixo — não é mais pendência).
+Resta: itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação
+por domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na
+seção do Roadmap).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
 **Lição de processo**: default é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
+
+## Manutenção de CI/testes (2026-09-21, achados reais desta sessão, ver D-311/D-312)
+
+CI de `develop` ficou vermelho por toda a Fase 2 de identidade visual v2 (desde `686d944`) sem
+ninguém perceber — bug de `vite.config.ts` (HTTPS vazando pro `vite preview` do Playwright)
+travava o job `frontend` inteiro antes de rodar qualquer teste real, mascarando de quebra uma
+regressão real de contraste WCAG em ~15 telas. Ambos corrigidos e verificados (commit
+`1ee7dcb`, D-311) — checar se o run de CI deste commit passou antes de confiar em qualquer run
+anterior a ele como sinal de saúde do frontend. Separadamente, backend: `vitest.config.ts` forçava
+TODOS os 274 arquivos de teste a rodar em série por causa de só 7 (`test/architecture/**`)
+precisarem disso — dividido em `vitest.workspace.ts` (D-312), sem perder a serialização onde é
+realmente necessária.
 
 ## Programa de Performance (2026-09-14, iniciativa própria de Marcelo — foco real da sessão)
 
@@ -113,18 +127,16 @@ decisão e dos incidentes reais pós-deploy (bug de checkpoint, gap de IAM em `P
 partição compartilhada no GSI6) já está em `decisions-log.md` (D-299 a D-304) e
 `docs/engineering/performance/TODO.md` — não recontar aqui. **Estado atual**: degrau de 10k padrão
 revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s). D-304 continua
-`PENDING_PROTOCOL_REVIEW` (protocolo suspenso). **Degrau de 100k (`ladder-100k-2026-09-20`):
-seed 100% completo (10 tenants × 10.000 pares), mas o run original falhou na fase de
-materialização por um bug real de HARNESS (não de backend) — buffer fixo de 5min antes do
-`target`, corrigido pra escalar com o cohort (D-310). `target` (2026-09-21T03:22:00Z) já passou
-sem o resultado real de disparo ter sido capturado a tempo; uma tentativa de recuperação
-(`node scripts/perf-reminder-burst.mjs materialize ladder-100k-2026-09-20` — comando novo,
-D-310) travou de novo (timeout de 240s sem confirmar as 100k linhas) por motivo AINDA NÃO
-investigado — pode ser round-trip real de AWS numa escala nunca testada, ou uma linha
-genuinamente presa. **Próxima ação real**: investigar essa segunda trava (rodar sem timeout /
-com timeout bem maior, monitorando quais linhas específicas não retornam) e, uma vez com
-`cohort.json` reconstruído, rodar `verify` pra saber se o disparo real ficou dentro do SLO de
-300s ou não — a pipeline real em si nunca deu sinal de erro/lentidão (CloudWatch limpo).
+`PENDING_PROTOCOL_REVIEW` (protocolo suspenso). **Degrau de 100k — ENCERRADO 2026-09-21 (D-310):**
+seed 100% completo, bug real de HARNESS achado e corrigido (buffer fixo de materialização não
+escalava com o cohort), mas a própria recuperação LOCAL nunca terminou (`materialize` ficou 57min
+fazendo polling sem produzir `cohort.json`, processo encerrado manualmente, lock removido — este
+run nunca teve artefato oficial `cohort.json`/`result.json`). **O resultado real foi confirmado de
+forma independente, direto na AWS** (DynamoDB `ConsistentRead` + CloudWatch, 2 investigações
+separadas): 100% das 100k ocorrências chegaram a `TRIGGERED`, zero erro/throttle, mas o disparo
+real levou ~16-17min — **SLO de 300s NÃO atingido nesta escala**. Não é bloqueador (sem usuário
+real, `AGENTS.md` §1); mitigação já existe via `defaultReminderLocalTime` (sorteio de horário).
+Decisão de Marcelo: não perseguir 500k nem otimizar `dispatch-outbox-relay-processor.ts` agora.
 
 **Backlog registrado, não implementado**: `dispatch-outbox-relay-processor.ts` processa lotes de
 stream sequencialmente (~14 registros/s, `map-with-concurrency.ts` existe mas não é usado aqui) —
@@ -133,17 +145,19 @@ esperar o protocolo Claude↔Codex voltar antes de mexer no caminho crítico de 
 
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
 
-**Status 2026-09-21**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima).
-Degrau de 100k já rodou (seed completo, achado de harness real, recuperação em andamento — ver
-Programa de Performance abaixo/D-310). As regras desta seção inteira continuam válidas (cohort
-padrão, sem protocolo, etc.) pra quando a recuperação do 100k terminar e/ou for a vez do 500k.
+**Status 2026-09-21 — ESCADA ENCERRADA, não retomar sem novo pedido explícito de Marcelo.** 10k
+revalidado (`accepted: true`, p100=230,26s). 100k rodou e teve seu resultado real confirmado
+(SLO NÃO atingido nesta escala, zero erro — ver Programa de Performance acima/D-310); Marcelo
+decidiu não perseguir 500k por ora. As regras desta seção (cohort padrão de tenants, cuidado com
+e-mail real, protocolo suspenso) continuam válidas caso ele peça pra retomar a escada no futuro.
 
-**Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
-300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
-(não avançar para o próximo degrau) só se um degrau reprovar — nesse caso, investigar a causa raiz
-real (nunca supor; só concluir com evidência direta de logs/AWS, mesmo padrão desta sessão),
-corrigir minimizando ao máximo o risco de regressão, e **re-rodar o MESMO degrau que falhou**
-antes de tentar avançar — nunca pular para o próximo tamanho com um bug conhecido não resolvido.
+**Escada de escala, autônoma, sem parar para perguntar (SE retomada)**: rodar 10k → se `accepted:
+true` (SLO 300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar
+a escada (não avançar para o próximo degrau) só se um degrau reprovar — nesse caso, investigar a
+causa raiz real (nunca supor; só concluir com evidência direta de logs/AWS, mesmo padrão desta
+sessão), corrigir minimizando ao máximo o risco de regressão, e **re-rodar o MESMO degrau que
+falhou** antes de tentar avançar — nunca pular para o próximo tamanho com um bug conhecido não
+resolvido.
 
 **Limite técnico real, verificado**: `perf-reminder-burst.mjs` hoje só aceita até
 `PERF_REMINDER_BURST_SIZE=100000` (`requireThatBurstSize`, teto hardcoded). **500k não é possível
