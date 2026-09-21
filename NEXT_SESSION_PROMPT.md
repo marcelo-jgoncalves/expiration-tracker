@@ -24,17 +24,14 @@ DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de M
 concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
 Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
 `docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
-`docs/frontend/design-system-v2/`. **Porte para o código real: 6 das 7 telas do protótipo FECHADAS
-e commitadas** (processo tela-por-tela de Marcelo: avaliar protótipo → corrigir inconsistência →
-aplicar → screenshot em `prototype/_tmp_validacao/` → validação dele → próxima; screenshot local
-via `vite build`+`preview`+cookie transplantado, D-308) — Visão Geral, Vencimentos, Fornecedores,
-Criar/Detalhe/Renovar vencimento (D-308/D-309, commits `543b3f7`/`793b6fb`/`65659e9`). **Única
-pendente: Configurações (`frontend/src/routes/Settings.tsx`)** — mudanças reais já implementadas
-(4 `Section` com ícone, `Panel` com `padded` corrigido, botões com ícone) e screenshot já mostrado
-a Marcelo várias vezes (última: `prototype/_tmp_validacao/07-configuracoes.png`, ícone
-"Dados da organização" trocado de `Settings`/gear pra `IdCard` a pedido dele), mas **sem
-"aprovado" explícito ainda — não commitado**. Próxima ação real: confirmar aprovação e commitar
-(ou aplicar o ajuste que ele pedir). Pendências novas de produto (não código): #15/#16 abaixo.
+`docs/frontend/design-system-v2/`. **Porte para o código real: 7/7 telas do protótipo FECHADAS,
+aprovadas e commitadas, processo tela-por-tela de Marcelo CONCLUÍDO** (avaliar protótipo →
+corrigir inconsistência → aplicar → screenshot em `prototype/_tmp_validacao/` → validação dele →
+próxima; screenshot local via `vite build`+`preview`+cookie transplantado, D-308) — Visão Geral,
+Vencimentos, Fornecedores, Criar/Detalhe/Renovar vencimento, Configurações (D-308/D-309, commits
+`543b3f7`/`793b6fb`/`65659e9`/`5dd4347`). Pendências novas de produto abertas por esse trabalho
+(não código): #15/#16 abaixo. Próxima ação real deste workstream, se houver: aguardar sinal de
+Marcelo (nenhuma tela do protótipo resta a portar).
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
@@ -91,9 +88,11 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Ordem real: (1) fechar Configurações (aprovação pendente de Marcelo, ver
-Roadmap acima); (2) investigar a segunda trava do degrau de 100k (ver Programa de Performance
-abaixo); (3) itens ainda não decididos de 2026-09-20 (seção própria abaixo).
+— ver seções acima.** Identidade visual v2 (7/7 telas) fechada. Ordem real: (1) confirmar/registrar
+o resultado oficial do degrau de 100k assim que a reconstrução do `cohort.json` terminar (ver
+Programa de Performance abaixo); (2) itens ainda não decididos de 2026-09-20 (seção própria
+abaixo, já reduzida a só "subagentes de aprovação por domínio" — horário padrão de lembretes
+já estava implementado, ver correção 2026-09-21 na seção do Roadmap).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
