@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { renderAtRoute } from "../testUtils.js";
 import { Members } from "../../src/routes/Members.js";
 import type { Member, Invitation } from "../../src/api/types.js";
@@ -149,7 +149,13 @@ describe("Members", () => {
 
     await waitFor(() => expect(screen.getByText("owner-1")).toBeInTheDocument());
     expect(screen.queryByLabelText(new RegExp("^Papel de owner-1"))).not.toBeInTheDocument();
-    expect(screen.getByText("OWNER")).toBeInTheDocument();
+    // #15 redesign (2026-09-21): the read-only role cell now shows the presented label
+    // (`presentMembershipRole`, "Owner") instead of the raw enum value, matching the labels the
+    // role-change dropdown itself already used. Scoped to the member's own row: the invite
+    // form's role <select> also has an "Owner" option, so an unscoped query matches both.
+    const row = screen.getByText("owner-1").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("Owner")).toBeInTheDocument();
   });
 
   it("submits the invite form with the entered email and default role", async () => {

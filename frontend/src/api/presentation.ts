@@ -31,6 +31,8 @@ import type {
   DocumentChasingOccurrenceStatus,
   Member,
   MembershipRole,
+  MembershipStatus,
+  InvitationStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -412,6 +414,38 @@ const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
  * role, so the two never drift apart. */
 export function presentMembershipRole(role: MembershipRole): string {
   return MEMBERSHIP_ROLE_LABEL[role];
+}
+
+/** #15 redesign (2026-09-21) - `Members.tsx`'s active-members table previously rendered the raw
+ * enum value (`ACTIVE`) as text. `ACTIVE` stays `neutral`, never `success` (`StatusBadge.tsx`'s
+ * header comment): membership being active is a plain state, not a proof this domain can make a
+ * stronger claim about. */
+export function presentMembershipStatus(status: MembershipStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "SUSPENDED":
+      return { label: "Suspenso", tone: "warning" };
+    case "REMOVED":
+      return { label: "Removido", tone: "danger" };
+  }
+}
+
+/** Same rationale as `presentMembershipStatus` for the pending-invitations table - `PENDING`
+ * mirrors `presentImportJobStatus`'s "needs attention" `warning` tone, `EXPIRED` the same tone
+ * used there for a lapsed TTL, never `danger` (no one caused a failure by letting an invite
+ * expire). `ACCEPTED`/`REVOKED` are closed, uneventful outcomes - `neutral`. */
+export function presentInvitationStatus(status: InvitationStatus): StatusPresentation {
+  switch (status) {
+    case "PENDING":
+      return { label: "Pendente", tone: "warning" };
+    case "ACCEPTED":
+      return { label: "Aceito", tone: "neutral" };
+    case "REVOKED":
+      return { label: "Revogado", tone: "neutral" };
+    case "EXPIRED":
+      return { label: "Expirado", tone: "warning" };
+  }
 }
 
 /** A15 (Block 9) — `ImportJobStatus` label only (the wizard step itself is derived from status
