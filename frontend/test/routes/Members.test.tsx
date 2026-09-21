@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { renderAtRoute } from "../testUtils.js";
 import { Members } from "../../src/routes/Members.js";
 import type { Member, Invitation } from "../../src/api/types.js";
@@ -49,6 +49,23 @@ describe("Members", () => {
 
     expect(screen.getByText("Carregando membros…")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("user-1")).toBeInTheDocument());
+  });
+
+  // #15 (2026-09-21): shows the resolved displayName instead of the raw userId once GlobalUser
+  // resolution is present, with the raw id kept as the row's title (support/debugging).
+  it("shows the resolved displayName instead of the raw userId when present", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ displayName: "Ana Exemplo" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "VIEWER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByText("Ana Exemplo")).toBeInTheDocument());
+    expect(screen.queryByText("user-1")).not.toBeInTheDocument();
+    expect(screen.getByText("Ana Exemplo").closest("span")).toHaveAttribute("title", "user-1");
   });
 
   // Mutação: trocar `canManageMembers` para incluir "VIEWER"/"MEMBER" (ou remover a checagem de
@@ -132,7 +149,13 @@ describe("Members", () => {
 
     await waitFor(() => expect(screen.getByText("owner-1")).toBeInTheDocument());
     expect(screen.queryByLabelText(new RegExp("^Papel de owner-1"))).not.toBeInTheDocument();
-    expect(screen.getByText("OWNER")).toBeInTheDocument();
+    // #15 redesign (2026-09-21): the read-only role cell now shows the presented label
+    // (`presentMembershipRole`, "Owner") instead of the raw enum value, matching the labels the
+    // role-change dropdown itself already used. Scoped to the member's own row: the invite
+    // form's role <select> also has an "Owner" option, so an unscoped query matches both.
+    const row = screen.getByText("owner-1").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("Owner")).toBeInTheDocument();
   });
 
   it("submits the invite form with the entered email and default role", async () => {

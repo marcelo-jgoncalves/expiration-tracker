@@ -9,6 +9,7 @@
  */
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, type LinkProps } from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
 import "./Button.css";
 
 // "ghost" (A20/A21, Block 4, D-2xx) - the canonical 4th variant name per design-system.md §30
@@ -30,10 +31,14 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   /** In-flight mutation. Renders the control inert AND expects the caller to swap the label,
    * so "why is this disabled?" is always answerable from the visible text alone. */
   pending?: boolean;
+  /** Leading icon (Marcelo, 2026-09-20): `Plus` for a "Novo X" creation action, `Check` for an
+   * explicit confirmation action - never decorative-only, `.ui-button`'s own `aria-hidden` on
+   * the icon means the visible text label always still carries the meaning alone. */
+  icon?: LucideIcon;
   children: ReactNode;
 }
 
-export function Button({ variant = "secondary", size = "md", pending, disabled, type = "button", children, ...rest }: ButtonProps) {
+export function Button({ variant = "secondary", size = "md", pending, disabled, type = "button", icon: Icon, children, ...rest }: ButtonProps) {
   return (
     <button
       {...rest}
@@ -47,6 +52,7 @@ export function Button({ variant = "secondary", size = "md", pending, disabled, 
       data-pending={pending ? "true" : undefined}
       aria-busy={pending ? true : undefined}
     >
+      {Icon ? <Icon size={16} strokeWidth={2} aria-hidden="true" /> : null}
       {children}
     </button>
   );
@@ -55,12 +61,14 @@ export function Button({ variant = "secondary", size = "md", pending, disabled, 
 export interface ButtonLinkProps extends Omit<LinkProps, "className"> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  icon?: LucideIcon;
   children: ReactNode;
 }
 
-export function ButtonLink({ variant = "secondary", size = "md", children, ...rest }: ButtonLinkProps) {
+export function ButtonLink({ variant = "secondary", size = "md", icon: Icon, children, ...rest }: ButtonLinkProps) {
   return (
     <Link {...rest} className={classNames(variant, size, "ui-button--as-link")}>
+      {Icon ? <Icon size={16} strokeWidth={2} aria-hidden="true" /> : null}
       {children}
     </Link>
   );

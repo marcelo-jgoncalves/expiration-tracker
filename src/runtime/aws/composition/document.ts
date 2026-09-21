@@ -7,6 +7,7 @@ import { DynamoDbDocumentCandidateSource } from "../../../modules/document/persi
 import { DynamoDbDocumentPurgeCandidateSource } from "../../../workers/document-purge/dynamodb-document-purge-candidate-source.js";
 import { S3DocumentObjectStore } from "../../../modules/document/persistence/s3-document-object-store.js";
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
+import { S3DocumentDownloadUrlSigner } from "../../../modules/document/persistence/s3-document-download-url-signer.js";
 import { LambdaPdfParser } from "../../../modules/document/persistence/lambda-pdf-parser.js";
 import { DocumentService } from "../../../modules/document/application/document-service.js";
 import { DocumentDeletionService } from "../../../modules/document/application/document-deletion-service.js";
@@ -16,8 +17,9 @@ export function buildDocumentHttpDeps(client: DynamoDBDocumentClient, tableName:
   const store = new DynamoDbDocumentStore(client, tableName);
   const s3Client = new S3Client({});
   const signer = new S3UploadUrlSigner(s3Client);
+  const downloadSigner = new S3DocumentDownloadUrlSigner(s3Client);
   const ids = new UlidIdGenerator();
-  const documents = new DocumentService({ store, tableName, quarantineBucket, ids, signer });
+  const documents = new DocumentService({ store, tableName, quarantineBucket, ids, signer, downloadSigner });
   const deletion = new DocumentDeletionService({ store, tableName });
   return { store, documents, deletion };
 }

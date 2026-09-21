@@ -64,6 +64,21 @@ describe("handleListActivity (D-149 HTTP boundary)", () => {
     expect(res.body["hasMore"]).toBe(false);
   });
 
+  it("accepts resourceId as a query param and passes it through to the service", async () => {
+    const deps: ActivityHttpDeps = {
+      resolver: fakeResolver(ctx(["ADMIN"])),
+      activity: new ActivityService({ store: new EmptyAuditPartitionStore() }),
+      quota: fakeQuota(),
+    };
+    const res = await handleListActivity(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      queryStringParameters: { resourceId: "item-1" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("rejects a malformed limit before ever resolving the request context (fail-closed at the schema edge)", async () => {
     const deps: ActivityHttpDeps = {
       resolver: fakeResolver(ctx(["ADMIN"])),

@@ -19,6 +19,7 @@
  */
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Plus, RefreshCw, RotateCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItemsDashboardPage } from "../../hooks/useItemsDashboard.js";
 import {
@@ -32,7 +33,7 @@ import {
 import { CollectionSkeleton, ErrorState, EmptyState, BackgroundRefreshIndicator } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem, ExpirationItemStatus } from "../../api/types.js";
-import { PageHeader, Panel, Toolbar, ToolbarSpacer } from "../../components/ui/Layout.js";
+import { PageHeader, Panel, StatusFilter, Toolbar, ToolbarSpacer } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { DataTable, CellSecondary, type DataTableColumn, type DataTableGroup } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
@@ -100,7 +101,7 @@ function buildColumns(now: Date, orgPath: (path: string) => string): DataTableCo
       actions: true,
       render: ({ item }) =>
         item.status === "ACTIVE" ? (
-          <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="tertiary" size="sm">
+          <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="tertiary" size="sm" icon={RefreshCw}>
             Renovar
           </ButtonLink>
         ) : null,
@@ -128,7 +129,7 @@ export function ItemsCollection() {
       title="Vencimentos"
       description="Tudo o que está sendo acompanhado, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to={orgPath("/items/new")} variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
           Novo vencimento
         </ButtonLink>
       }
@@ -137,21 +138,10 @@ export function ItemsCollection() {
 
   const filters = (
     <Toolbar>
-      {/* `aria-pressed`, not `aria-current="page"` (Codex Round B, B-03): these are not pages.
-          They select which lifecycle-status subset of the SAME collection is shown, so
-          "current page" announces the wrong concept. Native <button>s in a labelled group -
-          deliberately not an ARIA tablist, which would promise a tabpanel and a keyboard
-          model that do not exist here. */}
-      <div className="ui-filter" role="group" aria-label="Filtrar por status">
-        {STATUS_TABS.map((tab) => (
-          <button key={tab.value} type="button" className="ui-filter__option" aria-pressed={tab.value === status} onClick={() => selectStatus(tab.value)}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <StatusFilter options={STATUS_TABS} value={status} onChange={selectStatus} />
       <ToolbarSpacer />
       {query.isFetching && !query.isPending && !query.isFetchingNextPage ? <BackgroundRefreshIndicator /> : null}
-      <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
+      <Button variant="secondary" size="sm" icon={RotateCw} onClick={() => void query.refetch()}>
         Atualizar
       </Button>
     </Toolbar>
@@ -202,7 +192,7 @@ export function ItemsCollection() {
           message={status === "ACTIVE" ? "Nenhum vencimento cadastrado ainda." : "Nenhum vencimento neste status."}
           action={
             status === "ACTIVE" ? (
-              <ButtonLink to={orgPath("/items/new")} variant="primary">
+              <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
                 Novo vencimento
               </ButtonLink>
             ) : null

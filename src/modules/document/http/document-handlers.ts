@@ -131,3 +131,16 @@ export async function handleListDocuments(deps: DocumentHttpDeps, req: HttpReque
     return { statusCode: 200, body: { documents } };
   });
 }
+
+/** D-313 (2026-09-21): GET /items/{itemId}/documents/{documentId}/download - never returns file
+ * bytes itself, only a freshly minted presigned S3 URL (same shape/posture as document-archive's
+ * dossier-export/external-share-link download routes). */
+export async function handleDownloadDocument(deps: DocumentHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const itemId = requireItemId(req);
+    const documentId = requireDocumentId(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    const result = await deps.documents.downloadDocument(context, itemId, documentId);
+    return { statusCode: 200, body: { ...result } };
+  });
+}

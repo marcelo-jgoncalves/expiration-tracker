@@ -59,6 +59,12 @@ describe("StatusBadge", () => {
 
     rerender(<StatusBadge presentation={{ label: "Ativo", tone: "neutral" }} />);
     expect(container.querySelector(".ui-badge--neutral")).not.toBeNull();
+
+    // `info` (Marcelo, 2026-09-20) - catches a regression where an `info`-toned presentation
+    // silently rendered as `neutral` instead.
+    rerender(<StatusBadge presentation={{ label: "Sem urgência", tone: "info" }} />);
+    expect(container.querySelector(".ui-badge--info")).not.toBeNull();
+
     // No mapping produces `success`: this domain has no state that proves "tudo certo".
     expect(container.querySelector(".ui-badge--success")).toBeNull();
   });

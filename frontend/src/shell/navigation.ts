@@ -23,6 +23,23 @@
  * expression of the exact same tiers, never a third, competing definition of who can do what.
  * `allowedRoles: undefined` means every role (OWNER/ADMIN/MEMBER/VIEWER) can see the item.
  */
+import {
+  Activity,
+  BarChart3,
+  Bell,
+  Building2,
+  CalendarClock,
+  CheckSquare,
+  ClipboardCheck,
+  ClipboardList,
+  FileType2,
+  LayoutDashboard,
+  SendHorizontal,
+  Settings,
+  Upload,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { MembershipRole } from "../api/types.js";
 
 export interface NavItem {
@@ -31,6 +48,10 @@ export interface NavItem {
   id: string;
   to: string;
   label: string;
+  /** ADR-0015 (2026-09-20): real icon (Lucide), never decorative-only - AppShell renders it
+   * next to `label`, never in its place (design-system-v2 rule: nav/primary actions/status
+   * chips always keep the text label, an icon is never the sole carrier of meaning). */
+  icon: LucideIcon;
   /** `undefined` = visible to every role. Otherwise the exact allow-list of roles that see this
    * item at all. */
   allowedRoles?: readonly MembershipRole[];
@@ -62,16 +83,16 @@ const OWNER_ROLES: readonly MembershipRole[] = ["OWNER"];
 const WRITE_ROLES: readonly MembershipRole[] = ["OWNER", "ADMIN", "MEMBER"];
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { id: "overview", to: "/overview", label: "Visão geral" },
-  { id: "items", to: "/items", label: "Vencimentos" },
-  { id: "subjects", to: "/subjects", label: "Fornecedores" },
+  { id: "overview", to: "/overview", label: "Visão geral", icon: LayoutDashboard },
+  { id: "items", to: "/items", label: "Vencimentos", icon: CalendarClock },
+  { id: "subjects", to: "/subjects", label: "Fornecedores", icon: Building2 },
   // A11 (Block 3, D-2xx) - `docarchive:requirement-read` is READ_ONLY_ROLES, every role sees
   // this list (create/edit/delete are individually gated inside the screen itself).
-  { id: "requirements", to: "/requirements", label: "Requisitos" },
+  { id: "requirements", to: "/requirements", label: "Requisitos", icon: ClipboardList },
   // A13 (Block 5, D-2xx) - `docarchive:read` is READ_ONLY_ROLES, every role sees the queue
   // (Reivindicar/Aceitar/Rejeitar are individually gated inside the screen, same discipline as
   // "requirements" above).
-  { id: "reviews", to: "/reviews", label: "Revisões" },
+  { id: "reviews", to: "/reviews", label: "Revisões", icon: CheckSquare },
   // Visible to every role, deliberately NOT ADMIN-gated (fixed after the Block 0 Codex review
   // round caught this as a real RBAC-nav bug in the first draft): the backend action the roster
   // GET actually authorizes against is `membership:list-members`, which is READ_ONLY_ROLES - every
@@ -85,31 +106,39 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // `/imports/new` (WRITE_ROLES only - see the comment on `WRITE_ROLES` above). A job already in
   // progress is reached via its own persistent `/imports/:jobId` link (e.g. bookmarked, or
   // resumed from wherever it was started), never from this list.
-  { id: "imports", to: "/imports/new", label: "Importar CSV", allowedRoles: WRITE_ROLES },
-  { id: "members", to: "/members", label: "Membros" },
-  { id: "settings", to: "/settings", label: "Configurações", end: true },
+  { id: "imports", to: "/imports/new", label: "Importar CSV", allowedRoles: WRITE_ROLES, icon: Upload },
   // A20 (Block 4, D-2xx) - `docarchive:documenttype-read` is READ_ONLY_ROLES, every role
   // browses the catalog (mutation is individually gated inside the screen, same discipline as
   // "requirements" above).
-  { id: "document-types", to: "/settings/document-types", label: "Tipos de documento" },
+  { id: "document-types", to: "/settings/document-types", label: "Tipos de documento", icon: FileType2 },
   // A21 (Block 4, D-2xx) - `docarchive:requirementtemplate-read` is READ_ONLY_ROLES, every role
   // browses (apply/administer are individually gated inside the screen itself).
-  { id: "requirement-templates", to: "/settings/requirement-templates", label: "Templates de requisitos" },
+  { id: "requirement-templates", to: "/settings/requirement-templates", label: "Templates de requisitos", icon: ClipboardCheck },
   // A22 (Block 7, D-267) - `tenant:configure-document-request-delivery` is OWNER_ROLES
   // EXCLUSIVE (`authorization.ts:307`), stricter than the ADMIN_ROLES tier below - no other
   // role sees this entry at all, matching the spec's explicit "totalmente ausentes" instruction.
-  { id: "request-delivery", to: "/settings/request-delivery", label: "Entrega de solicitação", allowedRoles: OWNER_ROLES },
-  // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES (`authorization.ts:294`) -
-  // every real role edits their OWN preferences, no restriction here.
-  { id: "notification-preferences", to: "/settings/notifications", label: "Minhas preferências de notificação" },
+  { id: "request-delivery", to: "/settings/request-delivery", label: "Entrega de solicitação", allowedRoles: OWNER_ROLES, icon: SendHorizontal },
   // ADMIN/OWNER only - matches ActivityLog.tsx's own `canViewActivity` tier (`activity:read`,
-  // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros above, there is no READ_ONLY_ROLES
+  // ADMIN_ROLES in `authorization.ts:330`) - unlike Membros below, there is no READ_ONLY_ROLES
   // action backing this screen for any other role, so hiding it here is correct, not a bug.
-  { id: "activity", to: "/activity", label: "Atividade", allowedRoles: ADMIN_ROLES },
+  { id: "activity", to: "/activity", label: "Atividade", allowedRoles: ADMIN_ROLES, icon: Activity },
   // A16 (Block 10, D-2xx) - `item:export`/`docarchive:requirement-export`/
   // `reports:subscription-manage` are all ADMIN_ROLES exclusively (authorization.ts) - no
-  // READ_ONLY_ROLES exception exists for this screen, unlike "members"/"requirements" above.
-  { id: "reports", to: "/reports", label: "Relatórios", allowedRoles: ADMIN_ROLES },
+  // READ_ONLY_ROLES exception exists for this screen, unlike "members"/"requirements" below.
+  { id: "reports", to: "/reports", label: "Relatórios", allowedRoles: ADMIN_ROLES, icon: BarChart3 },
+  // 2026-09-20 (Marcelo): "Membros" closes the org-administration block (Requisitos/catálogos
+  // above are workflow, Entrega de solicitação/Atividade/Relatórios are audit/config) and sits
+  // right before Notificações/Configurações - the first draft placed it mid-list (right after the
+  // two catalog entries), which read as isolated; here it bridges into the "about my account and
+  // organization" tail instead.
+  { id: "members", to: "/members", label: "Membros", icon: Users },
+  // ADR-0015 (2026-09-20, Marcelo): Notificações/Configurações moved to the very end of the
+  // rail on purpose - the two "about how I use this app" entries close the list, with
+  // Configurações always last.
+  // A18 (Block 8, D-2xx) - `notification:configure` is READ_ONLY_ROLES (`authorization.ts:294`) -
+  // every real role edits their OWN preferences, no restriction here.
+  { id: "notification-preferences", to: "/settings/notifications", label: "Notificações", icon: Bell },
+  { id: "settings", to: "/settings", label: "Configurações", end: true, icon: Settings },
 ];
 
 /**

@@ -53,6 +53,9 @@ const SubjectsCollection = lazy(() =>
 );
 const SubjectForm = lazy(() => import("./routes/subjects/SubjectForm.js").then((m) => ({ default: m.SubjectForm })));
 const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
+const RequirementDetail = lazy(() =>
+  import("./routes/subjects/RequirementDetail.js").then((m) => ({ default: m.RequirementDetail })),
+);
 const RequirementsCollection = lazy(() =>
   import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
 );
@@ -137,7 +140,7 @@ function RouteUsefulContentTracker() {
 /** PERF-09: on the Overview route (the landing screen after login for every role), schedule an
  * idle-time prefetch of the two most likely next destinations - Items and Subjects, both
  * top-of-nav entries (`shell/navigation.ts`) and both linked directly from Overview's own content
- * (see Overview.tsx's "Ver todos os vencimentos" / item links). Kept to this single call site
+ * (see Overview.tsx's "em acompanhamento" attention card / item links). Kept to this single call site
  * (not "prefetch everything") - see `routing/prefetch.ts` for why these two and not the rest. */
 function IdlePrefetch() {
   const location = useLocation();
@@ -190,6 +193,9 @@ export function App() {
                     route opens the series detail overlay on top of the same two panels. */}
                 <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
+                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - reached from A09's card ("Requisitos
+                    documentais") and A11's table row ("Ver"), no top-level nav entry of its own. */}
+                <Route path="subjects/:subjectId/requirements/:requirementId" element={<RequirementDetail />} />
                 {/* A10 (Block 7, D-267) - Rastreamento legado, reached only from A09's card
                     ("Rastreamento legado"), no top-level nav entry of its own. */}
                 <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
@@ -259,6 +265,10 @@ export function App() {
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requests" element={null} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={null} />
+                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - added here from the start, same
+                    healing-forward discipline as A10/A13/A14/A17/A20/A21/A22, not a repeat of
+                    A11's real gap (D-260). */}
+                <Route path="subjects/:subjectId/requirements/:requirementId" element={null} />
                 {/* A10 (Block 7, D-267) - added here from the start, same healing-forward
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/tracking" element={null} />

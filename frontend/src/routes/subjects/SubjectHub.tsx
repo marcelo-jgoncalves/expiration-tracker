@@ -29,10 +29,12 @@ import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.j
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { MetricCardGrid, type MetricCardData } from "../../components/MetricCardGrid.js";
-import { PageHeader } from "../../components/ui/Layout.js";
+import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
+import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
+import "./SubjectHub.css";
 
 export function SubjectHub() {
   const { subjectId } = useParams<{ subjectId: string }>();
@@ -237,19 +239,32 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
   const { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent } = complianceQuery.data.compliance;
 
   return (
-    <section aria-labelledby="compliance-heading">
-      <h2 id="compliance-heading">Conformidade</h2>
-      <p>
-        <strong style={{ fontSize: "2rem" }}>{compliancePercent === null ? "—" : `${compliancePercent}%`}</strong>{" "}
-        <span>
-          {satisfiedCount} de {totalRequirements} requisitos satisfeitos
-        </span>
-      </p>
-      <ul>
-        <li>{satisfiedCount} satisfeito(s)</li>
-        <li>{expiringSoonCount} vencendo em breve</li>
-        <li>{missingCount} em falta</li>
-      </ul>
-    </section>
+    <Section heading="Conformidade" headingId="compliance-heading">
+      <Panel padded>
+        <div className="ui-compliance">
+          <div className="ui-compliance__stat">
+            <span className="ui-compliance__percent">{compliancePercent === null ? "—" : `${compliancePercent}%`}</span>
+            <span className="u-text-secondary">
+              {satisfiedCount} de {totalRequirements} requisitos satisfeitos
+            </span>
+          </div>
+          {/* Mesma taxonomia de tom já estabelecida em presentRequirementDocStatus - satisfeito é
+              "neutral" (um vínculo registrado, não prova de correção), nunca "success" (StatusBadge.
+              tsx: success fica reservado para um estado que realmente prove "tudo certo", que este
+              domínio ainda não tem). */}
+          <ul className="ui-compliance__breakdown">
+            <li>
+              <StatusBadge presentation={{ label: `${satisfiedCount} satisfeito(s)`, tone: "neutral" }} />
+            </li>
+            <li>
+              <StatusBadge presentation={{ label: `${expiringSoonCount} vencendo em breve`, tone: "warning" }} />
+            </li>
+            <li>
+              <StatusBadge presentation={{ label: `${missingCount} em falta`, tone: "danger" }} />
+            </li>
+          </ul>
+        </div>
+      </Panel>
+    </Section>
   );
 }

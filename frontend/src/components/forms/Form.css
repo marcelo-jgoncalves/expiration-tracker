@@ -6,6 +6,13 @@
   max-width: var(--layout-reading-max);
 }
 
+/* A form split across multiple `Panel`s (Marcelo, 2026-09-20, achado na tela Criar Vencimento -
+   "O essencial"/"Complemento") needs real spacing between them; `Panel` itself carries none by
+   default (it is also used standalone, where a form wouldn't want to force a bottom margin). */
+.ui-form > .ui-panel {
+  margin-bottom: var(--space-5);
+}
+
 .ui-field {
   margin-bottom: var(--space-6);
 }

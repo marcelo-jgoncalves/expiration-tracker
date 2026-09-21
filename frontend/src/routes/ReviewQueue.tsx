@@ -29,6 +29,7 @@
  * for CSV export.
  */
 import { useEffect, useRef, useState } from "react";
+import { Check, UserPlus, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useReviewQueue } from "../hooks/useReviewQueue.js";
@@ -48,6 +49,10 @@ import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import { queryKeys } from "../api/queryKeys.js";
 import type { ReviewQueueHit, ReviewQueueState, RejectionReason } from "../api/types.js";
+// `.ui-detail-list`/`.a13-detail-columns` (below) used to load implicitly via ItemDetail.tsx's
+// own import of this file - ItemDetail.tsx dropped it 2026-09-20 (moved to the `.ui-attention`
+// pattern instead), so this screen now owns the import it always depended on.
+import "./items/ItemDetail.css";
 
 const TABS: { value: ReviewQueueState; label: string }[] = [
   { value: "RECEIVED", label: "Recebidas" },
@@ -349,7 +354,7 @@ function DetailPanel({
 
   return (
     <Panel padded>
-      <div className="ui-entry-card-grid">
+      <div className="a13-detail-columns">
         <DetailList
           fields={[
             { label: "Documento", value: document?.documentId ?? version.documentId },
@@ -394,7 +399,13 @@ function DetailPanel({
         <div className="a13-actionbar ui-toolbar">
           <div>
             {!version.reviewerId ? (
-              <Button variant="secondary" disabled={anyPending && !claimMutation.isPending} pending={claimMutation.isPending} onClick={() => void handleClaim()}>
+              <Button
+                variant="secondary"
+                icon={UserPlus}
+                disabled={anyPending && !claimMutation.isPending}
+                pending={claimMutation.isPending}
+                onClick={() => void handleClaim()}
+              >
                 {claimMutation.isPending ? "Reivindicando…" : "Reivindicar"}
               </Button>
             ) : null}
@@ -414,7 +425,13 @@ function DetailPanel({
                   onChange={(v) => setReason(v as RejectionReason)}
                   options={REJECTION_REASONS.map((r) => ({ value: r.value, label: r.label }))}
                 />
-                <Button variant="danger" disabled={anyPending && !rejectMutation.isPending} pending={rejectMutation.isPending} onClick={() => void handleReject()}>
+                <Button
+                  variant="danger"
+                  icon={X}
+                  disabled={anyPending && !rejectMutation.isPending}
+                  pending={rejectMutation.isPending}
+                  onClick={() => void handleReject()}
+                >
                   {rejectMutation.isPending ? "Rejeitando…" : "Confirmar rejeição"}
                 </Button>{" "}
                 <Button variant="secondary" disabled={anyPending} onClick={() => setRejecting(false)}>
@@ -423,11 +440,17 @@ function DetailPanel({
               </span>
             ) : (
               <>
-                <Button variant="danger" disabled={anyPending} onClick={() => setRejecting(true)}>
+                <Button variant="danger" icon={X} disabled={anyPending} onClick={() => setRejecting(true)}>
                   Rejeitar
                 </Button>{" "}
                 {!isInfected ? (
-                  <Button variant="primary" disabled={isScanPending || (anyPending && !acceptMutation.isPending)} pending={acceptMutation.isPending} onClick={() => void handleAccept()}>
+                  <Button
+                    variant="primary"
+                    icon={Check}
+                    disabled={isScanPending || (anyPending && !acceptMutation.isPending)}
+                    pending={acceptMutation.isPending}
+                    onClick={() => void handleAccept()}
+                  >
                     {acceptMutation.isPending ? "Aceitando…" : "Aceitar"}
                   </Button>
                 ) : null}

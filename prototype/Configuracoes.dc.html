@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"></helmet>
+<div style="display:flex;min-height:100vh;background:linear-gradient(180deg,#fbfaff,#f6f5fb);font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;color:#14121f">
+<nav style="width:248px;flex:none;background:#fff;border-right:1px solid #eeecf9;padding:20px 16px;display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;gap:12px;padding:6px 8px 20px">
+<span style="width:36px;height:36px;border-radius:11px;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;box-shadow:0 8px 20px rgba(124,58,237,.28)">ET</span>
+<span style="font-weight:700;font-size:15px">Expiration Tracker</span>
+</div>
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#a29dc4;padding:14px 12px 6px">Principal</div>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Visão geral</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M12 14v3l2 1"></path></svg>Vencimentos</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"></rect><line x1="8" y1="6" x2="8" y2="6.01"></line><line x1="12" y1="6" x2="12" y2="6.01"></line><line x1="16" y1="6" x2="16" y2="6.01"></line><line x1="8" y1="10" x2="8" y2="10.01"></line><line x1="12" y1="10" x2="12" y2="10.01"></line><line x1="16" y1="10" x2="16" y2="10.01"></line><line x1="9" y1="22" x2="9" y2="18"></line><line x1="15" y1="22" x2="15" y2="18"></line></svg>Fornecedores</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;background:#7c3aed;color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.28)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>Configurações</a>
+</nav>
+<main style="flex:1;padding:32px 44px 60px;max-width:640px">
+<header style="margin-bottom:28px">
+<h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-0.025em">Configurações</h1>
+<p style="margin:8px 0 0;font-size:15px;color:#55507a;max-width:62ch;line-height:1.55">Preferências de notificação e entrega.</p>
+</header>
+<div style="background:#fff;border-radius:18px;border:1px solid #eeecf9;padding:22px 26px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #eeecf9">
+<div><div style="font-weight:700;font-size:14px">Lembretes por e-mail</div><div style="font-size:12.5px;color:#77729c;margin-top:2px">Receber alertas de vencimento no e-mail cadastrado.</div></div>
+<sc-if value="{{ emailReminders }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ toggleEmail }}" style="width:44px;height:26px;border-radius:999px;border:none;cursor:pointer;flex:none;position:relative;transition:background-color .15s;background:#7c3aed"><span style="position:absolute;top:3px;left:21px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span></button></sc-if>
+<sc-if value="{{ emailRemindersOff }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ toggleEmail }}" style="width:44px;height:26px;border-radius:999px;border:none;cursor:pointer;flex:none;position:relative;transition:background-color .15s;background:#e3e0f2"><span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span></button></sc-if>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0">
+<div><div style="font-weight:700;font-size:14px">Resumo diário</div><div style="font-size:12.5px;color:#77729c;margin-top:2px">Agrupar avisos do dia em um só e-mail, em vez de imediato.</div></div>
+<sc-if value="{{ dailyDigest }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ toggleDigest }}" style="width:44px;height:26px;border-radius:999px;border:none;cursor:pointer;flex:none;position:relative;transition:background-color .15s;background:#7c3aed"><span style="position:absolute;top:3px;left:21px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span></button></sc-if>
+<sc-if value="{{ dailyDigestOff }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ toggleDigest }}" style="width:44px;height:26px;border-radius:999px;border:none;cursor:pointer;flex:none;position:relative;transition:background-color .15s;background:#e3e0f2"><span style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span></button></sc-if>
+</div>
+</div>
+</main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { emailReminders: true, dailyDigest: false };
+  renderVals() {
+    return {
+      emailReminders: this.state.emailReminders,
+      emailRemindersOff: !this.state.emailReminders,
+      dailyDigest: this.state.dailyDigest,
+      dailyDigestOff: !this.state.dailyDigest,
+      toggleEmail: () => this.setState({ emailReminders: !this.state.emailReminders }),
+      toggleDigest: () => this.setState({ dailyDigest: !this.state.dailyDigest }),
+    };
+  }
+}
+</script>
+</body>
+</html>

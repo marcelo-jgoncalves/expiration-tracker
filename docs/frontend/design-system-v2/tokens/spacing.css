@@ -1,0 +1,14 @@
+/* Spacing — 4px base with an 8px rhythm above 8. Ten steps, no more. */
+
+:root {
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+}

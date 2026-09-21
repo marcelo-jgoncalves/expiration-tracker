@@ -2,6 +2,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 
 // Frontend Production Foundation - dev server proxies /bff/* to a local/dev BFF endpoint so
 // cookies work same-origin during development (production traffic is same-origin via
@@ -9,9 +10,32 @@ import { visualizer } from "rollup-plugin-visualizer";
 // endpoint is hardcoded here - VITE_BFF_ORIGIN is read from the environment at dev-server
 // start time only, never baked into the production build (the production build is always
 // same-origin, this proxy exists purely for local development convenience).
-export default defineConfig({
+const bffProxy = process.env["VITE_BFF_ORIGIN"]
+  ? {
+      "/bff": {
+        target: process.env["VITE_BFF_ORIGIN"],
+        changeOrigin: true,
+        secure: false,
+      },
+    }
+  : undefined;
+
+export default defineConfig(({ command, isPreview }) => ({
   plugins: [
     react(),
+    // Real finding, 2026-09-20: the BFF's session/PKCE cookies are `__Host-` prefixed (Secure
+    // required by the prefix itself, correctly so - see src/modules/bff/domain/cookies.ts).
+    // Browsers silently DROP `Secure` cookies on a plain-HTTP response, even one proxied from
+    // an HTTPS upstream (VITE_BFF_ORIGIN) - the connection the browser actually sees is
+    // `http://localhost`, so the whole authenticated-login loop 401s at `/bff/callback` with
+    // no cookie ever stored, no matter how correct the credentials are. `basicSsl()` serves the
+    // dev server itself over HTTPS (self-signed - the browser will prompt to trust it once),
+    // which is enough for `Secure` cookies to be accepted. `vite dev` only - `command === "serve"`
+    // is also true for `vite preview` (Vite reports the same command for both), so `isPreview`
+    // must be excluded too, or the Playwright smoke test's `vite preview` serves HTTPS while
+    // playwright.config.ts's webServer.url is hardcoded `http://`, hanging until its 60s
+    // timeout (real CI failure, 2026-09-21, every push since this plugin was added).
+    ...(command === "serve" && !isPreview ? [basicSsl()] : []),
     // PERF-09 (Ciclo B) - bundle analyzer. Only produces `dist/stats.html`, an HTML report file;
     // it does not change what `vite build` emits for the app itself and has no dev-server cost
     // (the plugin's own docs: safe to leave on for every build, only runs at build time -
@@ -23,21 +47,20 @@ export default defineConfig({
       template: "treemap",
     }),
   ],
-  server: {
-    proxy: process.env["VITE_BFF_ORIGIN"]
-      ? {
-          "/bff": {
-            target: process.env["VITE_BFF_ORIGIN"],
-            changeOrigin: true,
-            secure: false,
-          },
-        }
-      : undefined,
-  },
+  server: { proxy: bffProxy },
+  // Real finding, 2026-09-20: `vite dev`'s HMR CSS injection is inline `<style>` tags added by
+  // JS - blocked outright by this app's own CSP (`index.html`: `style-src 'self'`, no
+  // `unsafe-inline`), so a screen loaded via `npm run dev` renders with ZERO styling (confirmed
+  // via real CSP violation console errors, not a guess) even though every other part of the
+  // page (routing, data, icons) works. `vite preview` serves the REAL production build (actual
+  // `<link rel="stylesheet">` files, same mechanism as the real deployed app) instead, so CSP
+  // never conflicts with it - `preview` reuses the same proxy so it still reaches the real dev
+  // BFF for local validation without deploying anything.
+  preview: { proxy: bffProxy },
   test: {
     environment: "jsdom",
     setupFiles: ["./test/setup.ts"],
     globals: true,
     exclude: ["**/node_modules/**", "**/e2e/**"],
   },
-});
+}));

@@ -10,7 +10,7 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { DocumentService } from "../../../src/modules/document/application/document-service.js";
 import { DocumentDeletionService } from "../../../src/modules/document/application/document-deletion-service.js";
-import { handleDeleteDocument, handleGetDocument, handleListDocuments, handleReserveUpload, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
+import { handleDeleteDocument, handleGetDocument, handleListDocuments, handleReserveUpload, handleDownloadDocument, type DocumentHttpDeps } from "../../../src/modules/document/http/document-handlers.js";
 import * as securityAudit from "../../../src/shared/observability/security-audit.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
@@ -24,7 +24,7 @@ const VALID_SHA256 = "a".repeat(64);
 // in-memory fakes are separate Maps. Pre-resolving the default `claims()` identity once (same
 // idempotent login every test already relies on) lets us learn the bootstrapped tenantId and
 // mirror the ACTIVE lifecycle record into documentStore too.
-async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemoryIdentityStore }> {
+async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemoryIdentityStore; documentStore: InMemoryDocumentStore }> {
   const identityStore = new InMemoryIdentityStore();
   const organizations = new InMemoryOrganizationStore();
   // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
@@ -40,9 +40,10 @@ async function buildDeps(): Promise<DocumentHttpDeps & { identityStore: InMemory
     quarantineBucket: BUCKET,
     ids: { newDocumentId: () => "doc-1", newUploadSlotId: () => "slot-1" },
     signer: { presignUpload: async (input) => ({ uploadUrl: `https://s3.example/${input.key}`, requiredHeaders: {} }) },
+    downloadSigner: { presignDownload: async (input) => `https://s3.example/${input.objectRef.bucket}/${input.objectRef.key}` },
   });
   const deletion = new DocumentDeletionService({ store: documentStore, tableName: TABLE });
-  return { resolver, documents, deletion, quota, identityStore };
+  return { resolver, documents, deletion, quota, identityStore, documentStore };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -167,5 +168,50 @@ describe("document-handlers.ts - real defaultSchemaRegistry wiring", () => {
     const response = await handleListDocuments(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item-empty" } });
     expect(response.statusCode).toBe(200);
     expect(response.body["documents"]).toEqual([]);
+  });
+
+  // D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned URL.
+  it("handleDownloadDocument returns a presigned URL for a CLEAN document", async () => {
+    const deps = await buildDeps();
+    const reserved = await handleReserveUpload(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      pathParameters: { itemId: "item1" },
+      headers: { "idempotency-key": "idem-dl-1" },
+      body: { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 1000, checksumSha256: VALID_SHA256 },
+    });
+    const documentId = reserved.body["documentId"] as string;
+    const doc = deps.documentStore.allItems().find((i) => i["entityType"] === "Document" && i["documentId"] === documentId) as Record<string, unknown> & { PK: string; SK: string };
+    await deps.documentStore.update({ ...doc, status: "CLEAN", cleanObject: { bucket: "clean-bucket", key: `clean/t1/item1/${documentId}`, versionId: "v1" } });
+
+    const response = await handleDownloadDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId } });
+    expect(response.statusCode).toBe(200);
+    expect(response.body["downloadUrl"]).toContain("clean-bucket");
+  });
+
+  it("handleDownloadDocument returns a real 409 (never a silent/generic failure) for a document still PENDING_UPLOAD", async () => {
+    const deps = await buildDeps();
+    const reserved = await handleReserveUpload(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      pathParameters: { itemId: "item1" },
+      headers: { "idempotency-key": "idem-dl-2" },
+      body: { fileName: "a.pdf", mediaType: "application/pdf", contentLength: 1000, checksumSha256: VALID_SHA256 },
+    });
+    const response = await handleDownloadDocument(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      pathParameters: { itemId: "item1", documentId: reserved.body["documentId"] as string },
+    });
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("handleDownloadDocument returns 404 for a document that doesn't exist", async () => {
+    const deps = await buildDeps();
+    const response = await handleDownloadDocument(deps, { requestId: "r1", correlationId: "c1", claims: claims(), pathParameters: { itemId: "item1", documentId: "missing" } });
+    expect(response.statusCode).toBe(404);
   });
 });

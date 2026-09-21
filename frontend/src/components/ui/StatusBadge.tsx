@@ -10,12 +10,16 @@
  *    recorded link, `CLEAN` is a malware scan). A green "success" badge would be a stronger
  *    claim than the system can make. It is reserved for a future state that genuinely proves
  *    one, and reviewers should treat any new `success` mapping as a Type 1 change.
+ *  - `info` (Marcelo, 2026-09-20) carries no such claim - it is calm/informational, not a
+ *    correctness proof - so `presentItemUrgency`'s "Sem urgência" (dias até o vencimento >
+ *    limiar, um fato temporal calculado) uses it instead of `success`, keeping `success` fully
+ *    reserved as above.
  */
 import type { StatusPresentation } from "../../api/presentation.js";
 import "./StatusBadge.css";
 
-/** Visual tones available to the system. `presentation.ts` currently emits only the first
- * four via `toBadgeTone` below. */
+/** Visual tones available to the system. `presentation.ts` currently emits all but `success`
+ * via `toBadgeTone` below. */
 export type BadgeTone = "neutral" | "info" | "warning" | "critical" | "success";
 
 export function toBadgeTone(tone: StatusPresentation["tone"]): BadgeTone {
@@ -26,6 +30,10 @@ export function toBadgeTone(tone: StatusPresentation["tone"]): BadgeTone {
       return "warning";
     case "neutral":
       return "neutral";
+    case "info":
+      return "info";
+    case "success":
+      return "success";
   }
 }
 

@@ -24,6 +24,7 @@
  */
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { Bookmark, Check, RotateCw, Upload, UserPlus, X } from "lucide-react";
 import { useDocument, useDocumentVersions } from "../hooks/useDocumentDetail.js";
 import { listDocumentVersions } from "../api/documentArchive.js";
 import {
@@ -45,6 +46,11 @@ import { SelectField } from "../components/forms/SelectField.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import type { DocumentArchiveVersion, RejectionReason, DocumentVersionState } from "../api/types.js";
+// ADR-0015 v2 reskin (2026-09-21): `.a12-version-timeline`/`.a12-version-header`/
+// `.a12-upload-wizard` only existed as bare class names with no CSS anywhere in the codebase
+// until this file started owning the stylesheet that defines them (same "screen owns its own
+// `aXX-*` classes" precedent `ItemDetail.css`/`a13-detail-columns` sets).
+import "./DocumentDetail.css";
 
 const STATE_LABEL: Record<DocumentVersionState, { label: string; tone: "neutral" | "warning" | "danger" }> = {
   DRAFT: { label: "Rascunho", tone: "neutral" },
@@ -259,7 +265,13 @@ function VersionCard({
         <div className="a12-actionbar ui-toolbar">
           <div>
             {!version.reviewerId ? (
-              <Button variant="secondary" disabled={anyPending && !claimMutation.isPending} pending={claimMutation.isPending} onClick={() => void handleClaim()}>
+              <Button
+                variant="secondary"
+                icon={UserPlus}
+                disabled={anyPending && !claimMutation.isPending}
+                pending={claimMutation.isPending}
+                onClick={() => void handleClaim()}
+              >
                 {claimMutation.isPending ? "Reivindicando…" : "Reivindicar"}
               </Button>
             ) : null}
@@ -279,7 +291,13 @@ function VersionCard({
                   onChange={(v) => setReason(v as RejectionReason)}
                   options={REJECTION_REASONS.map((r) => ({ value: r.value, label: r.label }))}
                 />
-                <Button variant="danger" disabled={anyPending && !rejectMutation.isPending} pending={rejectMutation.isPending} onClick={() => void handleReject()}>
+                <Button
+                  variant="danger"
+                  icon={X}
+                  disabled={anyPending && !rejectMutation.isPending}
+                  pending={rejectMutation.isPending}
+                  onClick={() => void handleReject()}
+                >
                   {rejectMutation.isPending ? "Rejeitando…" : "Confirmar rejeição"}
                 </Button>{" "}
                 <Button variant="secondary" disabled={anyPending} onClick={() => setRejecting(false)}>
@@ -288,11 +306,17 @@ function VersionCard({
               </span>
             ) : (
               <>
-                <Button variant="danger" disabled={anyPending} onClick={() => setRejecting(true)}>
+                <Button variant="danger" icon={X} disabled={anyPending} onClick={() => setRejecting(true)}>
                   Rejeitar
                 </Button>{" "}
                 {!isInfected ? (
-                  <Button variant="primary" disabled={isScanPending || (anyPending && !acceptMutation.isPending)} pending={acceptMutation.isPending} onClick={() => void handleAccept()}>
+                  <Button
+                    variant="primary"
+                    icon={Check}
+                    disabled={isScanPending || (anyPending && !acceptMutation.isPending)}
+                    pending={acceptMutation.isPending}
+                    onClick={() => void handleAccept()}
+                  >
                     {acceptMutation.isPending ? "Aceitando…" : "Aceitar"}
                   </Button>
                 ) : null}
@@ -442,7 +466,7 @@ function UploadWizard({ documentId, onDone }: { documentId: string; onDone: () =
         <ol className="a12-upload-wizard">
           <li>
             <p>1. Reservar nova versão</p>
-            <Button variant="primary" disabled={step !== "idle"} pending={step === "reserving"} onClick={() => void handleReserveVersion()}>
+            <Button variant="primary" icon={Bookmark} disabled={step !== "idle"} pending={step === "reserving"} onClick={() => void handleReserveVersion()}>
               {seq !== undefined ? `Versão ${seq} reservada` : "Reservar versão"}
             </Button>
           </li>
@@ -457,12 +481,13 @@ function UploadWizard({ documentId, onDone }: { documentId: string; onDone: () =
             {step === "upload-failed" ? (
               // The file batch is already reserved/sealed on the backend (D-163 §2) - only the
               // storage PUT failed, so retry ONLY the PUT, never re-run reserveFiles.
-              <Button variant="primary" pending={false} onClick={() => void handleRetryUploadOnly()}>
+              <Button variant="primary" icon={RotateCw} pending={false} onClick={() => void handleRetryUploadOnly()}>
                 Tentar enviar novamente
               </Button>
             ) : (
               <Button
                 variant="primary"
+                icon={Upload}
                 disabled={seq === undefined || !file || step === "files-reserved" || step === "committing"}
                 pending={step === "uploading-files"}
                 onClick={() => void handleReserveAndUploadFile()}
@@ -473,7 +498,7 @@ function UploadWizard({ documentId, onDone }: { documentId: string; onDone: () =
           </li>
           <li>
             <p>3. Concluir envio</p>
-            <Button variant="primary" disabled={step !== "files-reserved"} pending={step === "committing"} onClick={() => void handleCommit()}>
+            <Button variant="primary" icon={Check} disabled={step !== "files-reserved"} pending={step === "committing"} onClick={() => void handleCommit()}>
               Concluir
             </Button>
           </li>

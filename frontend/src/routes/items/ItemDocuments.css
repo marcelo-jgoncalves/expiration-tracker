@@ -31,3 +31,8 @@
 .ui-list-row p {
   margin: 0;
 }
+
+.ui-list-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}

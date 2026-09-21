@@ -24,6 +24,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Archive, ChevronDown, ChevronUp, Copy, Pencil, Plus, RotateCcw, Send } from "lucide-react";
 import "./RequirementTemplates.css";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useRequirementTemplates } from "../../hooks/useRequirementTemplates.js";
@@ -40,7 +41,7 @@ import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncSt
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
-import { PageHeader, Section } from "../../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
@@ -90,7 +91,7 @@ export function RequirementTemplatesScreen() {
       <PageHeader
         title="Templates de requisitos"
         description="Checklists reutilizáveis de Requisitos, aplicáveis a um fornecedor de uma vez."
-        actions={isAdmin ? <Button variant="primary" onClick={() => setShowCreate((v) => !v)}>Novo template</Button> : undefined}
+        actions={isAdmin ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo template</Button> : undefined}
       />
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
@@ -102,25 +103,27 @@ export function RequirementTemplatesScreen() {
         <EmptyState kind="true-empty" message="Nenhum template cadastrado ainda." />
       ) : (
         <Section heading="Catálogo" headingId="template-catalog-heading" annotation={`(${templates.length})`}>
-          <DataTable
-            caption="Catálogo de templates de requisitos"
-            rowKey={(t: RequirementTemplate) => t.templateId}
-            rows={templates}
-            columns={[
-              {
-                key: "name",
-                header: "Template",
-                primary: true,
-                render: (t) => (
-                  <Button variant="ghost" size="sm" aria-current={t.templateId === selectedId ? "true" : undefined} onClick={() => selectTemplate(t.templateId)}>
-                    {t.displayName}
-                  </Button>
-                ),
-              },
-              { key: "status", header: "Status", render: (t) => <StatusBadge presentation={presentRequirementTemplateStatus(t.status)} /> },
-              { key: "items", header: "Itens", numeric: true, render: (t) => t.items.length },
-            ]}
-          />
+          <Panel>
+            <DataTable
+              caption="Catálogo de templates de requisitos"
+              rowKey={(t: RequirementTemplate) => t.templateId}
+              rows={templates}
+              columns={[
+                {
+                  key: "name",
+                  header: "Template",
+                  primary: true,
+                  render: (t) => (
+                    <Button variant="ghost" size="sm" aria-current={t.templateId === selectedId ? "true" : undefined} onClick={() => selectTemplate(t.templateId)}>
+                      {t.displayName}
+                    </Button>
+                  ),
+                },
+                { key: "status", header: "Status", render: (t) => <StatusBadge presentation={presentRequirementTemplateStatus(t.status)} /> },
+                { key: "items", header: "Itens", numeric: true, render: (t) => t.items.length },
+              ]}
+            />
+          </Panel>
         </Section>
       )}
       {selectedId ? (
@@ -221,57 +224,63 @@ function TemplateDetailPanel({ templateId, isAdmin, canApply }: { templateId: st
       headingId="template-detail-heading"
       annotation={<StatusBadge presentation={presentRequirementTemplateStatus(template.status)} />}
     >
-      {isArchived ? <InlineNotice tone="neutral">Template arquivado — somente leitura para não-admins.</InlineNotice> : null}
-      {items.length === 0 ? (
-        <p>Nenhum item neste template ainda.</p>
-      ) : (
-        <ul className="template-item-list">
-          {items.map((item, index) => (
-            <li key={item.templateItemId} className="template-item-card">
-              <strong>{item.name}</strong>
-              {item.notes ? <CellSecondary>{item.notes}</CellSecondary> : null}
-              {" — "}
-              {item.applicability === "NOT_APPLICABLE" ? "Não se aplica" : "Todos os fornecedores"}
-              {" — posição "}
-              {index + 1}
-              {isAdmin && !isArchived ? (
-                <span>
-                  {" "}
-                  {/* `secondary`, not `ghost` (WCAG 1.4.3 contrast, real defect the E2E a11y
-                      probe caught): `ghost`'s link-colored text measured 3:1 against this
-                      surface, below the 4.5:1 small-text requirement. `secondary`'s bordered,
-                      higher-contrast text is correct here anyway - reorder is a real mutating
-                      control, not a soft/text-link-styled action like Editar/Arquivar. */}
-                  <Button size="sm" variant="secondary" aria-label={`Mover "${item.name}" para cima`} disabled={index === 0 || updateMutation.isPending} onClick={() => void moveItem(index, -1)}>
-                    ▲
-                  </Button>
-                  <Button size="sm" variant="secondary" aria-label={`Mover "${item.name}" para baixo`} disabled={index === items.length - 1 || updateMutation.isPending} onClick={() => void moveItem(index, 1)}>
-                    ▼
-                  </Button>
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-      {reorderConflict ? <p role="alert">Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</p> : null}
-      {reorderError ? <p role="alert">{reorderError}</p> : null}
-      <CellSecondary>v{template.version}</CellSecondary>
-      {editing ? <EditTemplateForm template={template} onClose={() => setEditing(false)} /> : null}
-      <div className="template-actions">
-        {isAdmin ? <AdminActions template={template} onEdit={() => setEditing(true)} /> : null}
-        {canApply ? (
-          <Button
-            variant="primary"
-            disabled={items.length === 0 || isArchived}
-            title={items.length === 0 ? "Adicione ao menos um item antes de aplicar" : undefined}
-            onClick={() => setShowApply(true)}
-          >
-            Aplicar a fornecedor
-          </Button>
-        ) : null}
-      </div>
-      {showApply ? <ApplyTemplateFlow template={template} onClose={() => setShowApply(false)} /> : null}
+      <Panel padded>
+        {isArchived ? <InlineNotice tone="neutral">Template arquivado — somente leitura para não-admins.</InlineNotice> : null}
+        {items.length === 0 ? (
+          <p>Nenhum item neste template ainda.</p>
+        ) : (
+          <ul className="template-item-list">
+            {items.map((item, index) => (
+              <li key={item.templateItemId} className="template-item-card">
+                <strong>{item.name}</strong>
+                {item.notes ? <CellSecondary>{item.notes}</CellSecondary> : null}
+                {" — "}
+                {item.applicability === "NOT_APPLICABLE" ? "Não se aplica" : "Todos os fornecedores"}
+                {" — posição "}
+                {index + 1}
+                {isAdmin && !isArchived ? (
+                  <span>
+                    {" "}
+                    {/* `secondary`, not `ghost` (WCAG 1.4.3 contrast, real defect the E2E a11y
+                        probe caught): `ghost`'s link-colored text measured 3:1 against this
+                        surface, below the 4.5:1 small-text requirement. `secondary`'s bordered,
+                        higher-contrast text is correct here anyway - reorder is a real mutating
+                        control, not a soft/text-link-styled action like Editar/Arquivar. Lucide
+                        chevrons replace the old Unicode ▲/▼ glyphs (v2 icon migration,
+                        ADR-0015) - purely a glyph swap, same icon-carries-no-extra-meaning-
+                        beyond-aria-label contract as before. */}
+                    <Button size="sm" variant="secondary" aria-label={`Mover "${item.name}" para cima`} disabled={index === 0 || updateMutation.isPending} onClick={() => void moveItem(index, -1)}>
+                      <ChevronUp size={16} strokeWidth={2} aria-hidden="true" />
+                    </Button>
+                    <Button size="sm" variant="secondary" aria-label={`Mover "${item.name}" para baixo`} disabled={index === items.length - 1 || updateMutation.isPending} onClick={() => void moveItem(index, 1)}>
+                      <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+                    </Button>
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {reorderConflict ? <p role="alert">Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</p> : null}
+        {reorderError ? <p role="alert">{reorderError}</p> : null}
+        <CellSecondary>v{template.version}</CellSecondary>
+        {editing ? <EditTemplateForm template={template} onClose={() => setEditing(false)} /> : null}
+        <div className="template-actions">
+          {isAdmin ? <AdminActions template={template} onEdit={() => setEditing(true)} /> : null}
+          {canApply ? (
+            <Button
+              variant="primary"
+              icon={Send}
+              disabled={items.length === 0 || isArchived}
+              title={items.length === 0 ? "Adicione ao menos um item antes de aplicar" : undefined}
+              onClick={() => setShowApply(true)}
+            >
+              Aplicar a fornecedor
+            </Button>
+          ) : null}
+        </div>
+        {showApply ? <ApplyTemplateFlow template={template} onClose={() => setShowApply(false)} /> : null}
+      </Panel>
     </Section>
   );
 }
@@ -303,13 +312,13 @@ function AdminActions({ template, onEdit }: { template: RequirementTemplate; onE
 
   return (
     <div>
-      <Button variant="secondary" disabled={isArchived} title={isArchived ? "Reative o template antes de editar" : undefined} onClick={onEdit}>
+      <Button variant="secondary" icon={Pencil} disabled={isArchived} title={isArchived ? "Reative o template antes de editar" : undefined} onClick={onEdit}>
         Editar
       </Button>{" "}
-      <Button variant="secondary" onClick={() => setShowDuplicate((v) => !v)}>
+      <Button variant="secondary" icon={Copy} onClick={() => setShowDuplicate((v) => !v)}>
         Duplicar
       </Button>{" "}
-      <Button variant="ghost" pending={toggleMutation.isPending} onClick={() => void handleToggle()}>
+      <Button variant="ghost" icon={isArchived ? RotateCcw : Archive} pending={toggleMutation.isPending} onClick={() => void handleToggle()}>
         {isArchived ? "Reativar" : "Arquivar"}
       </Button>
       {showConflict ? <span role="alert"> Este template foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}

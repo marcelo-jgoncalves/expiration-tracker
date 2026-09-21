@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { renderAtRoute } from "../testUtils.js";
 import { Overview } from "../../src/routes/Overview.js";
-import type { ExpirationItem, StorageQuotaUsage } from "../../src/api/types.js";
+import type { DashboardSummaryResponse, ExpirationItem, StorageQuotaUsage } from "../../src/api/types.js";
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 vi.mock("../../src/api/apiClient.js", () => ({
@@ -37,10 +37,25 @@ function usage(overrides: Partial<StorageQuotaUsage>): StorageQuotaUsage {
   };
 }
 
-function mockGet(byPath: { items?: ExpirationItem[]; usage?: StorageQuotaUsage }) {
+function summary(overrides: Partial<DashboardSummaryResponse>): DashboardSummaryResponse {
+  return {
+    overdueCount: 0,
+    expiringSoonCount: 0,
+    awaitingReviewCount: 0,
+    missingRequirementsCount: 0,
+    itemsOverdueCount: 0,
+    itemsExpiringSoonCount: 0,
+    activeItemsCount: 0,
+    approximate: false,
+    ...overrides,
+  };
+}
+
+function mockGet(byPath: { items?: ExpirationItem[]; usage?: StorageQuotaUsage; summary?: DashboardSummaryResponse }) {
   getMock.mockImplementation((path: string) => {
     if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: byPath.items ?? [] });
     if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: byPath.usage ?? usage({}) });
+    if (path === "/dashboard/summary") return Promise.resolve({ summary: byPath.summary ?? summary({}) });
     throw new Error(`unexpected path ${path}`);
   });
 }
@@ -92,5 +107,42 @@ describe("Overview", () => {
     renderAtRoute("/dashboard", <Overview />, "/dashboard");
 
     await waitFor(() => expect(screen.getByText(/Nenhum vencimento cadastrado ainda/)).toBeInTheDocument());
+  });
+
+  // D-308 pendência #14 (PENDING_PROTOCOL_REVIEW): mutation - reverting to the old hardcoded
+  // placeholder counts (3/4/items.length) would make these assertions fail, since the mocked
+  // summary here uses different, distinguishable numbers.
+  it("shows the 3 attention counts from the real GET /dashboard/summary aggregate, not a placeholder", async () => {
+    mockGet({
+      items: [item({})],
+      usage: usage({}),
+      summary: summary({ itemsOverdueCount: 7, itemsExpiringSoonCount: 5, activeItemsCount: 42 }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
+    expect(screen.getByText("vencidos")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("vencem em 7 dias")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("em acompanhamento")).toBeInTheDocument();
+  });
+
+  // Mutation: removing the `attention ? <AttentionRow /> : <InlineNotice />` fallback (or making
+  // `summaryQuery.isError` render nothing) would either crash rendering `undefined` counts or
+  // silently show no feedback at all - this asserts the degraded state is visible, not silent.
+  it("degrades gracefully (never blocks the items table) when the summary aggregate fails", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: [item({})] });
+      if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: usage({}) });
+      if (path === "/dashboard/summary") return Promise.reject(new Error("boom"));
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
+    expect(screen.getByText(/Não foi possível carregar os contadores de atenção/)).toBeInTheDocument();
   });
 });

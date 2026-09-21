@@ -4,6 +4,7 @@
  * the honest `NotImplementedPlaceholder` this route previously rendered.
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { Check, HardDrive, IdCard, LogOut, Trash2 } from "lucide-react";
 import { useOrganizationsList } from "../hooks/useOrganizationsList.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
@@ -34,8 +35,8 @@ function StorageSection() {
 
   if (query.isPending) {
     return (
-      <Section heading="Armazenamento" headingId="storage-usage">
-        <Panel>
+      <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
+        <Panel padded>
           <CollectionSkeleton rows={1} label="Carregando uso de armazenamento…" />
         </Panel>
       </Section>
@@ -44,7 +45,7 @@ function StorageSection() {
 
   if (query.isError) {
     return (
-      <Section heading="Armazenamento" headingId="storage-usage">
+      <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
         <ErrorState message="Não foi possível carregar o uso de armazenamento." onRetry={() => void query.refetch()} />
       </Section>
     );
@@ -54,8 +55,8 @@ function StorageSection() {
   const percent = Math.round(usage.usedPercent * 100);
 
   return (
-    <Section heading="Armazenamento" headingId="storage-usage">
-      <Panel>
+    <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
+      <Panel padded>
         <p>
           {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
         </p>
@@ -89,10 +90,10 @@ function LeaveOrganizationSection() {
     : undefined;
 
   return (
-    <Section heading="Sair da organização" headingId="leave-organization">
-      <Panel>
+    <Section heading="Sair da organização" headingId="leave-organization" icon={LogOut}>
+      <Panel padded>
         <p>Você perderá o acesso a esta organização imediatamente.</p>
-        <Button variant="danger" onClick={() => leave.mutate()} pending={leave.isPending}>
+        <Button variant="danger" icon={LogOut} onClick={() => leave.mutate()} pending={leave.isPending}>
           {leave.isPending ? "Saindo…" : "Sair da organização"}
         </Button>
         {errorMessage ? (
@@ -128,8 +129,8 @@ function CloseOrganizationSection({ organizationId }: { organizationId: string }
 
   if (close.isSuccess) {
     return (
-      <Section heading="Encerrar organização" headingId="close-organization">
-        <Panel>
+      <Section heading="Encerrar organização" headingId="close-organization" icon={Trash2}>
+        <Panel padded>
           <InlineNotice tone="success" announce="status">
             Encerramento iniciado. Os dados desta organização serão apagados em definitivo; o acesso já foi encerrado.
           </InlineNotice>
@@ -139,8 +140,8 @@ function CloseOrganizationSection({ organizationId }: { organizationId: string }
   }
 
   return (
-    <Section heading="Encerrar organização" headingId="close-organization">
-      <Panel>
+    <Section heading="Encerrar organização" headingId="close-organization" icon={Trash2}>
+      <Panel padded>
         <p>
           Esta ação apaga em definitivo todos os dados desta organização - vencimentos, documentos e histórico. Não há como desfazer nem recuperar depois.
         </p>
@@ -148,7 +149,7 @@ function CloseOrganizationSection({ organizationId }: { organizationId: string }
           Para confirmar, digite o identificador da organização: <code>{organizationId}</code>
         </p>
         <TextField label="Identificador da organização" value={confirmation} onChange={setConfirmation} />
-        <Button variant="danger" onClick={() => close.mutate(organizationId)} pending={close.isPending} disabled={!confirmed || close.isPending}>
+        <Button variant="danger" icon={Trash2} onClick={() => close.mutate(organizationId)} pending={close.isPending} disabled={!confirmed || close.isPending}>
           {close.isPending ? "Encerrando…" : "Encerrar organização definitivamente"}
         </Button>
         {close.isError ? (
@@ -194,7 +195,7 @@ export function Settings() {
     return (
       <>
         {header}
-        <Panel>
+        <Panel padded>
           <CollectionSkeleton label="Carregando configurações…" />
         </Panel>
       </>
@@ -215,7 +216,7 @@ export function Settings() {
     return (
       <>
         {header}
-        <Panel>
+        <Panel padded>
           <p>
             Organização: <strong>{activeOrganization.displayName}</strong>
           </p>
@@ -240,31 +241,36 @@ export function Settings() {
   return (
     <>
       {header}
-      <Panel>
-        <form onSubmit={handleSubmit}>
-          <TextField label="Nome da organização" value={displayName} onChange={setDisplayName} required />
-          <SelectField
-            label="Horário padrão de novos lembretes"
-            value={defaultReminderLocalTime}
-            onChange={setDefaultReminderLocalTime}
-            options={REMINDER_LOCAL_TIME_OPTIONS}
-            required
-          />
-          <Button type="submit" variant="primary" pending={update.isPending}>
-            {update.isPending ? "Salvando…" : "Salvar"}
-          </Button>
-          {update.isSuccess ? (
-            <InlineNotice tone="success" announce="status">
-              Configurações atualizadas.
-            </InlineNotice>
-          ) : null}
-          {update.isError ? (
-            <InlineNotice tone="critical" announce="alert">
-              {isConflict(update.error) ? "Alguém mais alterou a organização - recarregue a página e tente novamente." : "Não foi possível salvar as configurações."}
-            </InlineNotice>
-          ) : null}
-        </form>
-      </Panel>
+      {/* Único Panel sem um Section por cima até 2026-09-20 (achado real, tela Configurações) -
+          StorageSection/LeaveOrganizationSection/CloseOrganizationSection logo abaixo sempre
+          tiveram heading próprio; agrupar este também deixa a hierarquia da página consistente. */}
+      <Section heading="Dados da organização" headingId="organization-settings" icon={IdCard}>
+        <Panel padded>
+          <form onSubmit={handleSubmit}>
+            <TextField label="Nome da organização" value={displayName} onChange={setDisplayName} required />
+            <SelectField
+              label="Horário padrão de novos lembretes"
+              value={defaultReminderLocalTime}
+              onChange={setDefaultReminderLocalTime}
+              options={REMINDER_LOCAL_TIME_OPTIONS}
+              required
+            />
+            <Button type="submit" variant="primary" icon={Check} pending={update.isPending}>
+              {update.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+            {update.isSuccess ? (
+              <InlineNotice tone="success" announce="status">
+                Configurações atualizadas.
+              </InlineNotice>
+            ) : null}
+            {update.isError ? (
+              <InlineNotice tone="critical" announce="alert">
+                {isConflict(update.error) ? "Alguém mais alterou a organização - recarregue a página e tente novamente." : "Não foi possível salvar as configurações."}
+              </InlineNotice>
+            ) : null}
+          </form>
+        </Panel>
+      </Section>
       <StorageSection />
       <LeaveOrganizationSection />
       <CloseOrganizationSection organizationId={activeOrganization.organizationId} />

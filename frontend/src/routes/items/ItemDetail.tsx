@@ -11,20 +11,22 @@
  * rows, and there is exactly one record here.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
+import { Activity, Bell, ClipboardList, Paperclip, Plus, RefreshCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
+import { useActivity } from "../../hooks/useActivity.js";
+import { useMembers } from "../../hooks/useMembers.js";
 import { useReminderPolicy } from "../../hooks/useReminderPolicy.js";
-import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, formatRelativeDueDate } from "../../api/presentation.js";
+import { presentItemStatus, presentItemUrgency, formatAbsoluteDate, resolveAssigneeLabel } from "../../api/presentation.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem } from "../../api/types.js";
-import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
+import { PageHeader, Panel, Section, SummaryHero } from "../../components/ui/Layout.js";
 import { ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
-import "./ItemDetail.css";
 
 interface DetailField {
   label: string;
@@ -80,9 +82,14 @@ function ReminderPolicyEntryCard({ itemId }: { itemId: string }) {
   const orgPath = useOrgPath();
   const query = useReminderPolicy(itemId);
   return (
-    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/reminder-policy`)}>
-      <strong>Lembretes</strong>
-      <span className="u-text-secondary">{reminderPolicyEntryNote(query)}</span>
+    <Link className="ui-attention__link" to={orgPath(`/items/${itemId}/reminder-policy`)}>
+      <span className="ui-attention__icon ui-attention__icon--accent">
+        <Bell size={21} strokeWidth={2} aria-hidden="true" />
+      </span>
+      <span>
+        <span className="ui-attention__count">Lembretes</span>
+        <span className="ui-attention__label">{reminderPolicyEntryNote(query)}</span>
+      </span>
     </Link>
   );
 }
@@ -100,19 +107,43 @@ function DocumentsEntryCard({ itemId }: { itemId: string }) {
   const orgPath = useOrgPath();
   const query = useDocuments(itemId);
   return (
-    <Link className="ui-entry-card" to={orgPath(`/items/${itemId}/documents`)}>
-      <strong>Arquivos</strong>
-      <span className="u-text-secondary">{documentsEntryNote(query)}</span>
+    <Link className="ui-attention__link" to={orgPath(`/items/${itemId}/documents`)}>
+      <span className="ui-attention__icon ui-attention__icon--accent">
+        <Paperclip size={21} strokeWidth={2} aria-hidden="true" />
+      </span>
+      <span>
+        <span className="ui-attention__count">Arquivos</span>
+        <span className="ui-attention__label">{documentsEntryNote(query)}</span>
+      </span>
     </Link>
   );
 }
 
-function AuditEntryCard() {
+/** #16 finding (2026-09-20): GET /activity had no resourceId filter, so this card could only
+ * link to the generic log, never show a real per-item count - fixed now that the backend
+ * filter exists (resourceId, mirrors resourceType). Counts only the first page (same limit-25
+ * cap the backend log view itself has), so "N+" signals more without claiming an exact total. */
+function auditEntryNote(query: ReturnType<typeof useActivity>): string {
+  if (query.isError) return "Não foi possível carregar o histórico";
+  const page = query.data?.pages[0];
+  if (!page) return "Ver log de atividade";
+  const count = page.entries.length;
+  if (count === 0) return "Nenhum evento registrado";
+  return `${count}${page.hasMore ? "+" : ""} evento(s)`;
+}
+
+function AuditEntryCard({ itemId }: { itemId: string }) {
   const orgPath = useOrgPath();
+  const query = useActivity({ resourceId: itemId, enabled: true });
   return (
-    <Link className="ui-entry-card" to={orgPath("/activity")}>
-      <strong>Histórico de auditoria</strong>
-      <span className="u-text-secondary">Ver log de atividade</span>
+    <Link className="ui-attention__link" to={orgPath(`/activity?resourceId=${encodeURIComponent(itemId)}`)}>
+      <span className="ui-attention__icon ui-attention__icon--accent">
+        <Activity size={21} strokeWidth={2} aria-hidden="true" />
+      </span>
+      <span>
+        <span className="ui-attention__count">Histórico de auditoria</span>
+        <span className="ui-attention__label">{auditEntryNote(query)}</span>
+      </span>
     </Link>
   );
 }
@@ -131,6 +162,11 @@ function DetailBody({
   const orgPath = useOrgPath();
   const now = new Date();
   const urgency = presentItemUrgency(item, now);
+  // #15 (2026-09-21): resolves a name/email instead of the raw assigneeUserId - falls back to
+  // the id itself while the roster hasn't loaded yet or the id isn't a current member (removed
+  // member, stale reference), same "always show something real" rule the rest of this page follows.
+  const membersQuery = useMembers();
+  const assigneeLabel = resolveAssigneeLabel(item.assigneeUserId, membersQuery.data?.members) ?? item.assigneeUserId;
 
   return (
     <div>
@@ -139,15 +175,19 @@ function DetailBody({
         title={item.name}
         description={
           // Urgency AND lifecycle status side by side, never merged into one token
-          // (mission §32) - "Vence em 3 dias" and "Ativo" are different questions.
+          // (mission §32) - "Vence em 3 dias" and "Ativo" are different questions. Categoria
+          // is a plain label, not a `StatusBadge` (Marcelo, 2026-09-20): it carries no state/
+          // tone, so it never borrows the badge's shape-marker convention, which exists
+          // specifically to distinguish domain STATES from each other.
           <span className="ui-page-header__badges">
             <UrgencyIndicator urgency={urgency} />
             <StatusBadge presentation={presentItemStatus(item.status)} srPrefix="Situação" />
+            <span className="ui-page-header__category">{item.category}</span>
           </span>
         }
         actions={
           item.status === "ACTIVE" ? (
-            <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="primary">
+            <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="primary" icon={RefreshCw}>
               Renovar
             </ButtonLink>
           ) : null
@@ -173,29 +213,52 @@ function DetailBody({
           <p>Os lembretes do ciclo anterior foram copiados para este vencimento. Revise se o prazo de aviso ainda faz sentido.</p>
         </InlineNotice>
       ) : null}
-      <Section heading="Dados do vencimento" headingId="detail-fields">
-        <Panel padded>
-          <DetailList
-            fields={[
-              { label: "Categoria", value: item.category },
-              { label: "Vencimento", value: formatRelativeDueDate(item.dueDate, now) },
-              { label: "Descrição", value: item.description },
-              { label: "Emissor", value: item.issuer },
-              { label: "Número", value: item.number },
-              { label: "Periodicidade", value: item.periodicity },
-              { label: "Responsável", value: item.assigneeUserId },
-              { label: "Prioridade", value: item.priority },
-              { label: "Tags", value: item.tags.length > 0 ? item.tags.join(", ") : undefined },
-            ]}
-          />
-        </Panel>
-      </Section>
-      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points">
-        <div className="ui-entry-card-grid">
-          <ReminderPolicyEntryCard itemId={item.itemId} />
-          <DocumentsEntryCard itemId={item.itemId} />
-          <AuditEntryCard />
-        </div>
+      {item.description ? <p className="u-reading-width u-text-secondary">{item.description}</p> : null}
+      {/* Headline restatement of the record's own most-glanced-at fields (Marcelo, 2026-09-20)
+          - each one removed from `DetailList` below so nothing repeats: a hero next to a panel
+          showing the same value a few lines down would be decoration, not emphasis. */}
+      <SummaryHero
+        fields={[
+          // Sem `helper`: repetiria a data (a mesma data grande, de novo) e a urgência relativa
+          // já aparece na pill do cabeçalho (Marcelo, 2026-09-20) - redundância dupla.
+          { label: "Vencimento", value: formatAbsoluteDate(item.dueDate) },
+          { label: "Periodicidade", value: item.periodicity },
+          { label: "Emissor", value: item.issuer },
+          { label: "Responsável", value: assigneeLabel },
+        ]}
+      />
+      {/* Unlike the pre-hero version, none of these three is guaranteed present (Categoria/
+          Vencimento always were, which is why this gap never showed up before) - an empty
+          `DetailList` would still leave the Section+Panel rendering an empty white box
+          (real bug caught via screenshot, 2026-09-20). */}
+      {item.number || item.priority || item.tags.length > 0 ? (
+        <Section heading="Dados do vencimento" headingId="detail-fields" icon={ClipboardList}>
+          <Panel padded>
+            <DetailList
+              fields={[
+                { label: "Número", value: item.number },
+                { label: "Prioridade", value: item.priority },
+                { label: "Tags", value: item.tags.length > 0 ? item.tags.join(", ") : undefined },
+              ]}
+            />
+          </Panel>
+        </Section>
+      ) : null}
+      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points" icon={Plus}>
+        {/* Mesmo padrão visual do AttentionRow (Visão Geral, Marcelo 2026-09-20) - badge de
+            ícone colorido + texto - com o ajuste necessário: aqui não há contagem, cada card
+            mostra um título e um estado dinâmico (real, via hooks), não um número. */}
+        <ul className="ui-attention">
+          <li className="ui-attention__item">
+            <ReminderPolicyEntryCard itemId={item.itemId} />
+          </li>
+          <li className="ui-attention__item">
+            <DocumentsEntryCard itemId={item.itemId} />
+          </li>
+          <li className="ui-attention__item">
+            <AuditEntryCard itemId={item.itemId} />
+          </li>
+        </ul>
       </Section>
       {item.renewedFromId ? <RenewalLineage sourceItemId={item.renewedFromId} /> : null}
     </div>

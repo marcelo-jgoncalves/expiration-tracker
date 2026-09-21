@@ -176,6 +176,48 @@ describe("ItemDocuments (A07)", () => {
     expect(screen.queryByText("g.pdf")).not.toBeInTheDocument();
   });
 
+  // D-313 (2026-09-21) - mirrors the backend's own gate (status!=="CLEAN" -> real 409, never a
+  // silent/generic failure): the "Baixar" control only ever appears for a CLEAN document.
+  it("shows 'Baixar' only for a CLEAN document, never for one still scanning/rejected", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents")
+        return Promise.resolve({
+          documents: [doc({ documentId: "d1", fileName: "a.pdf", status: "SCANNING" }), doc({ documentId: "d2", fileName: "b.pdf", status: "CLEAN" })],
+        });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    mockAsRole("VIEWER");
+    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+
+    await waitFor(() => expect(screen.getByText("b.pdf")).toBeInTheDocument());
+    expect(screen.getAllByRole("button", { name: "Baixar" })).toHaveLength(1);
+  });
+
+  it("clicking 'Baixar' fetches a presigned URL and navigates the browser to it", async () => {
+    // jsdom's window.location.assign isn't directly spy-able (non-configurable) - replace the
+    // whole `location` property for this test only, same technique session.ts's own
+    // startLogin() (also window.location.assign-based) would need if it were tested this way.
+    const originalLocation = window.location;
+    const assignSpy = vi.fn();
+    Object.defineProperty(window, "location", { value: { ...originalLocation, assign: assignSpy }, writable: true, configurable: true });
+
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [doc({})] });
+      if (path === "/items/item-1/documents/doc-1/download") return Promise.resolve({ downloadUrl: "https://s3.example/clean-bucket/doc-1", expiresInSeconds: 300 });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
+    mockAsRole("VIEWER");
+    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Baixar" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Baixar" }));
+
+    await waitFor(() => expect(assignSpy).toHaveBeenCalledWith("https://s3.example/clean-bucket/doc-1"));
+    Object.defineProperty(window, "location", { value: originalLocation, writable: true, configurable: true });
+  });
+
   describe("the two-phase upload model", () => {
     function mockReservation() {
       postMock.mockResolvedValue({

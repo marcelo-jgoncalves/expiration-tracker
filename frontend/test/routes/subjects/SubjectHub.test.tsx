@@ -111,7 +111,7 @@ describe("SubjectHub (A09)", () => {
     // Scoped to the compliance panel's percentage element - the page also renders other em
     // dashes now too (e.g. a loading MetricCard before its query resolves).
     const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
-    expect(section?.querySelector("strong")?.textContent).toBe("—");
+    expect(section?.querySelector(".ui-compliance__percent")?.textContent).toBe("—");
   });
 
   it("shows the archived InlineNotice for an ARCHIVED subject", async () => {

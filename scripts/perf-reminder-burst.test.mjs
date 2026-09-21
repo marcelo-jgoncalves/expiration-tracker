@@ -11,7 +11,7 @@ it('keeps the due date on the Sao Paulo calendar across UTC midnight', () => {
   const result = schedule(target, Date.parse('2026-09-16T23:00:00Z'));
   assert.equal(result.dueDate, '2026-09-16T00:00:00.000Z');
   assert.equal(result.localTime, '23:30');
-  assert.throws(() => schedule(target, Date.parse(target) - 60000), /90 minutes/);
+  assert.throws(() => schedule(target, Date.parse(target) - 60000), /65 minutes/);
   assert.throws(() => schedule('2026-09-17T02:30:01Z', 0), /whole minute/);
   assert.throws(() => schedule('2026-09-17T02:30:00', 0), /timezone/);
 });
@@ -20,10 +20,10 @@ it('keeps the due date on the Sao Paulo calendar across UTC midnight', () => {
 // 100 pairs/tenant for a 1k burst) to wait as long as a full 10k run, even though seeding
 // finishes in minutes - real friction found 2026-09-19 while running a 1k post-fix check.
 it('scales the minimum lead time down for smaller per-tenant burst sizes, floored at 25 minutes', () => {
-  assert.equal(minLeadMs(1000), 90 * 60000);
+  assert.equal(minLeadMs(1000), 65 * 60000);
   assert.equal(minLeadMs(100), 25 * 60000); // 9 computed minutes, floored
   assert.equal(minLeadMs(10), 25 * 60000);
-  assert.equal(minLeadMs(2000), 180 * 60000); // scales up too, never silently caps
+  assert.equal(minLeadMs(2000), 130 * 60000); // scales up too, never silently caps
   assert.throws(() => schedule(target, Date.parse(target) - 24 * 60000, 100), /25 minutes/);
   assert.doesNotThrow(() => schedule(target, Date.parse(target) - 25 * 60000, 100));
 });

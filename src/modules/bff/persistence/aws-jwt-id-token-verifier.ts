@@ -14,7 +14,7 @@ export class AwsJwtIdTokenVerifier implements IdTokenVerifier {
     this.verifier = CognitoJwtVerifier.create({ userPoolId, tokenUse: "id", clientId });
   }
 
-  async verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string }> {
+  async verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string; name?: string }> {
     try {
       const payload = await this.verifier.verify(idToken, {
         customJwtCheck: ({ payload }) => {
@@ -24,7 +24,8 @@ export class AwsJwtIdTokenVerifier implements IdTokenVerifier {
         },
       });
       const email = typeof payload["email"] === "string" ? payload["email"] : undefined;
-      return { subject: payload.sub, email };
+      const name = typeof payload["name"] === "string" ? payload["name"] : undefined;
+      return { subject: payload.sub, email, name };
     } catch (cause) {
       throw new AuthenticationError("ID token verification failed.", { cause: String(cause) });
     }

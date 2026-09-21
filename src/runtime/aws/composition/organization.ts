@@ -22,6 +22,8 @@ import { buildTenantPurgeExecutionStarter, buildTenantPurgeExecutionStopper, cre
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import { UlidIdGenerator } from "../ids.js";
 import { SesEmailAdapter, createSesClient } from "../../../modules/notification/providers/ses-email-adapter.js";
+import { DynamoDbIdentityStore } from "../../../modules/identity/persistence/dynamodb-identity-store.js";
+import { GlobalUserRepository } from "../../../modules/identity/persistence/global-user-repository.js";
 
 /** `invitationTokenPepper` reuses the SAME secret as `GUEST_TOKEN_PEPPER` (subject module,
  * D-037) - a deliberate judgment call (level 3-4, reuse of an already-approved secret-
@@ -259,7 +261,10 @@ export function buildMembershipDeps(
   const createInvitation = new CreateInvitationService(organizations, tableName, ids, rateLimiter, invitationTokenPepper, undefined, emailProvider, invitationBaseUrl);
   const revokeInvitation = new RevokeInvitationService(organizations, tableName, ids);
   const acceptInvitation = new AcceptInvitationService(organizations, tableName, ids, invitationTokenPepper);
-  const listMembers = new ListMembersService(organizations);
+  // #15 (2026-09-21): resolves email/displayName per member from GlobalUser - same
+  // DynamoDbIdentityStore construction identity.ts's own composition root already uses.
+  const globalUsers = new GlobalUserRepository(new DynamoDbIdentityStore(client, tableName));
+  const listMembers = new ListMembersService(organizations, globalUsers);
   const listInvitations = new ListInvitationsService(organizations);
   const changeRole = new ChangeMembershipRoleService(organizations, tableName, ids);
   // D-194 Fatia 2: each raw port is wrapped with its OWN 5s deadline + SecureLogger event -

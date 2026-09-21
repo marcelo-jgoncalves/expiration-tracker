@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * Block 8 — A18 (Minhas preferências de notificação), D-2xx. Same mocking discipline as
+ * Block 8 — A18 (Notificações), D-2xx. Same mocking discipline as
  * `e2e/block7-tracking-delivery-guest.spec.ts`.
  */
 
@@ -48,9 +48,9 @@ test("E2E-B8-01: every role sees the nav entry and can reach the screen", async 
   await mockA18(page);
 
   await page.goto("/overview");
-  await expect(page.getByRole("link", { name: "Minhas preferências de notificação" })).toBeVisible();
-  await page.getByRole("link", { name: "Minhas preferências de notificação" }).click();
-  await expect(page.getByRole("heading", { name: "Minhas preferências de notificação" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Notificações" })).toBeVisible();
+  await page.getByRole("link", { name: "Notificações" }).click();
+  await expect(page.getByRole("heading", { name: "Notificações" })).toBeVisible();
 });
 
 test("E2E-B8-02: e-mail is always locked checked, WhatsApp shows an unavailable badge, never an editable control", async ({ page }) => {
@@ -229,5 +229,5 @@ test("A11Y-reduced-motion: A18 renders correctly under prefers-reduced-motion", 
   await mockA18(page);
   await page.goto("/settings/notifications");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "Minhas preferências de notificação" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Notificações" })).toBeVisible();
 });

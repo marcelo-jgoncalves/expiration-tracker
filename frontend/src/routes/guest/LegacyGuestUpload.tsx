@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Paperclip } from "lucide-react";
 import { fetchLegacyGuestRequestInfo, submitLegacyGuestUpload, GuestTransientError } from "../../api/guestLegacyUpload.js";
 import { computeChecksumSha256, uploadDocumentBytes } from "../../api/documents.js";
 import { GuestLinkUnavailable } from "../../components/GuestLinkUnavailable.js";
@@ -238,6 +239,7 @@ function UploadForm({
       <div className="guest-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
         <p>Arraste um arquivo ou</p>
         <label className="ui-button ui-button--secondary ui-button--sm">
+          <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
           Selecionar arquivo
           <input type="file" accept={allowedMediaTypes.join(",")} onChange={handleChange} className="u-visually-hidden" />
         </label>

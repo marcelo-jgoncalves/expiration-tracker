@@ -1,0 +1,10 @@
+/* Motion. Three durations, one easing curve. No bounce, no spring, no entrance animation.
+   Transitions are limited to background-color and border-color on interactive controls;
+   the only looping animation in the system is the loading pulse (opacity 0.35 -> 1). */
+
+:root {
+  --duration-instant: 0ms; /* @kind other */
+  --duration-fast: 120ms; /* @kind other */
+  --duration-default: 160ms; /* @kind other */
+  --easing-standard: cubic-bezier(0.2, 0, 0.2, 1); /* @kind other */
+}

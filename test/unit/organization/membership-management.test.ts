@@ -11,6 +11,8 @@ import { AuthorizationDeniedError, authorizedTenantIdFromPersistedEntity } from 
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { AssignedActiveItemsLookup } from "../../../src/modules/organization/ports/assigned-active-items-lookup.js";
 import type { AssignedActiveRequirementsLookup } from "../../../src/modules/organization/ports/assigned-active-requirements-lookup.js";
+import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
+import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 
 /** Test double for `AssignedActiveItemsLookup` - `assignments` maps `userId` to the ACTIVE
  * `ExpirationItem` ids assigned to them, defaulting an unlisted user to "no active items" (the
@@ -400,10 +402,54 @@ describe("ListMembersService / ListInvitationsService", () => {
     seedOrganization(store, 1);
     seedMembership(store, "user-owner", "OWNER");
     seedMembership(store, "user-viewer", "VIEWER");
-    const service = new ListMembersService(store);
+    const service = new ListMembersService(store, new GlobalUserRepository(new InMemoryIdentityStore()));
 
     const members = await service.listMembers(ctx("user-viewer", ["VIEWER"]));
     expect(members.map((m) => m.userId).sort()).toEqual(["user-owner", "user-viewer"]);
+  });
+
+  // #15 (2026-09-21): email/displayName resolve from GlobalUser only when the identity is
+  // ACTIVE - a suspended identity's PII must never surface, even to teammates within the same
+  // tenant (same rule notification/persistence/dynamodb-recipient-resolver.ts already enforces).
+  it("resolves email/displayName only for an ACTIVE global identity, never for a suspended one", async () => {
+    const store = new InMemoryOrganizationStore();
+    seedOrganization(store, 1);
+    seedMembership(store, "user-active", "MEMBER");
+    seedMembership(store, "user-suspended", "MEMBER");
+    const identityStore = new InMemoryIdentityStore();
+    await identityStore.update({
+      PK: "USER#user-active",
+      SK: "PROFILE",
+      entityType: "GlobalUser",
+      userId: "user-active",
+      emailNormalized: "active@example.com",
+      displayName: "Ana Ativa",
+      identityStatus: "ACTIVE",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      version: 1,
+    });
+    await identityStore.update({
+      PK: "USER#user-suspended",
+      SK: "PROFILE",
+      entityType: "GlobalUser",
+      userId: "user-suspended",
+      emailNormalized: "suspenso@example.com",
+      displayName: "Bruno Suspenso",
+      identityStatus: "SUSPENDED",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      version: 1,
+    });
+    const service = new ListMembersService(store, new GlobalUserRepository(identityStore));
+
+    const members = await service.listMembers(ctx("user-active", ["MEMBER"]));
+    const active = members.find((m) => m.userId === "user-active");
+    const suspended = members.find((m) => m.userId === "user-suspended");
+
+    expect(active).toMatchObject({ email: "active@example.com", displayName: "Ana Ativa" });
+    expect(suspended?.email).toBeUndefined();
+    expect(suspended?.displayName).toBeUndefined();
   });
 
   // Mutação: manter "membership:list-invitations" como READ_ONLY_ROLES (mesma tier de

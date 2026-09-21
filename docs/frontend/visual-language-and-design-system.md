@@ -12,6 +12,13 @@ de processo, catálogo de componentes e patterns daqui em diante, a fonte prospe
 tratavam do mesmo primitivo. Ver
 `docs/architecture/reviews/design-system-reconciliation-scoping/estado-final-consolidado.md`.
 
+**Nota (2026-09-20, D-307/ADR-0015):** os valores primitivos concretos deste documento (acento
+azul-indigo, stack de sistema sem webfont, nenhum ícone) foram substituídos como direção oficial
+por `docs/frontend/design-system-v2/` (acento violeta, Plus Jakarta Sans, ícones Lucide) —
+decisão direta de Marcelo, encerrando o status `PROVISIONAL PENDING USER VALIDATION` acima. Este
+documento permanece como registro histórico do processo/evidência da v1 (16 rounds), não como
+valor vigente. O código real (`frontend/src/components/ui/tokens.css`) ainda não foi atualizado.
+
 ---
 
 ## 1. Executive Summary

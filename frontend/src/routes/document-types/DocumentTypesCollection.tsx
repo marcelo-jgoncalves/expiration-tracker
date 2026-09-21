@@ -16,6 +16,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { Ban, Pencil, Plus, RotateCcw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useDocumentTypes } from "../../hooks/useDocumentTypes.js";
 import { useCreateDocumentType } from "../../hooks/useCreateDocumentType.js";
@@ -26,7 +27,7 @@ import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncSt
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { DataTable } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
-import { PageHeader } from "../../components/ui/Layout.js";
+import { PageHeader, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
@@ -63,7 +64,7 @@ export function DocumentTypesCollection() {
       <PageHeader
         title="Tipos de documento"
         description="Catálogo compartilhado, com campos de metadados customizados."
-        actions={isAdmin ? <Button variant="primary" onClick={() => setShowCreate((v) => !v)}>Novo tipo</Button> : undefined}
+        actions={isAdmin ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo tipo</Button> : undefined}
       />
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
@@ -74,40 +75,42 @@ export function DocumentTypesCollection() {
       {documentTypes.length === 0 ? (
         <EmptyState kind="true-empty" message="Nenhum tipo de documento cadastrado ainda." />
       ) : (
-        <DataTable
-          caption="Catálogo de tipos de documento"
-          rowKey={(t: DocumentType) => t.documentTypeId}
-          rows={documentTypes}
-          columns={[
-            {
-              key: "name",
-              header: "Tipo de documento",
-              primary: true,
-              render: (t) => <Link to={orgPath(`/settings/document-types/${t.documentTypeId}`)}>{t.displayName}</Link>,
-            },
-            {
-              key: "fields",
-              header: "Campos de metadados",
-              render: (t) => (t.metadataFields && t.metadataFields.length > 0 ? `${t.metadataFields.length} campos` : "Sem campos"),
-            },
-            { key: "status", header: "Status", render: (t) => <StatusBadge presentation={presentDocumentTypeStatus(t.status)} /> },
-            {
-              key: "guestVisible",
-              header: "Visível para convidados",
-              render: (t) => (t.status === "ACTIVE" ? "Sim" : "Não (descontinuado)"),
-            },
-            ...(isAdmin
-              ? [
-                  {
-                    key: "actions",
-                    header: "Ações",
-                    actions: true,
-                    render: (t: DocumentType) => <RowActions documentType={t} />,
-                  },
-                ]
-              : []),
-          ]}
-        />
+        <Panel>
+          <DataTable
+            caption="Catálogo de tipos de documento"
+            rowKey={(t: DocumentType) => t.documentTypeId}
+            rows={documentTypes}
+            columns={[
+              {
+                key: "name",
+                header: "Tipo de documento",
+                primary: true,
+                render: (t) => <Link to={orgPath(`/settings/document-types/${t.documentTypeId}`)}>{t.displayName}</Link>,
+              },
+              {
+                key: "fields",
+                header: "Campos de metadados",
+                render: (t) => (t.metadataFields && t.metadataFields.length > 0 ? `${t.metadataFields.length} campos` : "Sem campos"),
+              },
+              { key: "status", header: "Status", render: (t) => <StatusBadge presentation={presentDocumentTypeStatus(t.status)} /> },
+              {
+                key: "guestVisible",
+                header: "Visível para convidados",
+                render: (t) => (t.status === "ACTIVE" ? "Sim" : "Não (descontinuado)"),
+              },
+              ...(isAdmin
+                ? [
+                    {
+                      key: "actions",
+                      header: "Ações",
+                      actions: true,
+                      render: (t: DocumentType) => <RowActions documentType={t} />,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </Panel>
       )}
     </div>
   );
@@ -147,10 +150,10 @@ function RowActions({ documentType }: { documentType: DocumentType }) {
           keyboard-path probe, a real defect the probe caught, not a test artifact. `ghost`
           keeps the "text-link" visual the spec asks for while `.ui-button` still supplies an
           adequate touch target. */}
-      <ButtonLink to={orgPath(`/settings/document-types/${documentType.documentTypeId}`)} variant="ghost" size="sm">
+      <ButtonLink to={orgPath(`/settings/document-types/${documentType.documentTypeId}`)} variant="ghost" size="sm" icon={Pencil}>
         Editar
       </ButtonLink>{" "}
-      <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={() => void handleToggle()}>
+      <Button size="sm" variant="ghost" icon={documentType.status === "ACTIVE" ? Ban : RotateCcw} pending={mutation.isPending} onClick={() => void handleToggle()}>
         {documentType.status === "ACTIVE" ? "Descontinuar" : "Reativar"}
       </Button>
       {showConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de tentar de novo.</span> : null}

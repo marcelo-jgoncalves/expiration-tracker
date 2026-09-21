@@ -13,6 +13,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Check, RotateCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useRenewItem } from "../../hooks/useRenewItem.js";
@@ -21,7 +22,7 @@ import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { ApiError, isConflict, isUnknownOutcome } from "../../api/errors.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
-import { PageHeader } from "../../components/ui/Layout.js";
+import { PageHeader, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 
@@ -100,6 +101,7 @@ export function RenewItem() {
           actions={
             <Button
               variant="secondary"
+              icon={RotateCw}
               onClick={() => {
                 mutation.reset();
                 void itemQuery.refetch();
@@ -114,9 +116,11 @@ export function RenewItem() {
       ) : null}
       <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={generalErrors} />
-        <TextField id="renew-due-date" label="Nova data de vencimento" type="date" value={newDueDate} onChange={setNewDueDate} required />
+        <Panel padded>
+          <TextField id="renew-due-date" label="Nova data de vencimento" type="date" value={newDueDate} onChange={setNewDueDate} required />
+        </Panel>
         <div className="ui-form__actions">
-          <Button type="submit" variant="primary" pending={mutation.isPending} disabled={conflict}>
+          <Button type="submit" variant="primary" icon={Check} pending={mutation.isPending} disabled={conflict}>
             {mutation.isPending ? "Renovando…" : "Confirmar renovação"}
           </Button>
           <ButtonLink to={orgPath(`/items/${item.itemId}`)} variant="tertiary">

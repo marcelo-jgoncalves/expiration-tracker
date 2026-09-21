@@ -294,7 +294,9 @@ test("E2E-B3-13: navigate A08 -> A09 -> A11 and back", async ({ page }) => {
   await mockRequirementsForSubject(page, [requirement()]);
 
   await page.goto("/subjects");
-  await page.getByRole("link", { name: "Fornecedor Alfa Ltda" }).click();
+  // exact: true - the row's "Editar Fornecedor Alfa Ltda" icon-only action link has that
+  // subject's name as a real substring of its own (correctly specific) aria-label.
+  await page.getByRole("link", { name: "Fornecedor Alfa Ltda", exact: true }).click();
   await expect(page).toHaveURL(/\/subjects\/subj-1$/);
   await expect(page.locator("#surface-content")).toBeFocused();
 
@@ -491,6 +493,9 @@ test.describe("A11Y-focus-not-obscured - Block 3 screens: nothing sticky/fixed (
         Array.from(document.querySelectorAll("body *"))
           .filter((element) => ["sticky", "fixed"].includes(getComputedStyle(element).position))
           .filter((element) => !element.classList.contains("skip-link"))
+          // `.app-shell__nav` is sticky WITHIN its own flex column, never overlapping main
+          // content - see `accessibility.spec.ts`'s identical filter for the full rationale.
+          .filter((element) => !element.classList.contains("app-shell__nav"))
           .map((element) => element.tagName.toLowerCase() + "." + String(element.className).split(" ")[0]),
       );
       expect(pinned, `${name}: sticky/fixed elements found`).toEqual([]);

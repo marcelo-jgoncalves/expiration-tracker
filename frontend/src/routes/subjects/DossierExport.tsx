@@ -38,6 +38,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Check, Download } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useActiveOrganization } from "../../auth/ActiveOrganizationContext.js";
 import { useSubject } from "../../hooks/useSubject.js";
@@ -119,7 +120,7 @@ export function DossierExport() {
     return (
       <>
         <PageHeader title="Exportar dossiê" />
-        <Panel>
+        <Panel padded>
           <EmptyState kind="permission-limited" message="Exportar dossiê é restrito a OWNER e ADMIN desta organização." />
         </Panel>
       </>
@@ -167,7 +168,7 @@ export function DossierExport() {
   return (
     <>
       <PageHeader above={<Link to={orgPath(`/subjects/${subjectId}`)}>← Voltar para {subject.displayName}</Link>} title="Exportar dossiê" description={`${subject.displayName} · pacote de conformidade em PDF ou Excel.`} />
-      <Panel>
+      <Panel padded>
         {!runId ? (
           <PreviewStage
             preview={preview}
@@ -245,7 +246,7 @@ function PreviewStage({
           { value: "xlsx", label: "Excel" },
         ]}
       />
-      <InlineNotice tone="neutral">Apenas OWNER e ADMIN podem exportar o dossiê, mesmo que sejam o responsável direto pelo fornecedor.</InlineNotice>
+      <InlineNotice tone="info">Apenas OWNER e ADMIN podem exportar o dossiê, mesmo que sejam o responsável direto pelo fornecedor.</InlineNotice>
       {staleScope ? (
         <InlineNotice tone="warning" announce="alert" actions={<Button size="sm" variant="secondary" onClick={onRefreshPreview}>Atualizar pré-visualização</Button>}>
           {/* Codex review round finding: the backend's confirm route returns the SAME generic
@@ -262,7 +263,7 @@ function PreviewStage({
               {confirmError}
             </InlineNotice>
           ) : null}
-          <Button variant="primary" pending={confirming} onClick={onConfirm}>
+          <Button variant="primary" icon={Check} pending={confirming} onClick={onConfirm}>
             {confirming ? "Gerando…" : "Confirmar e gerar"}
           </Button>
         </>
@@ -354,7 +355,7 @@ function GenerationStage({
             {downloadError}
           </InlineNotice>
         ) : null}
-        <Button variant="primary" pending={downloading} onClick={() => void handleDownload()}>
+        <Button variant="primary" icon={Download} pending={downloading} onClick={() => void handleDownload()}>
           {downloading ? "Baixando…" : "Baixar dossiê"}
         </Button>
       </div>

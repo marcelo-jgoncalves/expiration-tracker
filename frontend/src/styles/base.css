@@ -22,7 +22,15 @@ body {
   font-size: var(--font-size-300);
   line-height: var(--line-height-default);
   color: var(--color-text-primary);
-  background: var(--color-surface-page);
+  /* Real finding, 2026-09-21: `--color-surface-page` is a gradient - using it via the `background`
+     shorthand only ever set `background-image`, leaving `background-color` at its initial
+     `transparent`. Anything reading `background-color` specifically (this app's own WCAG
+     contrast e2e probe, but also print stylesheets and no-images/reduced-data modes) saw
+     transparent, which the probe's luminance math treats as opaque black - failing every page's
+     heading contrast even though the gradient itself renders near-white. `--color-neutral-50`
+     was the page background before the gradient existed, so it is a real fallback, not a guess. */
+  background-color: var(--color-neutral-50);
+  background-image: var(--color-surface-page);
 }
 
 h1,
@@ -115,6 +123,19 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  /* Marcelo, 2026-09-21: sticky, not fixed - stays a flex sibling of `.app-shell__main` (no
+     layout/z-index side effects on the main content) but no longer scrolls away with it when a
+     screen has many records/long detail content. `align-self: flex-start` overrides
+     `.app-shell`'s `align-items: stretch` (would otherwise force this to the row's full content
+     height, defeating `position: sticky`, which needs the element's own height <= viewport).
+     `overflow-y: auto` is a rarely-hit safety net (nav content taller than the viewport, e.g. a
+     very short/zoomed window), not the common case - the real fix for "scroll back up to reach
+     another screen" is `position: sticky` itself. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .app-shell__wordmark {
@@ -126,9 +147,11 @@ a:hover {
 }
 
 .app-shell__link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   text-decoration: none;
   font-weight: var(--font-weight-regular);
@@ -136,19 +159,103 @@ a:hover {
   transition: background-color var(--duration-fast) var(--easing-standard);
 }
 
+/* ADR-0015: nav icon (Lucide, aria-hidden) never shrinks when the label wraps/is long. */
+.app-shell__link svg {
+  flex: none;
+}
+
 .app-shell__link:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
 
-/* Current page is marked by weight + an inset bar + tint — three cues, so the state does not
-   depend on color alone (mission §98) and survives forced-colors. `aria-current="page"` is
-   the authoritative signal for assistive tech. */
+/* Current page (Marcelo, 2026-09-20, achado na tela Fornecedores: reverte o tratamento anterior
+   de tinta+barra para o preenchimento sólido do protótipo) — preenchimento cheio + texto
+   invertido + glow, não só cor: o contêiner preenchido é uma pista de FORMA (bloco vs. texto
+   plano), não só de matiz, então continua sem depender de cor isoladamente (mission §98).
+   `aria-current="page"` é o sinal autoritativo pra leitor de tela. Em `forced-colors`, background/
+   glow são descartados (cor de autor) - o override abaixo mantém a barra real via `border` com a
+   cor de sistema "selected item", que `forced-colors` sempre renderiza. */
 .app-shell__link[aria-current="page"] {
-  background: var(--color-surface-selected);
-  color: var(--color-action-primary-pressed);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
   font-weight: var(--font-weight-semibold);
-  box-shadow: inset 3px 0 0 var(--color-action-primary);
+  box-shadow: var(--shadow-accent-glow);
+}
+
+@media (forced-colors: active) {
+  .app-shell__link[aria-current="page"] {
+    box-shadow: none;
+    border-left: var(--border-width-thick) solid SelectedItem;
+  }
+}
+
+/* Sidebar identity card + logout (Marcelo, 2026-09-21, matches `prototype/03 - Fornecedor
+   Detalhe.html`'s `.v2-rail-footer`) - `SidebarUserFooter` in AppShell.tsx. */
+.app-shell__footer {
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-2);
+}
+
+.app-shell__avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-shell__footer-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell__footer-name {
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-shell__footer-role {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+}
+
+.app-shell__icon-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard), color var(--duration-fast) var(--easing-standard);
+}
+
+.app-shell__icon-button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 .app-shell__nav-spacer {
@@ -187,6 +294,12 @@ a:hover {
     border-right: 0;
     border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
     padding: var(--space-3) var(--space-4);
+    /* Unlike the desktop rail, this wraps into a multi-row top bar - sticky here would pin an
+       increasingly tall block at the top of the viewport as it wraps, unlike the single-column
+       desktop case this feature was actually requested for (Marcelo, 2026-09-21). */
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 
   .app-shell__wordmark {
@@ -195,8 +308,14 @@ a:hover {
     margin-bottom: var(--space-2);
   }
 
-  .app-shell__link[aria-current="page"] {
-    box-shadow: inset 0 -3px 0 var(--color-action-primary);
+  /* Preenchimento sólido (regra desktop acima) não depende de direção de layout - só o
+     fallback de forced-colors abaixo precisa inverter de borda esquerda pra borda inferior,
+     já que a nav vira uma linha horizontal aqui. */
+  @media (forced-colors: active) {
+    .app-shell__link[aria-current="page"] {
+      border-left: 0;
+      border-bottom: var(--border-width-thick) solid SelectedItem;
+    }
   }
 
   .app-shell__nav-spacer {

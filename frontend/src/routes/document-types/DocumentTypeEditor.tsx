@@ -21,7 +21,9 @@
  * as A11's CSV-export omission — never a fabricated reorder UI wired to nothing.
  */
 import { useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { Archive, Pencil, Plus, RotateCcw } from "lucide-react";
+import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useDocumentType } from "../../hooks/useDocumentType.js";
 import { useCreateMetadataField } from "../../hooks/useCreateMetadataField.js";
 import { useUpdateMetadataField } from "../../hooks/useUpdateMetadataField.js";
@@ -29,7 +31,7 @@ import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.j
 import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
-import { PageHeader, Section } from "../../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
@@ -38,6 +40,7 @@ import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentDocumentTypeStatus } from "../../api/presentation.js";
 import type { DocumentTypeFieldOption, DocumentTypeFieldValueType, DocumentTypeMetadataFieldDefinition } from "../../api/types.js";
+import "./DocumentTypeEditor.css";
 
 const VALUE_TYPE_OPTIONS: { value: DocumentTypeFieldValueType; label: string }[] = [
   { value: "TEXT", label: "Texto" },
@@ -50,6 +53,7 @@ const VALUE_TYPE_OPTIONS: { value: DocumentTypeFieldValueType; label: string }[]
 
 export function DocumentTypeEditor() {
   const { documentTypeId = "" } = useParams<{ documentTypeId: string }>();
+  const orgPath = useOrgPath();
   const role = useCurrentMembershipRole();
   const isAdmin = role === "OWNER" || role === "ADMIN";
   const [showAddField, setShowAddField] = useState(false);
@@ -69,34 +73,40 @@ export function DocumentTypeEditor() {
 
   return (
     <div>
-      <PageHeader title={documentType.displayName} description={<StatusBadge presentation={presentDocumentTypeStatus(documentType.status)} />} />
+      <PageHeader
+        above={<Link to={orgPath("/settings/document-types")}>← Voltar para Tipos de documento</Link>}
+        title={documentType.displayName}
+        description={<StatusBadge presentation={presentDocumentTypeStatus(documentType.status)} />}
+      />
       {!isAdmin ? <InlineNotice tone="neutral">Modo leitura — apenas administradores editam este catálogo.</InlineNotice> : null}
       {documentType.status === "DEPRECATED" ? (
         <InlineNotice tone="neutral">Tipo descontinuado — pode ainda estar referenciado por documentos existentes, que continuam acessíveis normalmente.</InlineNotice>
       ) : null}
       <Section heading="Campos de metadados" headingId="metadata-fields-heading" annotation={`(${fields.length})`}>
-        {fields.length === 0 ? (
-          <p>Nenhum campo definido ainda.</p>
-        ) : (
-          <ul className="doctype-field-list">
-            {fields.map((field) => (
-              <FieldCard key={field.fieldId} documentTypeId={documentTypeId} field={field} documentTypeVersion={documentType.version} isAdmin={isAdmin} />
-            ))}
-          </ul>
-        )}
-        <p>
-          Marcar um campo como obrigatório nunca invalida retroativamente Documentos já existentes que não o preenchem — a obrigatoriedade vale apenas para novos uploads a
-          partir de agora.
-        </p>
-        {isAdmin ? (
-          showAddField ? (
-            <AddFieldForm documentTypeId={documentTypeId} documentTypeVersion={documentType.version} onClose={() => setShowAddField(false)} />
+        <Panel padded>
+          {fields.length === 0 ? (
+            <p>Nenhum campo definido ainda.</p>
           ) : (
-            <Button variant="primary" onClick={() => setShowAddField(true)}>
-              Adicionar campo
-            </Button>
-          )
-        ) : null}
+            <ul className="doctype-field-list">
+              {fields.map((field) => (
+                <FieldCard key={field.fieldId} documentTypeId={documentTypeId} field={field} documentTypeVersion={documentType.version} isAdmin={isAdmin} />
+              ))}
+            </ul>
+          )}
+          <InlineNotice tone="info">
+            Marcar um campo como obrigatório nunca invalida retroativamente Documentos já existentes que não o preenchem — a obrigatoriedade vale apenas para novos uploads a
+            partir de agora.
+          </InlineNotice>
+          {isAdmin ? (
+            showAddField ? (
+              <AddFieldForm documentTypeId={documentTypeId} documentTypeVersion={documentType.version} onClose={() => setShowAddField(false)} />
+            ) : (
+              <Button variant="primary" icon={Plus} onClick={() => setShowAddField(true)}>
+                Adicionar campo
+              </Button>
+            )
+          ) : null}
+        </Panel>
       </Section>
     </div>
   );
@@ -186,14 +196,30 @@ function FieldCard({
 
   return (
     <li className={isArchived ? "doctype-field-card doctype-field-card--archived" : "doctype-field-card"}>
-      <strong>{field.name}</strong> — {VALUE_TYPE_OPTIONS.find((o) => o.value === field.valueType)?.label ?? field.valueType}
-      {field.required ? " · Obrigatório" : null}
-      {isArchived ? (
-        <>
-          {" "}
-          <StatusBadge presentation={{ label: "Arquivado", tone: "neutral" }} />
-        </>
-      ) : null}
+      <div className="doctype-field-card__row">
+        <div className="doctype-field-card__title">
+          <strong>{field.name}</strong> — {VALUE_TYPE_OPTIONS.find((o) => o.value === field.valueType)?.label ?? field.valueType}
+          {field.required ? " · Obrigatório" : null}
+          {isArchived ? (
+            <>
+              {" "}
+              <StatusBadge presentation={{ label: "Arquivado", tone: "neutral" }} />
+            </>
+          ) : null}
+        </div>
+        {isAdmin ? (
+          <div className="doctype-field-card__actions">
+            {!isArchived ? (
+              <Button size="sm" variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>
+                Editar campo
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" icon={isArchived ? RotateCcw : Archive} pending={mutation.isPending} onClick={toggleArchive}>
+              {isArchived ? "Reativar campo" : "Arquivar campo"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
       {field.valueType === "SINGLE_SELECT" && field.options && field.options.length > 0 ? (
         <ul className="doctype-field-options">
           {field.options.map((option) => (
@@ -217,20 +243,8 @@ function FieldCard({
           </Button>
         </form>
       ) : null}
-      {isAdmin ? (
-        <div>
-          {!isArchived ? (
-            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-              Editar campo
-            </Button>
-          ) : null}{" "}
-          <Button size="sm" variant="ghost" pending={mutation.isPending} onClick={toggleArchive}>
-            {isArchived ? "Reativar campo" : "Arquivar campo"}
-          </Button>
-          {showConflict ? <span role="alert"> Este tipo foi alterado por outra pessoa — recarregue antes de salvar de novo.</span> : null}
-          {error ? <span role="alert"> {error}</span> : null}
-        </div>
-      ) : null}
+      {showConflict ? <p role="alert">Este tipo foi alterado por outra pessoa — recarregue antes de salvar de novo.</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
     </li>
   );
 }

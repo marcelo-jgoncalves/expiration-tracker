@@ -110,8 +110,14 @@
   white-space: nowrap;
 }
 
+/* Marcelo, 2026-09-20 (achado na tela Fornecedores): mais de um controle na mesma célula
+   dependia de um único caractere de espaço (`{" "}`) na marcação para respirar - ficava
+   "colado" assim que os controles viraram ícones compactos. `gap` real substitui isso. */
 .ui-table__cell--actions {
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
   white-space: nowrap;
 }
 

@@ -20,10 +20,38 @@ D-195; Document Types D-173-D-186/D-221/D-224/D-243/D-244; Guest Upload+Requests
 D-222/D-226-D-230; Storage/Versioning/Renewal D-163-D-168; Frontend 25 telas D-254-D-271/D-292/D-293).
 Detalhe item-a-item nunca recontado aqui: `docs/architecture/decisions-log.md`. Únicas pendências
 residuais, ambas fora de engenharia: **WhatsApp** aguarda E-019 (jurídico — aviso de privacidade,
-DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de Marcelo, fora desta
-sessão) — Fase 1 concluída 2026-09-11, Fase 2 pendente (`Proximas_Tarefas_Identidade_Visual.md`,
-raiz do repo, deliberadamente fora do `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/`
-ou atualizar o allowlist).
+DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de Marcelo) — Fase 1
+concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
+Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
+`docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
+`docs/frontend/design-system-v2/`. **Porte para o código real: 31/31 telas FECHADAS** (as 13 do
+protótipo original + as 18 do levantamento de rotas reais sem protótipo, ver abaixo) — todas
+commitadas e pushadas em `develop` (2026-09-21, commits `637d1a0d`..`eebb3ebb`). Falta só a
+validação visual de Marcelo (screenshots em `prototype/_tmp_validacao/01` a `25`).
+
+**As 18 telas sem protótipo original** (Onboarding, Aceitar convite, Form de Fornecedor,
+Requisitos/lista geral, Solicitações e Recorrência, Rastreamento Legado, Exportar Dossiê, Fila de
+Revisão, Detalhe de Documento, Catálogo de Tipos de Documento, Editor de Tipo de Documento,
+Templates de Requisito, Preferência de Entrega, Preferências de Notificação, Membros, Log de
+Atividade, Relatórios, Upload Legado de Convidado) tiveram protótipos gerados via Claude Design a
+partir de prints reais (`prototype/telas-sem-prototipo/`) e foram portadas 01-06 numa sessão
+anterior, 07-18 nesta sessão (2026-09-21). Achados reais do processo: barra lateral sticky +
+rodapé de identidade (`SidebarUserFooter`, estendeu `GET /bff/session` com `displayName`/`email`,
+nunca `userId`/D-095-096); a maioria das 12 telas 07-18 já herdava os componentes v2 globalmente
+e precisou só de ícones Lucide + agrupamento em `Panel` — nenhum componente novo foi inventado em
+nenhuma das 18. Nomes/rótulos de papel e status de Membros passaram a usar `StatusBadge`/
+`presentMembershipRole` em vez de enum cru (novas `presentMembershipStatus`/
+`presentInvitationStatus` em `presentation.ts`).
+
+**Também fechados nesta sessão (2026-09-21)**: itens #15/#16 (resolução de nome/e-mail do
+responsável via claim OIDC, filtro de atividade por `resourceId`) e D-313 (download de documento).
+D-314 (versionamento completo de Document) segue `PENDING_PROTOCOL_REVIEW`, sem código escrito.
+(`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
+`ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
+
+**Próxima ação real deste workstream**: aguardar validação visual de Marcelo das 18 telas
+(screenshots `prototype/_tmp_validacao/08` a `25`) antes de considerar o workstream de identidade
+visual v2 encerrado. Nenhum protótipo novo pendente no momento.
 
 ## Nova capacidade fora do roadmap original: quota de armazenamento por tenant (D-249, 2026-09-09)
 
@@ -67,21 +95,61 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 7. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
 9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
-10. **`NotificationEntitlements` nunca é provisionado para nenhum tenant, real ou sintético (achado real, 2026-09-19, ver Programa de Performance abaixo)** — todo tenant sem esse registro fica em `RETRY` infinito e nunca recebe e-mail de lembrete; único motivo de nenhuma rodada de teste anterior ter conseguido provar entrega real de e-mail até agora. Sem usuário real ainda (AGENTS.md §1), então não é um incidente em produção — mas é uma lacuna real que bloquearia o primeiro usuário de verdade a receber um lembrete por e-mail, então merece atenção antes do lançamento. Provável ligação com D-052 (billing bloqueado) — decisão de produto necessária (entitlement default sem plano pago? criar no onboarding ou lazy como `NotificationPreferences`?) antes de qualquer correção de código.
+10. ~~`NotificationEntitlements` nunca provisionado~~ — **RESOLVIDO 2026-09-21 (D-315,
+    `PENDING_PROTOCOL_REVIEW`)**: seedado atomicamente na criação da Organization
+    (`CreateOrganizationService`), `email.enabled: true`/`whatsapp.enabled: false` por padrão.
+    Tenants `dev`/sintéticos já existentes ANTES desta mudança continuam sem o registro (sem
+    backfill, aceitável sem usuário real). Revisão adversarial Codex pendente quando o protocolo
+    voltar.
 11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
+13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
+14. ~~Endpoint agregado de contagem por urgência para a Visão Geral~~ — **RESOLVIDO 2026-09-21
+    (D-316, `PENDING_PROTOCOL_REVIEW`)**: `GET /dashboard/summary` já existia (Roadmap P0.6) e já
+    computava os 3 números internamente — só faltava expor `itemsOverdueCount`/
+    `itemsExpiringSoonCount`/`activeItemsCount` separadamente. `Overview.tsx` usa os 3 reais
+    agora, com degradação graciosa se a agregação falhar. Link "Ver todos os vencimentos"
+    continua removido por redundância (detalhe: `decisions-log.md` D-308/D-316).
+15. ~~Resolução de nome de usuário (Responsável)~~ — **RESOLVIDO 2026-09-21**: `GET /organizations/members` agora resolve `email`/`displayName` do `GlobalUser` (só quando identidade ACTIVE, mesma regra do `recipient-resolver.ts`); nome capturado via claim OIDC `name` no login (escopo `profile` adicionado). Frontend (Membros, "Responsável" no Detalhe) mostra nome/e-mail resolvido com fallback pro ID.
+16. ~~Filtro de atividade por item/recurso~~ — **RESOLVIDO 2026-09-21**: `GET /activity` aceita `resourceId`, mesmo padrão já usado por `resourceType`. Card "Histórico de auditoria" do Detalhe agora mostra contagem real e leva a um log pré-filtrado.
+17. **PR #382 (`develop`→`main`) aberto, não mergeado** — criado por engano (Claude leu "pode fazer o push também" como pedido de merge; Marcelo corrigiu pra "push pra dev"). Confirmar com ele se ainda quer esse merge ou se o PR deve ser fechado sem mergear.
+18. ~~Falha pré-existente em `documents.test.ts` (`computeChecksumSha256`)~~ — **RESOLVIDA (achado
+    2026-09-21)**: os 2 casos passam de forma estável e reproduzível (3 reruns isolados + 2 rodadas
+    completas da suíte) — provavelmente resolvida por um bump de dependência jsdom/Node desde D-311,
+    não por nenhuma mudança de código nesta sessão. Nenhuma ação necessária.
+19. **Versionamento completo de `Document` (item-level) — `PENDING_PROTOCOL_REVIEW` (D-314, 2026-09-21)**: pedido de Marcelo após comparar a tela "Documento" real com o protótipo, que assume um modelo de "substituir arquivo" inexistente hoje (`Document` é 1 linha = 1 arquivo, sem histórico/versão). Investigação confirmou que é mudança nível 5-6, estruturalmente equivalente ao D-143 (Domínio Documental, 6 rodadas de protocolo) — não implementado, nenhum código escrito. Assim que o protocolo Claude↔Codex voltar (Codex 2026-09-23), rodar a revisão adversarial completa, incluindo a alternativa de menor risco identificada (reaproveitar a máquina de versionamento já existente em `document-archive`/D-143 em vez de duplicá-la). "Baixar documento" (a outra metade do mesmo pedido) já foi implementado nesta sessão sem precisar de protocolo (D-313, nível 1-3, aditivo puro).
+20. **`NotificationEntitlements` seedado no onboarding e endpoint agregado de urgência da Visão Geral — ambos `PENDING_PROTOCOL_REVIEW` (D-315/D-316, 2026-09-21)**: implementados a pedido explícito de Marcelo (nível 3-4 cada, código real escrito e testado — ver itens #10/#14 acima e `decisions-log.md` para detalhe), mas envolveram decisão de produto (política de entitlement do plano free; quais 3 números mapeiam para os cards) tomada sem o protocolo Claude↔Codex formal. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23).
 
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** A ordem real de trabalho para a próxima sessão foi definida diretamente por
-Marcelo em 2026-09-20 — ver seção dedicada **"PRÓXIMA SESSÃO — ordem definida por Marcelo
-(2026-09-20)"** logo abaixo do mandato autônomo do Programa de Performance; ela tem prioridade sobre
-retomar a escada 100k/500k.
+— ver seções acima.** Degrau de 100k do Programa de Performance encerrado (achado real confirmado,
+ver seção própria abaixo — não é mais pendência).
+
+**Próxima ação real (2026-09-21)**: workstream de identidade visual v2 — os 18 protótipos novos já
+chegaram (`prototype/ui_kits_2/webapp/screens-package-2/standalone/`, ver seção "Identidade visual"
+acima). **Retomar o processo tela-por-tela** aplicando cada um ao código real, mesma disciplina das
+13 anteriores. **Antes disso, decidir com Marcelo o que fazer com os ~79 arquivos não commitados da
+sessão de 2026-09-21** (ver aviso de estado na seção "Identidade visual"). Fora isso, resta só:
+itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação por
+domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na seção do
+Roadmap).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
 **Lição de processo**: default é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
+
+## Manutenção de CI/testes (2026-09-21, achados reais desta sessão, ver D-311/D-312)
+
+CI de `develop` ficou vermelho por toda a Fase 2 de identidade visual v2 (desde `686d944`) sem
+ninguém perceber — bug de `vite.config.ts` (HTTPS vazando pro `vite preview` do Playwright)
+travava o job `frontend` inteiro antes de rodar qualquer teste real, mascarando de quebra uma
+regressão real de contraste WCAG em ~15 telas. Ambos corrigidos e verificados (commit
+`1ee7dcb`, D-311) — checar se o run de CI deste commit passou antes de confiar em qualquer run
+anterior a ele como sinal de saúde do frontend. Separadamente, backend: `vitest.config.ts` forçava
+TODOS os 274 arquivos de teste a rodar em série por causa de só 7 (`test/architecture/**`)
+precisarem disso — dividido em `vitest.workspace.ts` (D-312), sem perder a serialização onde é
+realmente necessária.
 
 ## Programa de Performance (2026-09-14, iniciativa própria de Marcelo — foco real da sessão)
 
@@ -97,159 +165,60 @@ decisão e dos incidentes reais pós-deploy (bug de checkpoint, gap de IAM em `P
 `TransactWriteItems`, `reconcileDst` cancelando ocorrências atrasadas, sweeper travando por
 partição compartilhada no GSI6) já está em `decisions-log.md` (D-299 a D-304) e
 `docs/engineering/performance/TODO.md` — não recontar aqui. **Estado atual**: degrau de 10k padrão
-revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s); 100k/500k ainda não executados (ver
-seção de ordem de trabalho abaixo). D-304 continua `PENDING_PROTOCOL_REVIEW` (protocolo suspenso).
+revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s). D-304 continua
+`PENDING_PROTOCOL_REVIEW` (protocolo suspenso). **Degrau de 100k — ENCERRADO 2026-09-21 (D-310):**
+seed 100% completo, bug real de HARNESS achado e corrigido (buffer fixo de materialização não
+escalava com o cohort), mas a própria recuperação LOCAL nunca terminou (`materialize` ficou 57min
+fazendo polling sem produzir `cohort.json`, processo encerrado manualmente, lock removido — este
+run nunca teve artefato oficial `cohort.json`/`result.json`). **O resultado real foi confirmado de
+forma independente, direto na AWS** (DynamoDB `ConsistentRead` + CloudWatch, 2 investigações
+separadas): 100% das 100k ocorrências chegaram a `TRIGGERED`, zero erro/throttle, mas o disparo
+real levou ~16-17min — **SLO de 300s NÃO atingido nesta escala**. Não é bloqueador (sem usuário
+real, `AGENTS.md` §1); mitigação já existe via `defaultReminderLocalTime` (sorteio de horário).
+Decisão de Marcelo: não perseguir 500k nem otimizar `dispatch-outbox-relay-processor.ts` agora.
 
 **Backlog registrado, não implementado**: `dispatch-outbox-relay-processor.ts` processa lotes de
 stream sequencialmente (~14 registros/s, `map-with-concurrency.ts` existe mas não é usado aqui) —
 risco real se 100k/500k reproduzirem o gargalo do D-304. Decisão de Marcelo: não implementar agora,
 esperar o protocolo Claude↔Codex voltar antes de mexer no caminho crítico de dispatch.
 
-## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
+## Mandato autônomo da escada de performance — ENCERRADO (Marcelo, 2026-09-19; status 2026-09-21)
 
-**Status 2026-09-20**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima),
-limpeza de `dev` concluída, checklist de conclusão aplicado (ver `decisions-log.md`). Marcelo
-inseriu 3 itens antes de retomar a escada (ver seção **"PRÓXIMA SESSÃO — ordem definida por Marcelo
-(2026-09-20)"** mais abaixo) — quando chegar a hora de retomar em 100k, as regras desta seção
-inteira continuam todas válidas (cohort padrão, sem protocolo, etc.).
-
-**Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
-300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
-(não avançar para o próximo degrau) só se um degrau reprovar — nesse caso, investigar a causa raiz
-real (nunca supor; só concluir com evidência direta de logs/AWS, mesmo padrão desta sessão),
-corrigir minimizando ao máximo o risco de regressão, e **re-rodar o MESMO degrau que falhou**
-antes de tentar avançar — nunca pular para o próximo tamanho com um bug conhecido não resolvido.
-
-**Limite técnico real, verificado**: `perf-reminder-burst.mjs` hoje só aceita até
-`PERF_REMINDER_BURST_SIZE=100000` (`requireThatBurstSize`, teto hardcoded). **500k não é possível
-sem alterar o script primeiro** — decidir e implementar esse aumento de teto com o mesmo cuidado
-de sempre (ler o motivo do teto atual antes de só apagar o número, considerar se o resto do
-harness — paginação, sessão Cognito de 15min, cutoff de criação — ainda se comporta bem numa carga
-5x maior) antes de tentar o degrau de 500k.
-
-**Cota real da AWS que também limita a escala, verificada nesta sessão**: SES `Max24HourSend =
-50.000`/24h. Qualquer tentativa de enviar e-mail real por item nos degraus de 100k/500k estouraria
-essa cota sozinha, sem nem precisar do problema abaixo.
-
-**MUITO IMPORTANTE — não repetir o problema dos e-mails reais chegando na caixa pessoal de
-Marcelo** (8 notificações de reclamação simulada da AWS, `complaints@email-abuse.amazonses.com`,
-recebidas durante a verificação de 1k desta sessão, quando o cohort `perf-12-email-tenants.json`
-— que inclui de propósito um tenant `complaint@simulator.amazonses.com` e um `bounce@...` — foi
-usado). Para os degraus de 10k/100k/500k, que servem para provar SLO/throughput de
-scan→claim→dispatch→`TRIGGERED` (não para reprovar entrega de e-mail, já comprovada nesta sessão
-em pequena escala): **usar o arquivo de tenants PADRÃO (`perf-11b-tenants.json`, sem passar
-`PERF_REMINDER_BURST_TENANTS_FILE`), que não define `assigneeUserId`** — sem isso, o item vira
-`NotificationIntent` `CANCELLED` de forma limpa e imediata (`RECIPIENT_NOT_FOUND`, comportamento
-documentado, já observado em todas as rodadas antes da correção de assignee), **nunca chega a
-tentar um envio real ao SES, nunca entra em `RETRY`**, e não afeta em nada o critério de sucesso
-do teste (`TRIGGERED`, não entrega). Não usar `perf-12-email-tenants.json` nestes 3 degraus sob
-hipótese alguma.
+Escada 10k→100k→500k **ENCERRADA, não retomar sem novo pedido explícito de Marcelo** — resultado
+real (D-310) já registrado na seção "Programa de Performance" acima. Regras operacionais completas
+para uma eventual retomada (cohort de tenants padrão vs. e-mail real, teto de
+`PERF_REMINDER_BURST_SIZE`, cota SES, protocolo de re-run por degrau reprovado) ficam preservadas
+em `docs/engineering/performance/TODO.md` e `decisions-log.md` (D-299 a D-310) — não recontadas
+aqui.
 
 **Protocolo Claude↔Codex SUSPENSO até novo aviso (Marcelo, 2026-09-19)** — Codex bloqueado até
-2026-09-23, Antigravity também sem cota até ~2026-09-26 (ver acima). Enquanto isso, Claude decide
-sozinho qualquer questão de nível 5-6 que normalmente exigiria o protocolo, **mas toda decisão
-tomada sem o protocolo formal deve ser marcada explicitamente com status `PENDING_PROTOCOL_REVIEW`**
-(no documento de decisão/review correspondente, nunca `APPROVED_BY_OWNER` nem "protocolo
-dispensado" — essas duas frases são para dispensa explícita por Marcelo, não para ausência de
-ferramenta) e listada aqui em `NEXT_SESSION_PROMPT.md` para retomar assim que Codex ou Antigravity
-voltarem a funcionar. Isto NÃO dispensa rigor — conclusões só a partir de fatos verificados ao
-vivo (nunca suposição), e toda correção de código passa pela suíte de testes completa antes de
-qualquer merge.
+2026-09-23, Antigravity sem cota até ~2026-09-26. Enquanto isso, decisões de nível 5-6 tomadas sem
+o protocolo formal devem ser marcadas `PENDING_PROTOCOL_REVIEW` (nunca `APPROVED_BY_OWNER`) e
+listadas aqui para retomar quando Codex/Antigravity voltarem.
 
-**Conclusão de cada etapa de ajuste**: só marcar uma correção como concluída depois de passar pela
-skill `/task-checklist` (`docs/engineering/task-completion-checklist.md`, `AGENTS.md` §1) — não
-antes. Isto vale para cada bug encontrado durante a escada de escala, individualmente.
+**Checklist de conclusão de tarefa (2026-09-18)**: `docs/engineering/task-completion-checklist.md`
++ skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, `AGENTS.md` §1.
 
-**Se a sessão começar com a pipeline ainda rodando** (Marcelo pode iniciar a próxima sessão sem
-esperar o teste atual terminar): primeiro checar `ps aux | grep perf-reminder-burst` e o estado
-real na AWS antes de presumir uma sessão limpa — nunca lançar um novo run sem antes confirmar se
-já existe um em andamento (risco de corrida de git/AWS entre dois runs concorrentes, já registrado
-em memória).
+**Achados incidentais registrados, não bloqueantes**: gate `Authenticated k6 smoke` com flakiness
+pré-existente de cold start (`performance/TODO.md` §PERF-14); ADOT descarta lotes de trace sob
+carga sustentada sem afetar requisições reais (correção exigiria `collector.yaml` customizado em
+~69 Lambdas, registrado como débito técnico); consolidação de 23 PRs Dependabot do Terraform em
+andamento; import CSV em massa para Items ainda não escopado (item 9 da lista de pendências abaixo).
 
-**Achado incidental, não bloqueante, de sessão anterior**: gate `Authenticated k6 smoke`
-reprovou 2x por `p(95)<3000`; confirmado via CloudWatch que é flakiness PRÉ-EXISTENTE
-(cold start sob rajada de poucas requests, não causado por D-303) — nota em `performance/TODO.md`
-§PERF-14, rerun resolve, threshold/concorrência do BFF é candidato a ajuste futuro.
+## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 
-**Checklist de conclusão de tarefa + skill (2026-09-18, decisão direta do Marcelo)**: `docs/engineering/task-completion-checklist.md` (gate checkbox derivado de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`) + skill `.claude/skills/task-checklist/` — uso obrigatório ao fim de toda tarefa, ver `AGENTS.md` §1.
-
-**Manutenção paralela, não bloqueante**: fix de redeploy do canário CloudWatch Synthetics (`aws_synthetics_canary` não tem `source_code_hash`, zip nunca era redeployado por mudança de conteúdo) mergeado — esse redeploy expôs, em 2026-09-19, um bug real no PRÓPRIO script do canário (lia o corpo da resposta via `for await...of`, que não funciona de forma confiável no runtime do Synthetics; corrigido para o padrão oficial `'data'`/`'end'` da AWS, confirmado que a API estava saudável o tempo todo). Consolidação de 23 PRs Dependabot duplicados/parados (`hashicorp/aws` 6.62.0→6.65.0, só tocavam `infra/.terraform.lock.hcl`) em andamento — cada módulo tem seu próprio lock file (achado real: a primeira tentativa só atualizou o da raiz, `npm run check-dependency-freshness` pegou a inconsistência).
-
-**Sweeper genérico de reconciliação, mesma classe de gargalo do D-301/D-302/D-303** (`exptrk-dev-outbox-sweeper-reminder-dispatch`, cobre ~12 destinos: e-mail, WhatsApp, importação, etc.) — travava por timeout a cada execução (5 em 5 min) desde pelo menos 2026-09-17 porque os 12 destinos compartilhavam a MESMA partição no GSI6. Proposta (query única + roteamento por registro) aprovada em protocolo Claude↔Antigravity, 3 rodadas, 9,5/10 (`docs/architecture/reviews/outbox-sweeper-shared-partition/PROPOSAL.md`). **Implementada e validada 2026-09-20**: revalidação de 10k fechou 10.000/10.000 sem gap de materialização após o fix (a tentativa anterior tinha 1/10.000 preso pelo mesmo timeout).
-
-**Limpeza de dados sintéticos de `dev` — concluída 2026-09-20**: `scripts/reset-dev-data.ts --confirm` (sem `--include-cognito`) esvaziou a tabela principal (1.854.709→0), a tabela de sessão (874→0) e purgou as 36 filas; S3/Cognito já estavam vazios. Verificação final do próprio script confirma tudo zerado. Evidência: `docs/architecture/reviews/multi-user-b2b-wave-b2b12-scoping/dev-reset-manifest-2026-09-20T05-59-14-325Z.json`. Achado incidental no processo: o script tinha 3 bugs reais em escala real (OOM no parse do Scan, região errada no S3 pelo profile `claude-dev`, overflow de string serializando ~1,85M itens) e um 4º achado ao vivo já com a correção de concorrência (`ThrottlingException` lançada, não só `UnprocessedItems`, travava o run inteiro) — todos corrigidos, com teste novo cobrindo o caso do throttle.
-
-**Achado incidental, também pendente (não é do programa de performance)**: proposta de import CSV em massa para Items — ver item 9 da lista de pendências abaixo.
-
-**Achado real não corrigido, 2026-09-19 (rodadas de 25k reais com e-mail, `ladder-email-25k`/`-retry`)
-— gargalo cosmético de observabilidade, sem impacto funcional**: sob carga sustentada de 10
-tenants por horas, o layer ADOT de `bff-handler`/`items-handler`/`reminders-handler` (e
-provavelmente outras Lambdas sob a mesma carga) descarta lotes de trace inteiros — timeout local
-app→coletor (`Error: Request Timeout`, `otlp-exporter-base`) e timeout coletor→X-Ray real
-(`OTLPExporterError`/408, `"msg":"Exporting failed. Rejecting data"`, 60-96 itens por lote
-descartado). Confirmado sem nenhum impacto funcional: zero requisição falhou, zero item de
-journal de seed travado nas duas rodadas — só fica sem trace completo no X-Ray para as
-requisições atingidas. Correção real exigiria `collector.yaml` customizado via
-`OPENTELEMETRY_COLLECTOR_CONFIG_URI` (doc oficial: `aws-otel.github.io/docs/getting-started/
-lambda/lambda-custom-configuration`), empacotado no build de TODAS as ~69 Lambdas + variável de
-ambiente compartilhada (`local.common_env`) — mudança sistêmica de observabilidade, com risco real
-de quebrar tracing por completo se mal configurada, não um ajuste pontual. Decisão do Marcelo,
-2026-09-19: registrar como pendência, não implementar agora — mesma categoria de item que o
-débito técnico de infra do roadmap (`docs/project/roadmap-competitivo-2026-09-01.md` §17/§18.6).
-
-## PRÓXIMA SESSÃO — ordem definida por Marcelo (2026-09-20), tem prioridade sobre a escada 100k/500k
-
-Ordem literal pedida por ele, autônoma (sem parar para confirmar entre os itens, só nos pontos de
-decisão de produto explicitamente marcados abaixo):
-
-1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
-   pendências acima.
-2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20** (`ADR-0014`, D-305,
-   `PENDING_PROTOCOL_REVIEW` — protocolo ainda suspenso). AWS Organizations + conta por ambiente
-   (nunca `terraform workspace`, desaconselhado pela própria HashiCorp), pesquisa externa SIM
-   PARCIAL (AWS Well-Architected + docs oficiais HashiCorp). Fase 1 (aditiva, sem custo) feita:
-   `infra/variables.tf` aceita `"staging"`/`"production"`; achado real corrigido no processo —
-   `document-malware-protection`'s fail-closed guard esperava a string `"prod"` (nunca alcançável
-   antes), alinhado para `"production"` antes de virar bypass silencioso do GuardDuty. **Fases
-   2-4 (criar contas `staging`/`production`, provisionar, pipeline de promoção) aguardam
-   autorização explícita de Marcelo** — confirmado por ele, 2026-09-20: nenhum deploy de produção
-   real ainda, só preparação. Revisão adversarial Codex também pendente (mesma fila do item 11 da
-   lista de pendências acima). **Emenda D-306, mesma sessão**: Marcelo redirecionou o próximo
-   passo imediato para dentro da conta atual, sem esperar as Fases 2-4 — `cd.yml` corrigido para
-   disparar em push/CI verde em `develop` (branch de trabalho real), não mais `main`; `main` fica
-   sem gatilho de deploy até staging/produção existirem. **Validação empírica ainda pendente**:
-   achado real via docs oficiais do GitHub (`workflow_run` sempre lê o arquivo de workflow do
-   branch PADRÃO do repositório, `main`) — esta mudança só vale de fato depois do PR desta sessão
-   mergear em `main`; confirmar no próximo push a `develop` pós-merge que o deploy dispara de
-   verdade, não presumir que funciona só porque o YAML é válido.
-3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
-   decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
-   restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca
-   minutos quebrados como 10:23), e ajustável depois pelo próprio cliente. **Estado real hoje**
-   (achado, nada disto implementado ainda): `ReminderPolicy.localTime`
-   (`src/modules/reminder/domain/reminder-policy.ts`) já é um campo `HH:mm` por trigger, totalmente
-   editável pelo cliente — mas o valor DEFAULT que a UI propõe ao criar um trigger novo é hardcoded
-   `"09:00"` para todo mundo (`DEFAULT_LOCAL_TIME`,
-   `frontend/src/routes/items/ItemReminderPolicy.tsx`), nunca sorteado, nunca ciente do tenant.
-   `Organization.timezone` já existe e é setado no onboarding (`POST /bff/organizations`) — gancho
-   natural para o sorteio. `quietHours` (`notification-preferences.ts`) é um conceito DIFERENTE
-   (janela de supressão de envio, não horário preferido) — não confundir os dois na proposta. O
-   pipeline de disparo (`reminder-producer`, `infra/modules/reminder-schedule/main.tf`) roda
-   `rate(1 minute)` 24/7 sem geofencing de horário comercial — o que estiver due dispara na hora,
-   então mudar só a UI/onboarding basta, não o pipeline em si. Decisões de produto reais antes de
-   implementar (ponto de parada — perguntar a Marcelo): nível do default (por tenant ou por
-   usuário individual dentro do tenant), se aplica só a triggers NOVOS ou também retroativamente
-   aos já existentes, e onde exatamente em Configurações o cliente ajusta isso.
-4. **Antes da decisão sobre o item 3 vs. 100k**: Marcelo pediu, 2026-09-20, rodar primeiro um
-   degrau extra de **50** (mesmo tenant file padrão `perf-11b-tenants.json`, mesma regra de
-   segurança de e-mail do mandato acima) como sanity check pós-limpeza de `dev`/pós-fix do
-   sweeper, antes de escolher entre implementar a feature do item 3 ou seguir para 100k.
-5. **Novo item, 2026-09-20 (Marcelo)**: pesquisa/planejamento (sem implementar ainda) de
-   subagentes customizados de aprovação por domínio técnico, acionados ao final de toda tarefa —
-   cada um responsável por um eixo já formalizado em `joint-review-criteria.md`
-   (Arquitetura/Qualidade de Engenharia/Observabilidade-Operações-SRE/etc.); tarefa só
-   considerada concluída quando aprovada por todos. Entregável: documento de proposta (não
-   subagente real ainda) para revisão de Marcelo.
+- ~~Horário padrão de lembretes~~ — **CORREÇÃO 2026-09-21**: a linha anterior deste arquivo dizia
+  "não decidida nem iniciada" por engano (escrita por uma sessão sem contexto da implementação já
+  feita ANTES da compactação que a originou). Já está 100% implementada e mergeada:
+  `create-organization.ts`'s `pickReminderLocalTime()` sorteia um dos 15 horários BRT (10:00-17:00,
+  meia/hora cheia) em `Organization.defaultReminderLocalTime` no onboarding; ajustável depois pelo
+  Owner em Configurações; `ItemReminderPolicy.tsx` já propõe esse valor como default de gatilhos
+  NOVOS (não retroativo). As 3 decisões que estavam em aberto já foram resolvidas pela própria
+  implementação (nível=tenant, escopo=só novos, local=Configurações). Único resto: revisão
+  adversarial Codex voluntária ainda pendente (item 11 da lista de pendências acima).
+- **Subagentes de aprovação por domínio** (Marcelo): pesquisa/planejamento (não implementar ainda)
+  de subagentes acionados ao fim de toda tarefa, um por eixo de `joint-review-criteria.md`. Não
+  iniciado nesta sessão.
 
 ## Status de evidência (não presumir E2E sem checar)
 

@@ -43,6 +43,7 @@
  *     `UPLOADED` renders the same safe "please wait" view as `PARSING`.
  */
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Upload } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -343,8 +344,11 @@ function UploadStep({ headingRef }: { headingRef: React.RefObject<HTMLHeadingEle
           validateAndSet(event.dataTransfer.files?.[0]);
         }}
       >
+        <span className="import-wizard__dropzone-icon" aria-hidden="true">
+          <Upload size={20} strokeWidth={2} />
+        </span>
         <p>Arraste um arquivo .csv ou</p>
-        <Button variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
+        <Button variant="primary" size="sm" onClick={() => inputRef.current?.click()}>
           Selecionar arquivo
         </Button>
         <input

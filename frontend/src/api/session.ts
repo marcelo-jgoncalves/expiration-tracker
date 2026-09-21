@@ -26,6 +26,11 @@ export interface SessionInfo {
   activeOrganizationId?: string;
   onboardingState?: OnboardingState;
   organizationSelectionRequired?: { organizations: UsableOrganization[] };
+  /** #15/sidebar identity card (2026-09-21): resolved from the logged-in user's own GlobalUser -
+   * absent means "no name/email on file", never a raw userId (deliberately still excluded from
+   * this shape, D-095/D-096). */
+  displayName?: string;
+  email?: string;
 }
 
 /** Never throws on a network/parse failure by returning `{authenticated:false}` - a broken

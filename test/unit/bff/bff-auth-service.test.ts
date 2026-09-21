@@ -148,6 +148,26 @@ describe("BffAuthService.handleCallback", () => {
     expect(globalUser?.version).toBe(1);
   });
 
+  // #15 (2026-09-21) - same mutation shape as the emailNormalized test above, for `name`.
+  it("captures the ID token's verified name onto the GlobalUser row created on first login", async () => {
+    const ctx = buildService();
+    ctx.idTokenVerifier.nextResult = { subject: "cognito-sub-1", email: "user@example.com", name: "Ana Exemplo" };
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+
+    const globalUser = await ctx.globalUsers.get(session.userId);
+    expect(globalUser?.displayName).toBe("Ana Exemplo");
+  });
+
+  it("leaves displayName undefined when the ID token carries no name claim", async () => {
+    const ctx = buildService();
+    const { result } = await loginOnce(ctx);
+    const session = await ctx.service.resolveSession(result.sessionToken);
+
+    const globalUser = await ctx.globalUsers.get(session.userId);
+    expect(globalUser?.displayName).toBeUndefined();
+  });
+
   // Mutação: remover o check `user.identityStatus !== "ACTIVE"` de handleCallback() (ou de
   // resolveSession's caminho equivalente) faria este login suspenso passar silenciosamente.
   it("rejects a repeat login when GlobalUser.identityStatus has been suspended", async () => {
@@ -343,6 +363,29 @@ describe("BffAuthService.resolveSessionWithOnboarding (Wave B2B-5, D-095, self-h
 
     const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
     expect(resolved.activeOrganizationId).toBe(organizationId);
+  });
+
+  // #15/sidebar identity card (2026-09-21) - resolved from GlobalUser, never from `session`
+  // itself (which never carries a name), and absent (not empty string) when the identity has
+  // neither on file.
+  it("resolves displayName/email from GlobalUser", async () => {
+    const ctx = buildService();
+    ctx.idTokenVerifier.nextResult = { subject: "cognito-sub-1", email: "user@example.com", name: "Ana Exemplo" };
+    const { result } = await loginOnce(ctx);
+
+    const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(resolved.displayName).toBe("Ana Exemplo");
+    expect(resolved.email).toBe("user@example.com");
+  });
+
+  it("leaves displayName/email undefined when the GlobalUser has neither on file", async () => {
+    const ctx = buildService();
+    ctx.idTokenVerifier.nextResult = { subject: "cognito-sub-1" };
+    const { result } = await loginOnce(ctx);
+
+    const resolved = await ctx.service.resolveSessionWithOnboarding(result.sessionToken);
+    expect(resolved.displayName).toBeUndefined();
+    expect(resolved.email).toBeUndefined();
   });
 });
 

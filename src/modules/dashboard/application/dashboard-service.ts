@@ -34,6 +34,16 @@ export interface DashboardSummary {
   awaitingReviewCount: number;
   /** Requirement.MISSING (no evidence linked at all). */
   missingRequirementsCount: number;
+  /** PENDING_PROTOCOL_REVIEW (decisions-log.md, D-308 pendência #14) — ExpirationItem-only
+   * breakdown, additive alongside the combined counters above. `Overview.tsx`'s 3 attention
+   * cards are specifically about vencimentos (items), not documental compliance — reusing
+   * `overdueCount`/`expiringSoonCount` (which fold in Requirement state too) would misreport a
+   * pure compliance gap as an item due-date problem. Reuses `activeItems` already fetched above,
+   * no extra store read. */
+  itemsOverdueCount: number;
+  itemsExpiringSoonCount: number;
+  /** Total ACTIVE items (`activeItems.items.length`) — "em acompanhamento" card's real count. */
+  activeItemsCount: number;
   /** True when any underlying sub-count hit the 5-page/125-item cap — the counters above are
    * then a LOWER BOUND, never an overstatement (only items actually evaluated are counted). */
   approximate: boolean;
@@ -116,6 +126,9 @@ export class DashboardService {
       expiringSoonCount: requirementsExpiringSoon + itemsExpiringSoon,
       awaitingReviewCount,
       missingRequirementsCount: missing.items.length,
+      itemsOverdueCount: itemsOverdue,
+      itemsExpiringSoonCount: itemsExpiringSoon,
+      activeItemsCount: activeItems.items.length,
       approximate: [notSatisfied, missing, pending, satisfied, activeItems].some((r) => r.scanLimitReached),
     };
   }

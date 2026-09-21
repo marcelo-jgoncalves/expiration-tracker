@@ -3,13 +3,17 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AppShell } from "../../src/shell/AppShell.js";
 
-const { useAuthMock, useCurrentMembershipRoleMock } = vi.hoisted(() => ({
+const { useAuthMock, useCurrentMembershipRoleMock, useActiveOrganizationMock } = vi.hoisted(() => ({
   useAuthMock: vi.fn(),
   useCurrentMembershipRoleMock: vi.fn(),
+  useActiveOrganizationMock: vi.fn(),
 }));
 
 vi.mock("../../src/auth/AuthContext.js", () => ({ useAuth: useAuthMock }));
 vi.mock("../../src/hooks/useCurrentMembershipRole.js", () => ({ useCurrentMembershipRole: useCurrentMembershipRoleMock }));
+// SidebarUserFooter's own concern (#15/sidebar identity card) - this suite verifies nav
+// RBAC-filtering only, same rationale as the OrganizationSwitcher stub below.
+vi.mock("../../src/auth/ActiveOrganizationContext.js", () => ({ useActiveOrganization: useActiveOrganizationMock }));
 // OrganizationSwitcher pulls in TanStack Query + network-shaped hooks unrelated to what this
 // suite verifies (nav RBAC-filtering) - stubbed out, same rationale as mocking apiClient in
 // route tests that don't exercise the network layer themselves.
@@ -36,6 +40,7 @@ function renderShell(initialEntry = "/app/org-1/overview") {
 beforeEach(() => {
   useAuthMock.mockReset().mockReturnValue({ logout: vi.fn() });
   useCurrentMembershipRoleMock.mockReset();
+  useActiveOrganizationMock.mockReset().mockReturnValue({ displayName: undefined, email: undefined });
 });
 
 describe("AppShell nav (D-2xx, Block 0 - declarative + RBAC-aware)", () => {
@@ -82,6 +87,40 @@ describe("AppShell nav (D-2xx, Block 0 - declarative + RBAC-aware)", () => {
   });
 });
 
+describe("SidebarUserFooter (#15/sidebar identity card, 2026-09-21)", () => {
+  it("shows the resolved displayName and role, and the initials avatar", () => {
+    useCurrentMembershipRoleMock.mockReturnValue("ADMIN");
+    useActiveOrganizationMock.mockReturnValue({ displayName: "Ana Exemplo", email: "ana@example.com" });
+    renderShell();
+    expect(screen.getByText("Ana Exemplo")).toBeInTheDocument();
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("AE")).toBeInTheDocument();
+  });
+
+  it("falls back to email when displayName is absent", () => {
+    useCurrentMembershipRoleMock.mockReturnValue("MEMBER");
+    useActiveOrganizationMock.mockReturnValue({ displayName: undefined, email: "ana@example.com" });
+    renderShell();
+    expect(screen.getByText("ana@example.com")).toBeInTheDocument();
+  });
+
+  it("falls back to the role alone, never duplicated on both lines, when neither displayName nor email resolved", () => {
+    useCurrentMembershipRoleMock.mockReturnValue("MEMBER");
+    useActiveOrganizationMock.mockReturnValue({ displayName: undefined, email: undefined });
+    renderShell();
+    expect(screen.getAllByText("Member")).toHaveLength(1);
+  });
+
+  it("calls logout when the icon-only Sair button is clicked", () => {
+    const logoutMock = vi.fn();
+    useAuthMock.mockReturnValue({ logout: logoutMock });
+    useCurrentMembershipRoleMock.mockReturnValue("OWNER");
+    renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "Sair" }));
+    expect(logoutMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("AppShell nav highlighting (real bug, live `dev` 2026-09-14: Configurações stayed lit after navigating to unrelated screens)", () => {
   beforeEach(() => {
     useCurrentMembershipRoleMock.mockReturnValue("OWNER");
@@ -111,7 +150,7 @@ describe("AppShell nav highlighting (real bug, live `dev` 2026-09-14: Configura�
   });
 
   // The actual reported bug: these two routes are THEMSELVES separate nav items nested under
-  // /settings/* (Tipos de documento / Minhas preferências de notificação) - reachable directly
+  // /settings/* (Tipos de documento / Notificações) - reachable directly
   // from the nav, never only via Configurações. Before the `end` fix, Configurações stayed
   // highlighted the whole time a user browsed between these "other menu items".
   it("does NOT mark Configurações active while on the nested /settings/document-types screen (its own nav item highlights instead)", () => {
@@ -122,8 +161,8 @@ describe("AppShell nav highlighting (real bug, live `dev` 2026-09-14: Configura�
 
   it("clears Configurações highlighting when moving directly between two nested /settings/* screens", () => {
     renderShell("/app/org-1/settings/document-types");
-    fireEvent.click(screen.getByRole("link", { name: "Minhas preferências de notificação" }));
+    fireEvent.click(screen.getByRole("link", { name: "Notificações" }));
     expect(screen.getByRole("link", { name: "Configurações" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("link", { name: "Minhas preferências de notificação" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Notificações" })).toHaveAttribute("aria-current", "page");
   });
 });

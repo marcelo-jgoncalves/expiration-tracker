@@ -13,6 +13,7 @@
  */
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Check, FolderArchive, FolderUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubjectsDashboard } from "../../hooks/useSubjectsDashboard.js";
 import { useArchiveSubject } from "../../hooks/useArchiveSubject.js";
@@ -23,7 +24,8 @@ import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
-import { PageHeader, Toolbar } from "../../components/ui/Layout.js";
+import { IconButton, IconButtonLink } from "../../components/ui/IconButton.js";
+import { PageHeader, Panel, StatusFilter, Toolbar } from "../../components/ui/Layout.js";
 import { TextField } from "../../components/forms/TextField.js";
 import type { TrackedSubject, TrackedSubjectStatus } from "../../api/types.js";
 
@@ -90,58 +92,54 @@ export function SubjectsCollection() {
       <PageHeader
         title="Fornecedores"
         description="Terceiros que precisam manter documentação em dia com você."
-        actions={canWrite ? <ButtonLink variant="primary" to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+        actions={canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
       />
       <Toolbar>
-        <nav aria-label="Filtrar por status">
-          {STATUS_TABS.map((tab) => (
-            <Button key={tab.value} variant={tab.value === status ? "primary" : "secondary"} size="sm" aria-current={tab.value === status ? "page" : undefined} onClick={() => selectStatus(tab.value)}>
-              {tab.label}
-            </Button>
-          ))}
-        </nav>
-        <TextField label="Buscar fornecedores" hint="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
+        <StatusFilter options={STATUS_TABS} value={status} onChange={selectStatus} />
+        <TextField label="Buscar fornecedores" hideLabel placeholder="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
         {isBackgroundRefreshing ? <BackgroundRefreshIndicator /> : null}
       </Toolbar>
       {allSubjects.length === 0 ? (
         <EmptyState
           kind={status === "ACTIVE" ? "true-empty" : "filtered-empty"}
           message={status === "ACTIVE" ? "Nenhum fornecedor cadastrado ainda. Cadastre o primeiro fornecedor para começar a acompanhar a documentação dele." : "Nenhum fornecedor neste status."}
-          action={status === "ACTIVE" && canWrite ? <ButtonLink variant="primary" to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+          action={status === "ACTIVE" && canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
         />
       ) : filtered.length === 0 ? (
         <EmptyState kind="filtered-empty" message={`Nenhum fornecedor encontrado para "${searchTerm}".`} action={<Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar busca</Button>} />
       ) : (
-        <DataTable
-          caption="Fornecedores"
-          rowKey={(s: TrackedSubject) => s.subjectId}
-          rows={filtered}
-          columns={[
-            {
-              key: "name",
-              header: "Fornecedor",
-              primary: true,
-              render: (s) => (
-                <>
-                  <Link to={orgPath(`/subjects/${s.subjectId}`)}>{s.displayName}</Link>
-                  {s.externalId ? <CellSecondary>{s.externalId}</CellSecondary> : null}
-                </>
-              ),
-            },
-            { key: "type", header: "Tipo", render: (s) => presentSubjectType(s.type) },
-            {
-              key: "tags",
-              header: "Tags",
-              render: (s) => (s.tags.length ? s.tags.slice(0, 2).join(", ") + (s.tags.length > 2 ? ` +${s.tags.length - 2}` : "") : "—"),
-            },
-            {
-              key: "actions",
-              header: "Ações",
-              actions: true,
-              render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} orgPath={orgPath} />,
-            },
-          ]}
-        />
+        <Panel>
+          <DataTable
+            caption="Fornecedores"
+            rowKey={(s: TrackedSubject) => s.subjectId}
+            rows={filtered}
+            columns={[
+              {
+                key: "name",
+                header: "Fornecedor",
+                primary: true,
+                render: (s) => (
+                  <>
+                    <Link to={orgPath(`/subjects/${s.subjectId}`)}>{s.displayName}</Link>
+                    {s.externalId ? <CellSecondary>{s.externalId}</CellSecondary> : null}
+                  </>
+                ),
+              },
+              { key: "type", header: "Tipo", render: (s) => presentSubjectType(s.type) },
+              {
+                key: "tags",
+                header: "Tags",
+                render: (s) => (s.tags.length ? s.tags.slice(0, 2).join(", ") + (s.tags.length > 2 ? ` +${s.tags.length - 2}` : "") : "—"),
+              },
+              {
+                key: "actions",
+                header: "Ações",
+                actions: true,
+                render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} orgPath={orgPath} />,
+              },
+            ]}
+          />
+        </Panel>
       )}
     </div>
   );
@@ -168,12 +166,13 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
 
   return (
     <>
-      <ButtonLink size="sm" variant="secondary" to={orgPath(`/subjects/${subject.subjectId}/edit`)}>
-        Editar
-      </ButtonLink>{" "}
-      <Button
+      <IconButtonLink size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} to={orgPath(`/subjects/${subject.subjectId}/edit`)}>
+        <Pencil size={16} strokeWidth={2} aria-hidden="true" />
+      </IconButtonLink>
+      <IconButton
         size="sm"
-        variant="secondary"
+        variant="ghost"
+        label={subject.status === "ARCHIVED" ? `Reativar ${subject.displayName}` : `Arquivar ${subject.displayName}`}
         disabled={archiveMutation.isPending}
         onClick={() =>
           archiveMutation.mutate(
@@ -190,14 +189,14 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
           )
         }
       >
-        {subject.status === "ARCHIVED" ? "Reativar" : "Arquivar"}
-      </Button>
+        {subject.status === "ARCHIVED" ? <FolderUp size={16} strokeWidth={2} aria-hidden="true" /> : <FolderArchive size={16} strokeWidth={2} aria-hidden="true" />}
+      </IconButton>
       {canDelete ? (
         confirmingDelete ? (
           <span role="alertdialog" aria-label={`Excluir ${subject.displayName}`}>
             {" "}
             Excluir &quot;{subject.displayName}&quot; permanentemente?{" "}
-            <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
+            <Button size="sm" variant="danger" icon={Check} pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
               Confirmar exclusão
             </Button>{" "}
             <Button size="sm" variant="secondary" onClick={() => setConfirmingDelete(false)}>
@@ -205,12 +204,9 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
             </Button>
           </span>
         ) : (
-          <>
-            {" "}
-            <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)}>
-              Excluir
-            </Button>
-          </>
+          <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => setConfirmingDelete(true)}>
+            <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+          </IconButton>
         )
       ) : null}
       {archiveMutation.isConflict ? <span role="alert"> Este fornecedor mudou desde que a página carregou — atualize antes de tentar de novo.</span> : null}

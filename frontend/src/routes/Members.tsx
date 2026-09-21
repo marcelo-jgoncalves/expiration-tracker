@@ -6,6 +6,7 @@
  * the backend's `authorize()` (see `useCurrentMembershipRole.ts`'s doc comment).
  */
 import { useState, type FormEvent } from "react";
+import { UserPlus, UserX, X } from "lucide-react";
 import { useMembers } from "../hooks/useMembers.js";
 import { useInvitations } from "../hooks/useInvitations.js";
 import { useInviteMember } from "../hooks/useInviteMember.js";
@@ -16,11 +17,13 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { ApiError } from "../api/errors.js";
 import { isValidationError } from "../api/validation.js";
 import type { Member, MembershipRole } from "../api/types.js";
+import { presentMemberLabel, presentMembershipRole, presentMembershipStatus, presentInvitationStatus } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
+import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
 
@@ -59,7 +62,7 @@ function InviteForm() {
     <form onSubmit={handleSubmit}>
       <TextField label="E-mail" value={email} onChange={setEmail} required type="text" autoComplete="email" error={errorMessage} />
       <SelectField label="Papel" value={role} onChange={(value) => setRole(value as MembershipRole)} options={ROLE_OPTIONS} required />
-      <Button type="submit" variant="primary" pending={invite.isPending}>
+      <Button type="submit" variant="primary" icon={UserPlus} pending={invite.isPending}>
         {invite.isPending ? "Enviando…" : "Convidar"}
       </Button>
     </form>
@@ -83,7 +86,14 @@ function MembersTable({ members, canManage, actorRole }: { members: Member[]; ca
   }
 
   const columns: DataTableColumn<Member>[] = [
-    { key: "userId", header: "Usuário", primary: true, render: (m) => m.userId },
+    {
+      key: "userId",
+      header: "Usuário",
+      primary: true,
+      // #15 (2026-09-21): displayName/email when resolved, raw userId as the last-resort
+      // fallback and always as the title (still the ground truth for support/debugging).
+      render: (m) => <span title={m.userId}>{presentMemberLabel(m)}</span>,
+    },
     {
       key: "role",
       header: "Papel",
@@ -96,16 +106,17 @@ function MembersTable({ members, canManage, actorRole }: { members: Member[]; ca
             onChange={(value) => changeRole.mutate({ userId: m.userId, role: value as MembershipRole, expectedVersion: m.version })}
           />
         ) : (
-          m.role
+          presentMembershipRole(m.role)
         ),
     },
-    { key: "status", header: "Status", render: (m) => m.status },
+    { key: "status", header: "Status", render: (m) => <StatusBadge presentation={presentMembershipStatus(m.status)} /> },
     {
       key: "actions",
       header: "Ações",
+      actions: true,
       render: (m) =>
         canManage ? (
-          <Button variant="danger" size="sm" onClick={() => removeMember.mutate({ userId: m.userId, expectedVersion: m.version })} pending={removeMember.isPending}>
+          <Button variant="danger" size="sm" icon={UserX} onClick={() => removeMember.mutate({ userId: m.userId, expectedVersion: m.version })} pending={removeMember.isPending}>
             Remover
           </Button>
         ) : null,
@@ -206,13 +217,14 @@ export function Members() {
                 caption="Convites pendentes"
                 columns={[
                   { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
-                  { key: "role", header: "Papel", render: (i) => i.role },
-                  { key: "status", header: "Status", render: (i) => i.status },
+                  { key: "role", header: "Papel", render: (i) => presentMembershipRole(i.role) },
+                  { key: "status", header: "Status", render: (i) => <StatusBadge presentation={presentInvitationStatus(i.status)} /> },
                   {
                     key: "actions",
                     header: "Ações",
+                    actions: true,
                     render: (i) => (
-                      <Button variant="tertiary" size="sm" onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
+                      <Button variant="tertiary" size="sm" icon={X} onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
                         Revogar
                       </Button>
                     ),

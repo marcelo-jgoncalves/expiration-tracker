@@ -74,6 +74,7 @@
  * highlighting is unaffected, it was never the item with the bug.
  */
 import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { useNotificationPreferences } from "../hooks/useNotificationPreferences.js";
 import { useUpdateNotificationPreferences } from "../hooks/useUpdateNotificationPreferences.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
@@ -131,7 +132,7 @@ export function NotificationPreferences() {
   const { organizationId } = useActiveOrganization();
   return (
     <div className="notif-prefs">
-      <PageHeader title="Minhas preferências de notificação" description="Como você, pessoalmente, recebe lembretes. Não afeta outros usuários." />
+      <PageHeader title="Notificações" description="Como você, pessoalmente, recebe lembretes. Não afeta outros usuários." />
       <PreferencesPanel key={organizationId ?? "none"} />
     </div>
   );
@@ -395,7 +396,7 @@ function PreferencesPanel() {
         fit its own content. Rendering the footer as Panel's OWN SIBLING lets it stick against the
         real page scroll, matching the spec's "rodapé... permanece fixo/reachable" requirement. */}
       <div className="notif-prefs__footer">
-        <Button variant="primary" pending={saving} disabled={Boolean(quietHoursError) || conflict} onClick={() => void handleSave()}>
+        <Button variant="primary" icon={Check} pending={saving} disabled={Boolean(quietHoursError) || conflict} onClick={() => void handleSave()}>
           {saveLabel}
         </Button>
       </div>

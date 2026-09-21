@@ -4,7 +4,14 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildDocumentHttpDeps } from "../composition/document.js";
 import { buildFieldConfirmationDeps } from "../composition/extraction.js";
-import { handleReserveUpload, handleDeleteDocument, handleGetDocument, handleListDocuments, type DocumentHttpDeps } from "../../../modules/document/http/document-handlers.js";
+import {
+  handleReserveUpload,
+  handleDeleteDocument,
+  handleGetDocument,
+  handleListDocuments,
+  handleDownloadDocument,
+  type DocumentHttpDeps,
+} from "../../../modules/document/http/document-handlers.js";
 import { handleConfirmField, handleRejectField, type ExtractionHttpDeps } from "../../../modules/extraction/http/extraction-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
@@ -42,6 +49,8 @@ async function handleDocumentsRoute(event: APIGatewayProxyEventV2WithJWTAuthoriz
           return await handleListDocuments(deps, base);
         case "GET /items/{itemId}/documents/{documentId}":
           return await handleGetDocument(deps, base);
+        case "GET /items/{itemId}/documents/{documentId}/download":
+          return await handleDownloadDocument(deps, base);
         case "DELETE /items/{itemId}/documents/{documentId}":
           return await handleDeleteDocument(deps, base);
         case "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm":

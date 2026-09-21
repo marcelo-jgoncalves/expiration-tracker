@@ -44,6 +44,8 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents" },
   { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}" },
+  // D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned S3 URL.
+  { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}/download" },
   // D-258: item->policy discovery for A06 (Reminder Policy screen).
   { method: "GET", pathTemplate: "/items/{itemId}/reminder-policy" },
   { method: "DELETE", pathTemplate: "/items/{itemId}/documents/{documentId}" },

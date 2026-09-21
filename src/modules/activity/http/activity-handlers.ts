@@ -74,7 +74,7 @@ async function consumeApiRequestQuota(quota: TenantQuotaService, tenantId: strin
 function buildQueryObject(qs: Record<string, string | undefined> | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!qs) return out;
-  for (const key of ["month", "resourceType", "limit", "cursor"] as const) {
+  for (const key of ["month", "resourceType", "resourceId", "limit", "cursor"] as const) {
     const value = qs[key];
     if (value !== undefined) out[key] = value;
   }
@@ -98,6 +98,7 @@ export async function handleListActivity(deps: ActivityHttpDeps, req: HttpReques
     const page = await deps.activity.listActivity(context, {
       month: queryObject["month"],
       resourceType: queryObject["resourceType"],
+      resourceId: queryObject["resourceId"],
       limit: queryObject["limit"] !== undefined ? Number(queryObject["limit"]) : undefined,
       cursor: queryObject["cursor"],
     });

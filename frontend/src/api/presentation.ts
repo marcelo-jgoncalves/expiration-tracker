@@ -29,13 +29,21 @@ import type {
   ImportJobStatus,
   DocumentChasingTier,
   DocumentChasingOccurrenceStatus,
+  Member,
+  MembershipRole,
+  MembershipStatus,
+  InvitationStatus,
 } from "./types.js";
 
 export interface StatusPresentation {
   label: string;
   /** Semantic tone for structural styling (never color-only per WCAG 1.4.1, matching the
-   * prototype's established convention of pairing status with a text label always). */
-  tone: "neutral" | "warning" | "danger";
+   * prototype's established convention of pairing status with a text label always).
+   * `info` (Marcelo, 2026-09-20): calm/informational, never a claim of correctness - unlike
+   * `success` (still fully reserved/unused, see `StatusBadge.tsx`'s header comment), `info`
+   * carries no "tudo certo" claim, so it doesn't need the same Type 1 scrutiny. Only
+   * `presentItemUrgency`'s "Sem urgência" emits it today. */
+  tone: "neutral" | "warning" | "danger" | "success" | "info";
 }
 
 /**
@@ -120,7 +128,7 @@ export function presentItemUrgency(item: Pick<ExpirationItem, "status" | "dueDat
   if (daysUntil <= SOON_THRESHOLD_DAYS) {
     return { label: daysUntil === 1 ? "Vence em 1 dia" : `Vence em ${daysUntil} dias`, tone: "warning", daysUntil, group: "soon" };
   }
-  return { label: "Sem urgência", tone: "neutral", daysUntil, group: "later" };
+  return { label: "Sem urgência", tone: "info", daysUntil, group: "later" };
 }
 
 /** Storage-quota-scoping (D-2xx) - "1,2 GB de 8 GB", pt-BR decimal comma via Intl, GB-only
@@ -360,6 +368,83 @@ export function presentDocumentChasingOccurrenceStatus(status: DocumentChasingOc
       return { label: "Enviado", tone: "neutral" };
     case "CANCELLED":
       return { label: "Cancelado", tone: "neutral" };
+  }
+}
+
+/** #15 (2026-09-21): a display label for a member, preferring the resolved GlobalUser profile
+ * over the raw userId - `displayName` first (what a person actually goes by), `email` next
+ * (still identifies them, just less friendly), the raw `userId` only as the last resort when
+ * neither resolved (never a blank/placeholder that could be mistaken for "loading"). */
+export function presentMemberLabel(member: Pick<Member, "userId" | "displayName" | "email">): string {
+  return member.displayName || member.email || member.userId;
+}
+
+/** Same fallback rule as `presentMemberLabel`, for the common case of resolving a bare
+ * `assigneeUserId` (e.g. `ExpirationItem.assigneeUserId`) against an already-fetched member
+ * roster - `undefined` when the id isn't a member of this roster (removed member, stale
+ * reference, or the roster hasn't loaded yet), letting the caller decide the fallback (usually
+ * the raw id itself, so something is still shown rather than nothing). */
+export function resolveAssigneeLabel(assigneeUserId: string | undefined, members: Member[] | undefined): string | undefined {
+  if (!assigneeUserId) return undefined;
+  const member = members?.find((m) => m.userId === assigneeUserId);
+  return member ? presentMemberLabel(member) : undefined;
+}
+
+/** Sidebar identity card (2026-09-21): up to 2 characters for an avatar badge - first letter of
+ * the first two whitespace-separated words of a display name ("Ana Exemplo" -> "AE"), or the
+ * first letter alone for a single word/an email local-part fallback. Never more than 2 chars -
+ * the avatar badge has no room for more and a longer string would just get clipped by CSS. */
+export function initialsFor(name: string | undefined): string {
+  if (!name) return "";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
+}
+
+const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  MEMBER: "Member",
+  VIEWER: "Viewer",
+};
+
+/** Same 4 labels `Members.tsx`'s `ROLE_OPTIONS` already shows in its role-change dropdown - a
+ * single source for anywhere else (e.g. the sidebar identity card) that needs to display a
+ * role, so the two never drift apart. */
+export function presentMembershipRole(role: MembershipRole): string {
+  return MEMBERSHIP_ROLE_LABEL[role];
+}
+
+/** #15 redesign (2026-09-21) - `Members.tsx`'s active-members table previously rendered the raw
+ * enum value (`ACTIVE`) as text. `ACTIVE` stays `neutral`, never `success` (`StatusBadge.tsx`'s
+ * header comment): membership being active is a plain state, not a proof this domain can make a
+ * stronger claim about. */
+export function presentMembershipStatus(status: MembershipStatus): StatusPresentation {
+  switch (status) {
+    case "ACTIVE":
+      return { label: "Ativo", tone: "neutral" };
+    case "SUSPENDED":
+      return { label: "Suspenso", tone: "warning" };
+    case "REMOVED":
+      return { label: "Removido", tone: "danger" };
+  }
+}
+
+/** Same rationale as `presentMembershipStatus` for the pending-invitations table - `PENDING`
+ * mirrors `presentImportJobStatus`'s "needs attention" `warning` tone, `EXPIRED` the same tone
+ * used there for a lapsed TTL, never `danger` (no one caused a failure by letting an invite
+ * expire). `ACCEPTED`/`REVOKED` are closed, uneventful outcomes - `neutral`. */
+export function presentInvitationStatus(status: InvitationStatus): StatusPresentation {
+  switch (status) {
+    case "PENDING":
+      return { label: "Pendente", tone: "warning" };
+    case "ACCEPTED":
+      return { label: "Aceito", tone: "neutral" };
+    case "REVOKED":
+      return { label: "Revogado", tone: "neutral" };
+    case "EXPIRED":
+      return { label: "Expirado", tone: "warning" };
   }
 }
 

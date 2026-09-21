@@ -17,6 +17,7 @@
  * driven by `isConflict(error)`.
  */
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -128,7 +129,7 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
           Não foi possível salvar. Tente novamente.
         </InlineNotice>
       ) : null}
-      <Button variant="primary" pending={mutation.isPending} onClick={() => void handleSave()}>
+      <Button variant="primary" icon={Check} pending={mutation.isPending} onClick={() => void handleSave()}>
         {mutation.isPending ? "Salvando…" : "Salvar padrão"}
       </Button>
     </Panel>

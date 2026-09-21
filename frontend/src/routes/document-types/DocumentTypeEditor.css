@@ -1,0 +1,62 @@
+/* A20 — Editor de campos de metadados (Block 4, D-2xx). Each field renders as "um card com
+   borda" — the same lightweight bordered-row treatment as `RequirementTemplates.css`'s
+   `.template-item-card` (there is deliberately no `Card` component, `Layout.tsx`'s own header
+   comment: "cards must stay light and must not multiply"). Archived fields are dimmed, not
+   hidden, so an admin can still find and reactivate them. */
+
+.doctype-field-list {
+  list-style: none;
+  margin: 0 0 var(--space-4) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.doctype-field-card {
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.doctype-field-card--archived {
+  opacity: 0.7;
+}
+
+.doctype-field-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.doctype-field-card__title {
+  color: var(--color-text-primary);
+}
+
+.doctype-field-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.doctype-field-options {
+  list-style: none;
+  margin: var(--space-3) 0 0 0;
+  padding: var(--space-3) 0 0 0;
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Narrow viewports: title and admin actions stack instead of the actions row wrapping mid-word
+   next to the field name (same discipline as `RequirementTemplates.css`'s `.template-actions`
+   responsive rule). */
+@media (max-width: 640px) {
+  .doctype-field-card__row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -70,6 +70,11 @@ export interface SessionWithOnboarding {
    * meaning of `onboardingState`, which `OnboardingStateResolver` never evaluates lifecycle
    * for - achado da Rodada 1 do Codex). */
   organizationSelectionRequired?: { organizations: UsableOrganization[] };
+  /** #15/sidebar identity card (2026-09-21): resolved from `GlobalUser`, same "absent means no
+   * name/email on file" rule as everywhere else this data surfaces - never `session.userId`
+   * itself, which stays excluded from every session-shaped response by design (D-095/D-096). */
+  displayName?: string;
+  email?: string;
 }
 
 export interface StartedLogin {
@@ -131,7 +136,9 @@ export class BffAuthService {
       nonce,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
-      scope: "openid email", // matches infra/modules/cognito's allowed_oauth_scopes - "email" is what populates idClaims.email below
+      // matches infra/modules/cognito's allowed_oauth_scopes - "email"/"profile" are what
+      // populate idClaims.email/idClaims.name below (#15, 2026-09-21).
+      scope: "openid email profile",
     });
 
     return { loginToken: issued.token, redirectUrl: `${this.deps.authorizeUrl}?${params.toString()}` };
@@ -194,7 +201,7 @@ export class BffAuthService {
     // (IdentityBootstrapService ignores it on repeat logins) - authentication no longer creates
     // any tenant, just the global identity (2-item transact: GlobalUser + IdentityMapping).
     const newUserId = this.deps.newUserId();
-    const { mapping, user } = await this.deps.bootstrap.bootstrapUser(idClaims.subject, newUserId, (idClaims.email ?? "").toLowerCase());
+    const { mapping, user } = await this.deps.bootstrap.bootstrapUser(idClaims.subject, newUserId, (idClaims.email ?? "").toLowerCase(), idClaims.name);
     if (user.identityStatus !== "ACTIVE") {
       throw new AuthenticationError("User is not active.");
     }
@@ -553,11 +560,19 @@ export class BffAuthService {
    *    `organizationSelectionRequired` with the full list, never "pega a primeira". */
   async resolveSessionWithOnboarding(sessionCookie: string | undefined): Promise<SessionWithOnboarding> {
     const session = await this.resolveSession(sessionCookie);
+    // #15/sidebar identity card (2026-09-21): resolved once here (never re-read per branch
+    // below) - the same "no name/email on file" absent-is-honest treatment `GlobalUser.
+    // displayName`/`emailNormalized` already get everywhere else (recipient-resolver.ts,
+    // list-membership.ts). Deliberately does NOT add `userId` to the response - that stays
+    // excluded from the session by design (D-095/D-096, see this file's SessionWithOnboarding
+    // doc comment) - only the already-resolvable profile fields are new here.
+    const globalUser = await this.deps.globalUsers.get(session.userId);
+    const profile = { displayName: globalUser?.displayName, email: globalUser?.emailNormalized || undefined };
 
     if (session.activeOrganizationId) {
       const result = await resolveWorkingOrganization(this.deps.organizations, session.userId, session.activeOrganizationId);
       if (result.status === "OK") {
-        return { session, activeOrganizationId: session.activeOrganizationId };
+        return { session, activeOrganizationId: session.activeOrganizationId, ...profile };
       }
       await this.deps.sessionStore.updateConditional<Session>(
         { ...session, activeOrganizationId: undefined, updatedAt: this.deps.now(), version: session.version + 1 },
@@ -570,12 +585,12 @@ export class BffAuthService {
 
     if (usable.length === 0) {
       if (onboardingState !== "HAS_USABLE_MEMBERSHIP") {
-        return { session, onboardingState };
+        return { session, onboardingState, ...profile };
       }
       // OnboardingStateResolver never evaluates lifecycle - HAS_USABLE_MEMBERSHIP here means
       // only "some Membership exists", not "some Membership is currently usable". Honest signal
       // (empty list) instead of a misleading onboardingState.
-      return { session, organizationSelectionRequired: { organizations: [] } };
+      return { session, organizationSelectionRequired: { organizations: [] }, ...profile };
     }
 
     if (usable.length === 1) {
@@ -584,10 +599,10 @@ export class BffAuthService {
         { ...session, activeOrganizationId: organization!.organizationId, updatedAt: this.deps.now(), version: session.version + 1 },
         { version: session.version },
       );
-      return { session, activeOrganizationId: organization!.organizationId };
+      return { session, activeOrganizationId: organization!.organizationId, ...profile };
     }
 
-    return { session, organizationSelectionRequired: { organizations: usable } };
+    return { session, organizationSelectionRequired: { organizations: usable }, ...profile };
   }
 
   /** `POST /bff/organization/select` (Wave B2B-6, D-101). Same CSRF/mutation discipline as
@@ -622,11 +637,13 @@ export class BffAuthService {
    * Cap is TRANSACTIONAL, not check-then-act (Codex Rodada 3 achado): `GlobalUser.
    * hasCreatedOrganization` is set via a `Update` (`buildAttributeOnceUpdate`, tenantless -
    * `GlobalUser` has no `tenantId` for `buildVersionedUpdate`'s reserved condition to check)
-   * inside the SAME `TransactWriteItems` as the 4 `Put`s `CreateOrganizationService.
-   * buildCreateEntries()` builds - 5 items, not 4, committed atomically. The cap entry is index
-   * 0 - only ITS `ConditionalCheckFailed` means "already created an organization"; any other
-   * index failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as
-   * a genuine unexpected error instead of being misreported as the cap (Codex Rodada 3 achado).
+   * inside the SAME `TransactWriteItems` as the `Put`s `CreateOrganizationService.
+   * buildCreateEntries()` builds (5 as of the NotificationEntitlements addition,
+   * PENDING_PROTOCOL_REVIEW - see decisions-log.md) - committed atomically. The cap entry is
+   * index 0, prepended via spread regardless of how many entries `buildCreateEntries()` returns
+   * - only ITS `ConditionalCheckFailed` means "already created an organization"; any other index
+   * failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as a
+   * genuine unexpected error instead of being misreported as the cap (Codex Rodada 3 achado).
    *
    * Takes an already-resolved `Session` (same pattern as `ProxyService.forward(session, ...)`)
    * instead of a cookie - the handler already resolves the session once to run its own CSRF

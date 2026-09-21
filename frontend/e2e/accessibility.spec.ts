@@ -245,6 +245,13 @@ test("A11Y-focus-not-obscured: nothing in the system is sticky or fixed, so focu
       // The skip link is absolutely positioned and is itself the first focusable element; it
       // can never cover the thing it hands focus to.
       .filter((element) => !element.classList.contains("skip-link"))
+      // `.app-shell__nav` (Marcelo, 2026-09-21) is `position: sticky` WITHIN its own fixed-width
+      // flex column (`.app-shell { display: flex }`, `flex: none` on the nav) - it never overlaps
+      // `.app-shell__main`'s content region, so it cannot obscure focus of anything the user tabs
+      // to (SC 2.4.11's actual criterion). A blanket "nothing sticky" check was a sufficient proxy
+      // for that criterion before this legitimate sidebar existed; this allowlists it by name
+      // rather than weakening the check for anything else that might become sticky/fixed later.
+      .filter((element) => !element.classList.contains("app-shell__nav"))
       .map((element) => element.tagName.toLowerCase() + "." + String(element.className).split(" ")[0]),
   );
   expect(pinned).toEqual([]);

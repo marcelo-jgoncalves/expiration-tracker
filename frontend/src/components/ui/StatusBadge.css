@@ -50,6 +50,14 @@
   border-radius: 1px;
 }
 
+/* Losango (Marcelo, 2026-09-20): `success` precisava da própria forma - sem isso reaproveitaria
+   a bolinha do `neutral` e a distinção viraria só cor, quebrando a regra acima ("shape alone is
+   discriminating, not merely present"). */
+.ui-badge--success .ui-badge__marker {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
 .ui-badge--neutral {
   color: var(--color-status-neutral-fg);
   background: var(--color-status-neutral-bg);

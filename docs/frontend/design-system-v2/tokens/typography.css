@@ -1,0 +1,26 @@
+/* Typography. Official direction as of 2026-08-27: Plus Jakarta Sans (see tokens/fonts.css for
+   the @font-face/import), replacing the earlier system-UI-only stack. Sizes are rem-based so
+   200% zoom and OS font-size settings both work; 1rem = 16px. */
+
+:root {
+  --font-family-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+
+  --font-size-100: 0.75rem; /* 12px — restricted: table column headers, badge text */
+  --font-size-200: 0.8125rem; /* 13px — supportive metadata, hints */
+  --font-size-300: 0.875rem; /* 14px — productive UI body/control text (default) */
+  --font-size-400: 1rem; /* 16px — comfortable body/help text */
+  --font-size-500: 1.125rem; /* 18px — section headings */
+  --font-size-600: 1.375rem; /* 22px — page title */
+  --font-size-700: 1.75rem; /* 28px — rare, large numerals */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 550;
+  --font-weight-semibold: 650;
+
+  --line-height-tight: 1.3;
+  --line-height-default: 1.5;
+  --line-height-relaxed: 1.6;
+
+  --letter-spacing-tight: -0.01em;
+  --letter-spacing-normal: 0;
+}

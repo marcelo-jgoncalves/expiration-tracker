@@ -39,11 +39,11 @@ export class FakeCognitoOidcClient implements CognitoOidcClient {
 }
 
 export class FakeIdTokenVerifier implements IdTokenVerifier {
-  nextResult: { subject: string; email?: string } = { subject: "cognito-sub-1", email: "user@example.com" };
+  nextResult: { subject: string; email?: string; name?: string } = { subject: "cognito-sub-1", email: "user@example.com" };
   shouldThrow = false;
   lastCall?: { idToken: string; expectedNonce: string };
 
-  async verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string }> {
+  async verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string; name?: string }> {
     this.lastCall = { idToken, expectedNonce };
     if (this.shouldThrow) throw new Error("nonce mismatch");
     return this.nextResult;

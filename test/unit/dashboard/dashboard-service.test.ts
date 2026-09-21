@@ -81,6 +81,10 @@ describe("DashboardService.getSummary (Roadmap P0.6, fatia 1)", () => {
     const summary = await makeService(documentStore, itemStore).getSummary(ctx());
     expect(summary.overdueCount).toBe(3); // 2 requirements + 1 item
     expect(summary.approximate).toBe(false);
+    // PENDING_PROTOCOL_REVIEW (D-308 pendência #14): itemsOverdueCount is the ExpirationItem-only
+    // slice of the combined overdueCount above - mutation: folding the 2 requirements into it
+    // (e.g. reusing `overdueCount` as-is) would make this 3 instead of 1.
+    expect(summary.itemsOverdueCount).toBe(1);
   });
 
   it("counts expiringSoon = Requirement.SATISFIED nearing evidenceValidUntil + ExpirationItem.ACTIVE nearing dueDate (7-day window)", async () => {
@@ -93,6 +97,9 @@ describe("DashboardService.getSummary (Roadmap P0.6, fatia 1)", () => {
     ]);
     const summary = await makeService(documentStore, itemStore).getSummary(ctx());
     expect(summary.expiringSoonCount).toBe(2); // 1 requirement + 1 item
+    // Mutation: reusing `expiringSoonCount` (which also counts the 1 requirement) instead of the
+    // item-only local `itemsExpiringSoon` accumulator would make this 2 instead of 1.
+    expect(summary.itemsExpiringSoonCount).toBe(1);
   });
 
   it("counts awaitingReview = Requirement.PENDING with evidence still mid-flow only (excludes terminal-but-not-accepted evidence)", async () => {
@@ -114,7 +121,29 @@ describe("DashboardService.getSummary (Roadmap P0.6, fatia 1)", () => {
 
   it("returns all-zero counts with approximate:false for an empty tenant", async () => {
     const summary = await makeService(new InMemoryDocumentArchiveStore([]), new InMemoryExpirationStore([])).getSummary(ctx());
-    expect(summary).toEqual({ overdueCount: 0, expiringSoonCount: 0, awaitingReviewCount: 0, missingRequirementsCount: 0, approximate: false });
+    expect(summary).toEqual({
+      overdueCount: 0,
+      expiringSoonCount: 0,
+      awaitingReviewCount: 0,
+      missingRequirementsCount: 0,
+      itemsOverdueCount: 0,
+      itemsExpiringSoonCount: 0,
+      activeItemsCount: 0,
+      approximate: false,
+    });
+  });
+
+  // PENDING_PROTOCOL_REVIEW (D-308 pendência #14): mutation - returning `itemsOverdue +
+  // itemsExpiringSoon` (or any other subset) instead of the full `activeItems.items.length`
+  // would make this 2 instead of 3 (item-3 is ACTIVE but neither overdue nor expiring soon).
+  it("counts activeItemsCount = every ACTIVE ExpirationItem, regardless of urgency bucket", async () => {
+    const itemStore = new InMemoryExpirationStore([
+      makeItem("item-1", "2026-08-01T00:00:00.000Z"), // overdue
+      makeItem("item-2", "2026-09-04T00:00:00.000Z"), // expiring soon
+      makeItem("item-3", "2027-01-01T00:00:00.000Z"), // far future, neither bucket
+    ]);
+    const summary = await makeService(new InMemoryDocumentArchiveStore([]), itemStore).getSummary(ctx());
+    expect(summary.activeItemsCount).toBe(3);
   });
 
   it("denies a role without read access (RBAC negative case)", async () => {

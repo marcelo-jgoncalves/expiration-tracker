@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"></helmet>
+<div style="display:flex;min-height:100vh;background:linear-gradient(180deg,#fbfaff,#f6f5fb);font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;color:#14121f">
+<nav style="width:248px;flex:none;background:#fff;border-right:1px solid #eeecf9;padding:20px 16px;display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;gap:12px;padding:6px 8px 20px">
+<span style="width:36px;height:36px;border-radius:11px;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;box-shadow:0 8px 20px rgba(124,58,237,.28)">ET</span>
+<span style="font-weight:700;font-size:15px">Expiration Tracker</span>
+</div>
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#a29dc4;padding:14px 12px 6px">Principal</div>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Visão geral</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;background:#7c3aed;color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.28)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M12 14v3l2 1"></path></svg>Vencimentos</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"></rect><line x1="8" y1="6" x2="8" y2="6.01"></line><line x1="12" y1="6" x2="12" y2="6.01"></line><line x1="16" y1="6" x2="16" y2="6.01"></line><line x1="8" y1="10" x2="8" y2="10.01"></line><line x1="12" y1="10" x2="12" y2="10.01"></line><line x1="16" y1="10" x2="16" y2="10.01"></line><line x1="9" y1="22" x2="9" y2="18"></line><line x1="15" y1="22" x2="15" y2="18"></line></svg>Fornecedores</a>
+<a href="#" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;color:#55507a"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>Configurações</a>
+</nav>
+<main style="flex:1;padding:32px 44px 60px;max-width:1280px">
+<header style="margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap">
+<div><h1 style="margin:0;font-size:30px;font-weight:800;letter-spacing:-0.025em">Vencimentos</h1><p style="margin:8px 0 0;font-size:15px;color:#55507a;max-width:62ch;line-height:1.55">Tudo o que está sendo acompanhado.</p></div>
+<button type="button" style="display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-weight:700;font-size:13.5px;padding:10px 18px;border-radius:999px;border:1px solid transparent;cursor:pointer;white-space:nowrap;flex-shrink:0;background:#7c3aed;color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.28)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Novo vencimento</button>
+</header>
+<div style="background:#fff;border-radius:18px;border:1px solid #eeecf9;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;padding:16px 22px;border-bottom:1px solid #eeecf9;flex-wrap:wrap">
+<div style="display:flex;gap:4px;background:#f6f5fb;padding:4px;border-radius:999px">
+<button type="button" onClick="{{ selectActive }}" style="{{ activeTabStyle }}">Ativos</button>
+<button type="button" onClick="{{ selectArchived }}" style="{{ archivedTabStyle }}">Arquivados</button>
+<button type="button" onClick="{{ selectRenewed }}" style="{{ renewedTabStyle }}">Renovados</button>
+</div>
+<span style="margin-left:auto;font-size:12.5px;color:#77729c;font-weight:600;white-space:nowrap;flex-shrink:0">{{ visibleCount }} registros</span>
+<button type="button" style="display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-weight:700;font-size:12.5px;padding:8px 14px;border-radius:999px;cursor:pointer;white-space:nowrap;flex-shrink:0;background:#fff;color:#211d34;border:1px solid #e3e0f2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>Atualizar</button>
+</div>
+<div style="overflow-x:auto">
+<table style="width:100%;min-width:820px;border-collapse:collapse">
+<thead><tr>
+<th style="text-align:left;font-size:12px;font-weight:700;color:#77729c;padding:12px 22px;border-bottom:1px solid #eeecf9">Vencimento</th>
+<th style="text-align:left;font-size:12px;font-weight:700;color:#77729c;padding:12px 22px;border-bottom:1px solid #eeecf9">Categoria</th>
+<th style="text-align:left;font-size:12px;font-weight:700;color:#77729c;padding:12px 22px;border-bottom:1px solid #eeecf9">Data de vencimento</th>
+<th style="text-align:left;font-size:12px;font-weight:700;color:#77729c;padding:12px 22px;border-bottom:1px solid #eeecf9">Responsável</th>
+<th style="text-align:left;font-size:12px;font-weight:700;color:#77729c;padding:12px 22px;border-bottom:1px solid #eeecf9">{{ urgencyColHeader }}</th>
+<th style="padding:12px 22px;border-bottom:1px solid #eeecf9"></th>
+</tr></thead>
+<sc-if value="{{ isActive }}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{ groups }}" as="group" hint-placeholder-count="3">
+<tbody>
+<tr><td colspan="6" style="padding:10px 22px 6px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#a29dc4;background:#fbfaff"><sc-if value="{{ group.always }}" hint-placeholder-val="{{ true }}">{{ group.label }}</sc-if></td></tr>
+<sc-for list="{{ group.rows }}" as="row" hint-placeholder-count="2">
+<tr>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"><sc-if value="{{ row.always }}" hint-placeholder-val="{{ true }}"><a href="#" style="font-weight:600;font-size:13.5px;color:#4c1d95;text-decoration:none;display:block" style-hover="text-decoration:underline">{{ row.name }}</a><span style="font-size:12px;color:#77729c">{{ row.secondary }}</span></sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9">
+<sc-if value="{{ row.tagIsBlue }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#dbeafe;color:#1d4ed8"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ row.category }}</span></sc-if>
+<sc-if value="{{ row.tagIsViolet }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#ede9fe;color:#6d28d9"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ row.category }}</span></sc-if>
+<sc-if value="{{ row.tagIsGreen }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#15803d"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ row.category }}</span></sc-if>
+</td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"><sc-if value="{{ row.always }}" hint-placeholder-val="{{ true }}"><div style="font-weight:600;font-size:13.5px">{{ row.due }}</div><div style="font-size:12px;color:#77729c">{{ row.relative }}</div></sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9;font-size:13px;color:#55507a;font-weight:600"><sc-if value="{{ row.always }}" hint-placeholder-val="{{ true }}">{{ row.assignee }}</sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9">
+<sc-if value="{{ row.urgencyIsCritical }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:700;background:#fef2f2;color:#b91c1c">{{ row.urgency }}</span></sc-if>
+<sc-if value="{{ row.urgencyIsWarning }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:700;background:#fffbeb;color:#b45309">{{ row.urgency }}</span></sc-if>
+<sc-if value="{{ row.urgencyIsSuccess }}"><span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#15803d"><svg width="7" height="7" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"></circle></svg>{{ row.urgency }}</span></sc-if>
+</td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9;text-align:right"><button type="button" style="display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-weight:700;font-size:12px;padding:7px 12px;border-radius:999px;cursor:pointer;white-space:nowrap;flex-shrink:0;background:#fff;color:#6d28d9;border:1px solid #e3e0f2"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>Renovar</button></td>
+</tr>
+</sc-for>
+</tbody>
+</sc-for>
+</sc-if>
+<sc-if value="{{ isNotActive }}" hint-placeholder-val="{{ false }}">
+<tbody>
+<sc-for list="{{ flatRows }}" as="frow" hint-placeholder-count="2">
+<tr>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"><sc-if value="{{ frow.always }}" hint-placeholder-val="{{ true }}"><div style="font-weight:600;font-size:13.5px;color:#14121f">{{ frow.name }}</div><span style="font-size:12px;color:#77729c">{{ frow.secondary }}</span></sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9">
+<sc-if value="{{ frow.tagIsBlue }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#dbeafe;color:#1d4ed8"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ frow.category }}</span></sc-if>
+<sc-if value="{{ frow.tagIsViolet }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#ede9fe;color:#6d28d9"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ frow.category }}</span></sc-if>
+<sc-if value="{{ frow.tagIsGreen }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#15803d"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ frow.category }}</span></sc-if>
+</td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"><sc-if value="{{ frow.always }}" hint-placeholder-val="{{ true }}"><div style="font-weight:600;font-size:13.5px">{{ frow.due }}</div><div style="font-size:12px;color:#77729c">{{ frow.relative }}</div></sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9;font-size:13px;color:#55507a;font-weight:600"><sc-if value="{{ frow.always }}" hint-placeholder-val="{{ true }}">{{ frow.assignee }}</sc-if></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"><span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#55507a"><svg width="7" height="7" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"></circle></svg><sc-if value="{{ frow.always }}" hint-placeholder-val="{{ true }}">{{ frow.statusLabel }}</sc-if></span></td>
+<td style="padding:12px 22px;border-bottom:1px solid #eeecf9"></td>
+</tr>
+</sc-for>
+</tbody>
+</sc-if>
+</table>
+</div>
+<div style="padding:14px 22px;border-top:1px solid #eeecf9;font-size:12.5px;color:#77729c">{{ footerNote }}</div>
+</div>
+</main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const ACTIVE_TAB = "font-family:inherit;font-weight:700;font-size:12.5px;padding:7px 14px;border-radius:999px;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0;background:#fff;color:#14121f;box-shadow:0 1px 3px rgba(20,18,31,.1)";
+const INACTIVE_TAB = "font-family:inherit;font-weight:600;font-size:12.5px;padding:7px 14px;border-radius:999px;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0;background:transparent;color:#77729c";
+
+function mkFlat(name, secondary, category, tagTone, due, relative, assignee, statusLabel) {
+  return { name, secondary, category, due, relative, assignee, statusLabel, always: true,
+    tagIsBlue: tagTone === 'blue', tagIsViolet: tagTone === 'violet', tagIsGreen: tagTone === 'green' };
+}
+
+class Component extends DCLogic {
+  state = { tab: 'ACTIVE' };
+  renderVals() {
+    function mk(name, secondary, category, tagTone, due, relative, assignee, urgency, urgencyTone) {
+      return { name, secondary, category, due, relative, assignee, urgency, always: true,
+        tagIsBlue: tagTone === 'blue', tagIsViolet: tagTone === 'violet', tagIsGreen: tagTone === 'green',
+        urgencyIsCritical: urgencyTone === 'critical', urgencyIsWarning: urgencyTone === 'warning', urgencyIsSuccess: urgencyTone === 'success' };
+    }
+    const groups = [
+      { label: 'Vencidos', always: true, rows: [
+        mk('Alvará de Funcionamento — Unidade Centro', 'Prefeitura Municipal · nº 4471/2024', 'Licenças', 'blue', '25/08/2026', 'Venceu há 2 dias', 'Marcelo Gonçalves', 'Vencido', 'critical'),
+        mk('Certidão Negativa de Débitos Federais', 'Receita Federal', 'Certidões', 'green', '26/08/2026', 'Venceu há 1 dia', 'Fernanda Lima', 'Vencido', 'critical'),
+      ]},
+      { label: 'Vence em breve', always: true, rows: [
+        mk('Certificado Digital e-CNPJ A3', 'Serasa Experian · nº A3-77120945', 'Certificados', 'violet', '29/08/2026', 'Vence em 3 dias', 'Marcelo Gonçalves', 'Vence em 3 dias', 'warning'),
+        mk('Apólice de Seguro Patrimonial', 'Porto Seguro · nº 0091-4482', 'Seguros', 'green', '02/09/2026', 'Vence em 6 dias', 'Fernanda Lima', 'Vence em 6 dias', 'warning'),
+      ]},
+      { label: 'Demais ativos', always: true, rows: [
+        mk('Contrato de Locação — Unidade Centro', 'Imobiliária Vértice', 'Contratos', 'blue', '09/09/2026', 'Vence em 13 dias', 'Marcelo Gonçalves', 'Sem urgência', 'success'),
+        mk('Licença Ambiental de Operação', 'Órgão Estadual de Meio Ambiente', 'Licenças', 'blue', '30/09/2026', 'Vence em 34 dias', 'Fernanda Lima', 'Sem urgência', 'success'),
+        mk('AVCB — Corpo de Bombeiros', 'Corpo de Bombeiros', 'Licenças', 'blue', '15/11/2026', 'Vence em 80 dias', 'Marcelo Gonçalves', 'Sem urgência', 'success'),
+      ]},
+    ];
+    const rowCount = groups.reduce((n, g) => n + g.rows.length, 0);
+
+    const archived = [
+      mkFlat('Alvará de Funcionamento — Filial Encerrada', 'Prefeitura Municipal · nº 2290/2021', 'Licenças', 'blue', '12/03/2024', 'Arquivado há 2 anos', 'Marcelo Gonçalves', 'Arquivado'),
+      mkFlat('Contrato de Locação — Depósito Sul', 'Imobiliária Vértice', 'Contratos', 'blue', '30/06/2025', 'Arquivado há 1 ano', 'Fernanda Lima', 'Arquivado'),
+    ];
+    const renewed = [
+      mkFlat('Certificado Digital e-CNPJ A3 (ciclo anterior)', 'Serasa Experian · nº A3-64881120', 'Certificados', 'violet', '29/08/2023', 'Renovado em 29/08/2023', 'Marcelo Gonçalves', 'Renovado'),
+      mkFlat('Apólice de Seguro Patrimonial (ciclo anterior)', 'Porto Seguro · nº 0091-3120', 'Seguros', 'green', '02/09/2025', 'Renovado em 02/09/2025', 'Fernanda Lima', 'Renovado'),
+    ];
+    const tab = this.state.tab;
+    const flatRows = tab === 'ARCHIVED' ? archived : tab === 'RENEWED' ? renewed : [];
+    const isActive = tab === 'ACTIVE';
+
+    return { groups, rowCount,
+      isActive, isNotActive: !isActive, flatRows,
+      visibleCount: isActive ? rowCount : flatRows.length,
+      urgencyColHeader: isActive ? 'Urgência' : 'Situação',
+      footerNote: isActive ? 'Agrupado por urgência, do mais crítico para o menos urgente.' : flatRows.length + ' vencimentos neste status.',
+      activeTabStyle: tab === 'ACTIVE' ? ACTIVE_TAB : INACTIVE_TAB,
+      archivedTabStyle: tab === 'ARCHIVED' ? ACTIVE_TAB : INACTIVE_TAB,
+      renewedTabStyle: tab === 'RENEWED' ? ACTIVE_TAB : INACTIVE_TAB,
+      selectActive: () => this.setState({ tab: 'ACTIVE' }),
+      selectArchived: () => this.setState({ tab: 'ARCHIVED' }),
+      selectRenewed: () => this.setState({ tab: 'RENEWED' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

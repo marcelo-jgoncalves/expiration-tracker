@@ -77,6 +77,21 @@ export interface DashboardResponse {
   nextCursor: string | null;
 }
 
+/** `GET /dashboard/summary` (Roadmap P0.6, `DashboardService.getSummary`) - only the
+ * ExpirationItem-only fields are consumed by `Overview.tsx`'s attention row today
+ * (PENDING_PROTOCOL_REVIEW, D-308 pendência #14); the combined Requirement+Item counters exist
+ * for a future compliance-dashboard consumer, not used here. */
+export interface DashboardSummaryResponse {
+  overdueCount: number;
+  expiringSoonCount: number;
+  awaitingReviewCount: number;
+  missingRequirementsCount: number;
+  itemsOverdueCount: number;
+  itemsExpiringSoonCount: number;
+  activeItemsCount: number;
+  approximate: boolean;
+}
+
 /**
  * BLOCKER-C review queue (Variante B, revisão humana explícita — decisão do Marcelo,
  * 2026-08-25, reminder-delivery-pipeline.md's sibling decision brief). The domain-relevant
@@ -473,6 +488,11 @@ export interface Member {
   status: MembershipStatus;
   joinedAt: string;
   version: number;
+  /** #15 (2026-09-21): resolved from GlobalUser, only present for an ACTIVE global identity -
+   * absent means "no name/email on file to show", never render as a blank/placeholder that
+   * implies loading. */
+  email?: string;
+  displayName?: string;
 }
 
 export interface MembersResponse {
@@ -588,6 +608,14 @@ export interface DocumentsListResponse {
 
 export interface DocumentResponse {
   document: ItemDocument;
+}
+
+/** D-313 (2026-09-21) - GET /items/{itemId}/documents/{documentId}/download response. Never file
+ * bytes themselves, only a freshly minted presigned S3 URL - same shape as document-archive's
+ * dossier-export download route. */
+export interface DocumentDownloadResponse {
+  downloadUrl: string;
+  expiresInSeconds: number;
 }
 
 /** POST /items/{itemId}/documents request body (`ReserveUploadInput`). */

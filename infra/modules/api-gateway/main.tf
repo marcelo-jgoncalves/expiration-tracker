@@ -389,7 +389,10 @@ locals {
     reserve_upload = { method = "POST", path = "/items/{itemId}/documents" }
     list           = { method = "GET", path = "/items/{itemId}/documents" }
     get            = { method = "GET", path = "/items/{itemId}/documents/{documentId}" }
-    delete         = { method = "DELETE", path = "/items/{itemId}/documents/{documentId}" }
+    # D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned S3 URL,
+    # same Lambda/integration as every other /items/{itemId}/documents* route.
+    download = { method = "GET", path = "/items/{itemId}/documents/{documentId}/download" }
+    delete   = { method = "DELETE", path = "/items/{itemId}/documents/{documentId}" }
     # M7 item 8 (§1.7): confirm/reject routes for a PENDING_CONFIRMATION ExtractedField - same
     # Lambda/integration as every other /items/{itemId}/documents* route above (documents_handler
     # already has full read/write table access), no new Lambda/infra needed.

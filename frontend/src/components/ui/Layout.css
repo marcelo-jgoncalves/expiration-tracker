@@ -19,12 +19,26 @@
 
 .ui-page-header__back {
   display: inline-block;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
   font-size: var(--font-size-200);
 }
 
+/* WCAG 2.5.8 target size (24x24 CSS px minimum) - real defect the e2e a11y focus-target-size
+   probe caught (Marcelo, 2026-09-21): the bare `<Link>` every "← Voltar para X" back-link passes
+   as `above` here measured 16px tall, same class of bug `DocumentTypesCollection.tsx`'s own
+   `ButtonLink` comment already documents for a different link. Fixed at the shared component
+   level (every screen using `PageHeader`'s `above` slot benefits), not per-screen. */
+.ui-page-header__back a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-sm);
+}
+
+/* Marcelo, 2026-09-20 (tela Detalhe do Vencimento): mesmo espaçamento de `.ui-page-header__back`
+   acima - título->pills/descrição igual a back-link->título, não um token menor - vale para toda
+   tela que usa este slot (PageHeader é compartilhado), não só Detalhe. */
 .ui-page-header__description {
-  margin: var(--space-2) 0 0;
+  margin: var(--space-4) 0 0;
   color: var(--color-text-secondary);
   max-width: var(--layout-reading-max);
 }
@@ -34,6 +48,20 @@
   gap: var(--space-3);
   flex-wrap: wrap;
   align-items: center;
+}
+
+/* Plain label tag (Marcelo, 2026-09-20, tela Detalhe do Vencimento) - deliberately NOT
+   `.ui-badge` (StatusBadge.css): a category carries no state/tone, so it never borrows the
+   badge's shape-marker convention, which exists specifically to tell domain states apart. */
+.ui-page-header__category {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
 }
 
 .ui-page-header__actions {
@@ -47,8 +75,28 @@
   margin-bottom: var(--space-6);
 }
 
+/* A `Section` or a bare `TextField` (`.ui-field`, Form.css) used as `Panel`'s sole/last child
+   (Marcelo, 2026-09-20, achado nas telas Criar Vencimento/Renovar) does not need its own bottom
+   margin on top of the Panel's own padding - that combination read as a stray extra gap before
+   the Panel's edge. */
+.ui-panel--padded > .ui-section:last-child,
+.ui-panel--padded > .ui-field:last-child {
+  margin-bottom: 0;
+}
+
+/* Mesmo espaçamento de `.ui-page-header__back`/`.ui-page-header__description` (Marcelo,
+   2026-09-20) - space-4 acima e abaixo do título, consistente com o título de página. */
 .ui-section__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
   margin-bottom: var(--space-4);
+}
+
+.ui-section__icon {
+  color: var(--color-accent-600);
+  flex: none;
 }
 
 .ui-section__description {
@@ -65,17 +113,72 @@
   margin-bottom: var(--space-5);
 }
 
+/* A `TextField` (e.g. a toolbar search box) carries `.ui-field`'s own stacked-form spacing
+   (`margin-bottom: var(--space-6)`, Form.css) meant for a vertical list of fields - inside a
+   toolbar row that bottom margin instead throws off `align-items: center` against the other
+   controls next to it (Marcelo, 2026-09-20, achado na tela Fornecedores). */
+.ui-toolbar .ui-field {
+  margin-bottom: 0;
+}
+
 .ui-toolbar__spacer {
   flex: 1;
 }
 
-/* A "panel" is the ONE container this system uses to group a collection. It is a light
-   surface with a hairline border and no shadow — not a card, and never nested inside another
-   panel (course correction: no card explosion, no nested cards). */
+/* Summary hero (Marcelo, 2026-09-20, tela Detalhe do Vencimento) - emphasized restatement of
+   the record's headline fields, never a second grouping container (see `.ui-panel` below).
+   `--gradient-hero` stays within the accent-800..accent-600 range on purpose (never the
+   protótipo's lighter third stop) - both ends are already verified >=4.5:1 with
+   `--color-text-on-accent` on top, a lighter stop would risk sub-AA contrast in a gradient
+   that white text can land anywhere on. */
+.ui-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-6);
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--gradient-hero);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-overlay);
+}
+
+.ui-hero__field {
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-hero__label {
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: var(--space-2);
+}
+
+.ui-hero__value {
+  font-size: var(--font-size-600);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.ui-hero__helper {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* A "panel" is the ONE container this system uses to group a collection. Light surface,
+   hairline border, and (ADR-0015, 2026-09-20: was "no shadow" before v2) a restrained
+   `shadow-raised` — not a card, and never nested inside another panel (course correction: no
+   card explosion, no nested cards). */
 .ui-panel {
   background: var(--color-surface-default);
   border: var(--border-width-thin) solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
   overflow: hidden;
 }
 
@@ -89,6 +192,7 @@
    do not exist here). */
 .ui-filter {
   display: inline-flex;
+  align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
   background: var(--color-surface-subtle);
@@ -97,6 +201,10 @@
   padding: var(--space-1);
 }
 
+/* `--control-height-lg` (Marcelo, 2026-09-20, achado na tela Fornecedores): mesmo token que
+   `.ui-field__control` (Form.css) usa, para que o filtro de status e o campo de busca ao lado
+   dele numa mesma Toolbar sempre tenham a mesma altura - nunca um número mágico paralelo que
+   pode divergir de novo se um dos dois tokens mudar sozinho. */
 .ui-filter__option {
   font: inherit;
   font-size: var(--font-size-300);
@@ -104,7 +212,7 @@
   border: var(--border-width-thin) solid transparent;
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-4);
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-lg);
   color: var(--color-text-secondary);
   cursor: pointer;
 }
@@ -173,4 +281,81 @@
   .ui-detail-list dd {
     padding-top: var(--space-1);
   }
+}
+
+/* Attention row (ADR-0015, D-08 of visual-language-and-design-system.md): each item is a real
+   link, never a decorative KPI tile - a count that is not a link earns nothing. Cards fill the
+   row evenly (`auto-fit`/`minmax`, matches the reference mockup) rather than hugging their own
+   content, so the row reads as one composed unit at any width. */
+.ui-attention {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.ui-attention__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-default);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-attention__link:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-default);
+}
+
+/* Icon colour always matches the same tone `StatusBadge`/urgency pills already use for
+   critical/warning, so the cue reads as the same signal, not a second vocabulary; `accent` is
+   the one exception - "em acompanhamento" is a plain total, never a warning, so it borrows the
+   product's own brand colour instead of borrowing status red/amber for something that is not a
+   problem. */
+.ui-attention__icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ui-attention__icon--critical {
+  background: var(--color-status-critical-bg);
+  color: var(--color-status-critical-fg);
+}
+.ui-attention__icon--warning {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning-fg);
+}
+.ui-attention__icon--accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
+
+.ui-attention__count {
+  display: block;
+  font-size: var(--font-size-600);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ui-attention__label {
+  display: block;
+  font-size: var(--font-size-200);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }

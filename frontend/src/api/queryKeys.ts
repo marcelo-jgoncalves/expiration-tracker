@@ -30,6 +30,10 @@ export const queryKeys = {
      * `useInfiniteQuery` pageParam, not in this key. */
     dashboardPage: (organizationId: string, status: string) =>
       [...queryKeys.items.dashboardAll(organizationId), "page", status] as const,
+    /** `GET /dashboard/summary` (PENDING_PROTOCOL_REVIEW, D-308 pendência #14) - extends the same
+     * `dashboardAll` prefix so create/renew's existing invalidation already covers it, no new
+     * call site to update. */
+    summary: (organizationId: string) => [...queryKeys.items.dashboardAll(organizationId), "summary"] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
     /** A07 (Block 2 D-2xx) - generic per-item document attachments, `GET
@@ -129,10 +133,11 @@ export const queryKeys = {
   },
   activity: {
     /** D-149: cursor state lives in TanStack Query's own `useInfiniteQuery` pageParam, not in
-     * this key - `month`/`resourceType` ARE part of the key since a different filter is
-     * conceptually a different query (same discipline as items.dashboardBounded's `limit`). */
-    page: (organizationId: string, month: string | undefined, resourceType: string | undefined) =>
-      ["org", organizationId, "activity", "page", month ?? "current", resourceType ?? "all"] as const,
+     * this key - `month`/`resourceType`/`resourceId` ARE part of the key since a different
+     * filter is conceptually a different query (same discipline as items.dashboardBounded's
+     * `limit`). */
+    page: (organizationId: string, month: string | undefined, resourceType: string | undefined, resourceId?: string) =>
+      ["org", organizationId, "activity", "page", month ?? "current", resourceType ?? "all", resourceId ?? "all"] as const,
   },
 } as const;
 

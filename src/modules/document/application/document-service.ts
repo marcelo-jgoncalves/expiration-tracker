@@ -17,11 +17,15 @@ import { uploadSlotKey, type UploadSlot } from "../domain/upload-slot.js";
 import { MAX_UPLOAD_BYTES } from "./upload-validation.js";
 import { GSI6PK_RECON_UPLOAD_PENDING, buildUploadSlotGsi6Sk, type DocumentStore, type TransactWriteEntry } from "../ports/document-store.js";
 import type { UploadUrlSigner } from "../ports/upload-url-signer.js";
+import type { DocumentDownloadUrlSigner } from "../ports/document-download-url-signer.js";
 import type { DocumentIdGenerator } from "./id-generator.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 
 const ALLOWED_MEDIA_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const PRESIGN_TTL_SECONDS = 600; // 10 minutes, M6 design §2 (fluxo de reserva).
+// D-313 (2026-09-21): same short-lived, minted-on-demand posture as the dossier-export download
+// route (D-205 decision 9/D-204 decision 7) - never a long-TTL presign in a durable record.
+const DOWNLOAD_PRESIGN_TTL_SECONDS = 5 * 60;
 const OPERATION = "document.reserve-upload";
 
 export interface ReserveUploadInput {
@@ -45,6 +49,11 @@ export interface DocumentServiceDeps {
   quarantineBucket: string;
   ids: DocumentIdGenerator;
   signer: UploadUrlSigner;
+  /** D-313 (2026-09-21) - optional so every existing caller/test keeps working unchanged; when
+   * absent, `downloadDocument` throws rather than silently returning nothing (same "unreachable
+   * without it" contract `closeOrganization`'s optional `tenantPurgeStateMachineArn` already
+   * uses elsewhere in this codebase). */
+  downloadSigner?: DocumentDownloadUrlSigner;
   now?: () => string;
 }
 
@@ -54,6 +63,7 @@ export class DocumentService {
   private readonly quarantineBucket: string;
   private readonly ids: DocumentIdGenerator;
   private readonly signer: UploadUrlSigner;
+  private readonly downloadSigner?: DocumentDownloadUrlSigner;
   private readonly now: () => string;
   private readonly idempotency: IdempotencyStore;
 
@@ -63,6 +73,7 @@ export class DocumentService {
     this.quarantineBucket = deps.quarantineBucket;
     this.ids = deps.ids;
     this.signer = deps.signer;
+    this.downloadSigner = deps.downloadSigner;
     this.now = deps.now ?? (() => new Date().toISOString());
     const adapter: DynamoLike = {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
@@ -253,5 +264,28 @@ export class DocumentService {
     authorize({ context: ctx, action: "document:read", resource: { tenantId: ctx.tenant.tenantId } });
     const documents = await this.store.queryByPk<Document>(`TENANT#${ctx.tenant.tenantId}#ITEM#${itemId}`, "DOC#");
     return documents.filter((document) => document.status !== "DELETED");
+  }
+
+  /** D-313 (2026-09-21) - never returns file bytes itself, only a freshly minted presigned S3 URL
+   * (same "never a long-TTL presign in a durable record" posture as the dossier-export/external-
+   * share-link download routes). Presigns against `cleanObject` ONLY - `quarantineObject` must
+   * never be read directly by a client (same rule `ExternalShareLinkFileStore` enforces for
+   * document-archive). A document that never reached CLEAN (still scanning, rejected, etc.) has
+   * no `cleanObject` yet - surfaced as a real ConflictError naming the actual status, never a
+   * generic 404/500 that would hide why the download isn't available yet. */
+  async downloadDocument(ctx: RequestContext, itemId: string, documentId: string): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+    if (!this.downloadSigner) {
+      throw new Error("DocumentService.downloadDocument requires downloadSigner to be wired.");
+    }
+    const document = await this.getDocument(ctx, itemId, documentId);
+    if (document.status !== "CLEAN" || !document.cleanObject) {
+      throw new ConflictError("This document is not available for download yet.", { itemId, documentId, status: document.status });
+    }
+    const downloadUrl = await this.downloadSigner.presignDownload({
+      objectRef: document.cleanObject,
+      fileName: document.fileName,
+      expiresInSeconds: DOWNLOAD_PRESIGN_TTL_SECONDS,
+    });
+    return { downloadUrl, expiresInSeconds: DOWNLOAD_PRESIGN_TTL_SECONDS };
   }
 }

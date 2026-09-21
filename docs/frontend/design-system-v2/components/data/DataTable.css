@@ -1,0 +1,166 @@
+/* DataTable — a real semantic <table>. Cards were NOT chosen for the expiration collection:
+   the records share attributes and the operator's job is finding, comparing and scanning
+   them. ARIA `grid` was NOT used: there is no spreadsheet keyboard model here, only reading,
+   comparing and following links. */
+
+/* Explicit, controlled horizontal scroll rather than letting the browser decide by accident.
+   Only reachable in the desktop layout; the narrow layout stacks instead. */
+.ui-table-scroll { overflow-x: auto; }
+
+.ui-table-scroll:focus-visible {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums; /* comparable numbers and dates line up column-wise */
+}
+
+.ui-table caption { text-align: left; }
+
+.ui-table thead th {
+  text-align: left;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  padding: var(--space-3) var(--density-row-padding-inline);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+  white-space: nowrap;
+  background: var(--color-surface-default);
+}
+
+.ui-table td {
+  padding: var(--density-row-padding-block) var(--density-row-padding-inline);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+  vertical-align: top;
+}
+
+.ui-table tbody:last-of-type tr:last-child td { border-bottom: 0; }
+
+.ui-table tbody tr:hover td { background: var(--color-surface-hover); }
+
+/* Group header row (Vencidos / Vence em breve / Demais ativos). A real <th scope="rowgroup">
+   inside its own <tbody>, so the grouping is in the table's semantics, not just its pixels. */
+.ui-table__group-header th {
+  text-align: left;
+  padding: var(--space-3) var(--density-row-padding-inline);
+  background: var(--color-surface-subtle);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+  border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+/* text-secondary, not text-tertiary: measured against the group header's `surface-subtle`
+   background, tertiary lands at 4.48:1 — a real WCAG 1.4.3 miss. */
+.ui-table__group-count {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+  margin-left: var(--space-2);
+}
+
+/* The first column carries the human identifier of the record and gets the most room; long
+   names wrap instead of truncating, because a truncated licence name is not identifiable. */
+.ui-table__cell--primary {
+  width: 40%;
+  min-width: 16rem;
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+/* Record links are not underlined at rest: at 100+ rows a permanent underline on every row is
+   exactly the visual noise this direction exists to avoid. They stay unambiguously links by
+   colour + weight + column position + hover/focus underline. `inline-block` + vertical
+   padding puts the target box at >= 25px tall (WCAG 2.2 SC 2.5.8). */
+.ui-table__cell--primary a {
+  display: inline-block;
+  padding: 3px 0;
+  text-decoration: none;
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui-table__cell--primary a:hover,
+.ui-table__cell--primary a:focus-visible { text-decoration: underline; }
+
+.ui-table__cell--numeric { white-space: nowrap; }
+
+.ui-table__cell--actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ui-table__secondary {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-regular);
+  overflow-wrap: anywhere;
+}
+
+/* Narrow / stacked layout — not a compressed desktop table: each record becomes a labelled
+   key/value block. NOTHING is hidden. The <table> semantics are preserved for assistive
+   technology; only the visual box model changes. */
+@media (max-width: 820px) {
+  .ui-table-scroll { overflow-x: visible; }
+
+  .ui-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .ui-table tbody tr {
+    display: block;
+    border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+    padding: var(--space-4) 0;
+  }
+
+  .ui-table tbody tr:last-child { border-bottom: 0; }
+
+  .ui-table td {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    justify-content: space-between;
+    width: auto;
+    min-width: 0;
+    padding: var(--space-2) var(--space-5);
+    border-bottom: 0;
+    white-space: normal;
+  }
+
+  .ui-table td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--color-text-tertiary);
+    font-size: var(--font-size-200);
+  }
+
+  .ui-table td:empty { display: none; }
+
+  .ui-table td.ui-table__cell--primary {
+    display: block;
+    width: auto;
+    min-width: 0;
+    font-size: var(--font-size-400);
+    padding-bottom: var(--space-3);
+  }
+
+  .ui-table td.ui-table__cell--primary::before { content: none; }
+
+  .ui-table td.ui-table__cell--actions {
+    justify-content: flex-start;
+    padding-top: var(--space-3);
+  }
+
+  .ui-table td.ui-table__cell--actions::before { content: none; }
+
+  .ui-table__group-header th { display: block; }
+}

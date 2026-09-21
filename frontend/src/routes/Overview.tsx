@@ -1,13 +1,24 @@
 /**
  * Overview — "o que precisa da minha atenção?" (mission §29).
  *
- * Visual Language milestone: restyled, NOT redesigned. The query, the ACTIVE-only scope, the
- * due-date ascending ordering and the "ver todos" affordance are exactly what the approved
- * Core Expiration Vertical Slice shipped. Specifically NOT added: KPI tiles / donut charts /
- * counters across the top. Those would be new information architecture invented by a visual
- * milestone with no evidence behind it (mission §29's "KPI theater", VL-G14) — an attention
- * summary that answers the question directly is the approved design, and a number that is not
- * linked to a task earns nothing.
+ * The query, the ACTIVE-only scope and the due-date ascending ordering are exactly what the
+ * approved Core Expiration Vertical Slice shipped. Decorative KPI tiles/donut charts remain
+ * rejected (mission §29's "KPI theater", VL-G14) — a count that is not a real link earns
+ * nothing. The attention row below answers D-08 of visual-language-and-design-system.md ("um
+ * contador acionável ajudaria a priorizar?") with exactly that: every count is a link into the
+ * group it counts, never a bare number.
+ *
+ * A separate "ver todos os vencimentos" affordance was dropped (2026-09-20, Marcelo): its target
+ * (`/items`) is identical to the "em acompanhamento" card's own link, so once that card carries a
+ * real count (pendência #14) the two become the exact same CTA twice. A future "ver todos" only
+ * earns its own affordance again if it covers a scope neither card does today (e.g. every status,
+ * not just ACTIVE).
+ *
+ * ADR-0015/pendência #14 (NEXT_SESSION_PROMPT.md, PENDING_PROTOCOL_REVIEW — decisions-log.md):
+ * the 3 attention counts now come from `useDashboardSummary()` (`GET /dashboard/summary`,
+ * `DashboardService.getSummary`'s `itemsOverdueCount`/`itemsExpiringSoonCount`/
+ * `activeItemsCount`), a real tenant-wide aggregate — never derived from `useItemsDashboardBounded`
+ * (only a bounded 30-item page, which would silently undercount past 30 active items).
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -15,12 +26,14 @@ import { useOrgPath } from "../routing/useOrgPath.js";
 import type { ExpirationItem } from "../api/types.js";
 import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { ApiError } from "../api/errors.js";
-import { PageHeader, Panel } from "../components/ui/Layout.js";
+import { AlertCircle, Clock, ClipboardList, Plus } from "lucide-react";
+import { PageHeader, Panel, AttentionRow, type AttentionItem } from "../components/ui/Layout.js";
 import { ButtonLink } from "../components/ui/Button.js";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
-import { useItemsDashboardBounded } from "../hooks/useItemsDashboard.js";
+import { useItemsDashboardBounded, useDashboardSummary } from "../hooks/useItemsDashboard.js";
 import { useStorageQuota } from "../hooks/useStorageQuota.js";
 
 /**
@@ -38,7 +51,7 @@ function StorageQuotaCard({ orgPath }: { orgPath: (path: string) => string }) {
 
   const percent = Math.round(usage.usedPercent * 100);
   return (
-    <Panel>
+    <Panel padded>
       <p>
         <strong>Armazenamento:</strong> {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
       </p>
@@ -58,6 +71,7 @@ export function Overview() {
   // as the Items Collection screen (D-136/D-E split the hook in two - this screen wants a
   // single bounded read, never the paginated "load more" the Collection needs).
   const query = useItemsDashboardBounded("ACTIVE");
+  const summaryQuery = useDashboardSummary();
   const now = useMemo(() => new Date(), []);
   const orgPath = useOrgPath();
 
@@ -93,14 +107,14 @@ export function Overview() {
       title="Visão geral"
       description="Seus vencimentos ativos, do mais urgente para o menos urgente."
       actions={
-        <ButtonLink to={orgPath("/items/new")} variant="primary">
+        <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
           Novo vencimento
         </ButtonLink>
       }
     />
   );
 
-  if (query.isPending) {
+  if (query.isPending || summaryQuery.isPending) {
     return (
       <>
         {header}
@@ -134,7 +148,7 @@ export function Overview() {
           kind="true-empty"
           message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
           action={
-            <ButtonLink to={orgPath("/items/new")} variant="primary">
+            <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
               Novo vencimento
             </ButtonLink>
           }
@@ -143,16 +157,32 @@ export function Overview() {
     );
   }
 
+  // Real tenant-wide aggregate (D-308 pendência #14, PENDING_PROTOCOL_REVIEW) - `summaryQuery`
+  // is guaranteed settled (not pending) by the gate above; `isError` degrades gracefully instead
+  // of blocking the whole page over a secondary widget (the items table below is the primary
+  // content and never depends on this query).
+  const attention: AttentionItem[] | undefined = summaryQuery.data
+    ? [
+        { count: summaryQuery.data.itemsOverdueCount, label: "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsExpiringSoonCount, label: "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+        { count: summaryQuery.data.activeItemsCount, label: "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+      ]
+    : undefined;
+
   return (
     <>
       {header}
       <StorageQuotaCard orgPath={orgPath} />
+      {attention ? (
+        <AttentionRow items={attention} />
+      ) : (
+        <InlineNotice tone="warning" announce="none">
+          Não foi possível carregar os contadores de atenção agora.
+        </InlineNotice>
+      )}
       <Panel>
         <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
-      <p>
-        <Link to={orgPath("/items")}>Ver todos os vencimentos</Link>
-      </p>
     </>
   );
 }

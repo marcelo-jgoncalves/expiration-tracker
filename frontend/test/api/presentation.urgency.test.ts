@@ -41,7 +41,9 @@ describe("presentItemUrgency", () => {
     const day8 = presentItemUrgency(active("2026-09-01T00:00:00.000Z"), NOW);
     expect(day8.group).toBe("later");
     expect(day8.label).toBe("Sem urgência");
-    expect(day8.tone).toBe("neutral");
+    // `info` (Marcelo, 2026-09-20) - catches a regression back to `neutral`, which would
+    // silently lose the badge's dedicated ring marker (StatusBadge.css).
+    expect(day8.tone).toBe("info");
   });
 
   it("a non-ACTIVE item never gets urgency semantics - urgency does not apply to a closed cycle, and it lands in group later", () => {

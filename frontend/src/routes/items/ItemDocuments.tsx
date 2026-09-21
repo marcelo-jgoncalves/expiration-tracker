@@ -13,11 +13,13 @@
  */
 import { useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { FileText } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
 import { useUploadDocument } from "../../hooks/useUploadDocument.js";
 import { useDeleteDocument } from "../../hooks/useDeleteDocument.js";
+import { useDownloadDocument } from "../../hooks/useDownloadDocument.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { presentDocumentStatus, formatAbsoluteDate } from "../../api/presentation.js";
 import { InitialLoading, CollectionSkeleton, ErrorState, EmptyState } from "../../components/AsyncStates.js";
@@ -90,13 +92,17 @@ function UploadForm({ itemId }: { itemId: string }) {
 function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; itemId: string; canDelete: boolean }) {
   const presentation = presentDocumentStatus(document.status);
   const deleteMutation = useDeleteDocument(itemId);
+  const downloadMutation = useDownloadDocument(itemId);
   const [confirming, setConfirming] = useState(false);
 
   if (document.status === "DELETED") return null;
 
   return (
     <li className="ui-list-row">
-      <div>
+      <span className="ui-attention__icon ui-attention__icon--accent" aria-hidden="true">
+        <FileText size={18} strokeWidth={2} />
+      </span>
+      <div className="ui-list-row__body">
         <p>
           <strong>{document.fileName}</strong>
         </p>
@@ -108,8 +114,21 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
             {deleteMutation.error instanceof ApiError ? deleteMutation.error.message : "Não foi possível excluir este arquivo."}
           </p>
         ) : null}
+        {downloadMutation.isError ? (
+          <p className="u-text-secondary" role="alert">
+            {downloadMutation.error instanceof ApiError ? downloadMutation.error.message : "Não foi possível baixar este arquivo."}
+          </p>
+        ) : null}
       </div>
       <StatusBadge presentation={presentation} srPrefix="Status do arquivo" />
+      {/* Mirrors the backend's own gate (DocumentService.downloadDocument: status!=="CLEAN" ->
+          ConflictError) - never shown for a document still scanning/rejected/etc., since the
+          download would just fail with a real 409. */}
+      {document.status === "CLEAN" ? (
+        <Button variant="tertiary" size="sm" pending={downloadMutation.isPending} onClick={() => downloadMutation.mutate({ documentId: document.documentId })}>
+          Baixar
+        </Button>
+      ) : null}
       {canDelete ? (
         confirming ? (
           <span className="ui-form__row">
@@ -166,6 +185,12 @@ export function ItemDocuments() {
           </Panel>
         </Section>
       ) : null}
+      {/* Marcelo, 2026-09-21, protótipo "01 - Documento": mesma disciplina de integridade
+          epistêmica já documentada em presentation.ts para o status do arquivo - confirma que
+          o arquivo passou pela varredura de malware, nunca que o conteúdo está correto. */}
+      <InlineNotice tone="info">
+        <p>Todo arquivo passa por verificação de segurança antes de ficar disponível. Isso confirma que o arquivo é seguro — não que o conteúdo está correto.</p>
+      </InlineNotice>
       <Section heading="Arquivos anexados" headingId="documents-list">
         {documentsQuery.isPending ? (
           <CollectionSkeleton rows={3} label="Carregando arquivos…" />
