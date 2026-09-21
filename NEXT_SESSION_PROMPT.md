@@ -217,14 +217,15 @@ roadmap-competitivo-2026-09-01.md` §17/§18.6), não implementar agora.
 
 ## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 
-- **Horário padrão de lembretes** (proposta de Marcelo, não decidida nem iniciada — sessão pivotou
-  pro workstream de identidade visual antes de chegar aqui): sortear um horário fixo BRT
-  (10:00-17:00, hora/meia cheia) no onboarding, ajustável depois. Achado já registrado:
-  `ReminderPolicy.localTime` é por trigger e editável, mas o DEFAULT da UI é hardcoded `"09:00"`
-  (`DEFAULT_LOCAL_TIME`, `frontend/src/routes/items/ItemReminderPolicy.tsx`); `Organization.timezone`
-  já existe como gancho pro sorteio; `quietHours` é conceito diferente (não confundir). Pontos de
-  decisão antes de implementar: nível do default (tenant ou usuário), retroativo ou só novos
-  triggers, onde em Configurações o cliente ajusta.
+- ~~Horário padrão de lembretes~~ — **CORREÇÃO 2026-09-21**: a linha anterior deste arquivo dizia
+  "não decidida nem iniciada" por engano (escrita por uma sessão sem contexto da implementação já
+  feita ANTES da compactação que a originou). Já está 100% implementada e mergeada:
+  `create-organization.ts`'s `pickReminderLocalTime()` sorteia um dos 15 horários BRT (10:00-17:00,
+  meia/hora cheia) em `Organization.defaultReminderLocalTime` no onboarding; ajustável depois pelo
+  Owner em Configurações; `ItemReminderPolicy.tsx` já propõe esse valor como default de gatilhos
+  NOVOS (não retroativo). As 3 decisões que estavam em aberto já foram resolvidas pela própria
+  implementação (nível=tenant, escopo=só novos, local=Configurações). Único resto: revisão
+  adversarial Codex voluntária ainda pendente (item 11 da lista de pendências acima).
 - **Subagentes de aprovação por domínio** (Marcelo): pesquisa/planejamento (não implementar ainda)
   de subagentes acionados ao fim de toda tarefa, um por eixo de `joint-review-criteria.md`. Não
   iniciado nesta sessão.
