@@ -24,22 +24,17 @@ DPA Meta, residência de dados); **Identidade visual** (workstream paralelo de M
 concluída 2026-09-11, Fase 2 avançou nesta sessão (2026-09-20): design system v2 (violeta, Plus
 Jakarta Sans, ícones Lucide) auditado, corrigido e adotado como base oficial —
 `docs/architecture/adr/ADR-0015-visual-identity-v2-violet.md`/D-307, artefato em
-`docs/frontend/design-system-v2/`. **Porte para o código real EM ANDAMENTO, processo tela-por-tela
-definido por Marcelo** (avaliar protótipo em `prototype/*.dc.html` → corrigir inconsistência →
-aplicar na tela real → screenshot em `prototype/_tmp_validacao/` → validação dele → próxima tela;
-sem deploy em `dev` necessário para validar, ver D-308 sobre o mecanismo de screenshot local via
-`vite build`+`preview`+cookie transplantado da sessão de produção). **Visão Geral (Overview):
-FECHADA, validada 2026-09-20** (D-308). **Vencimentos (`ItemsCollection.tsx`): FECHADA, validada
-2026-09-20, sem alteração de código** — já herdava fonte/radius/cor de acento via componentes
-compartilhados; achados do protótipo deliberadamente não portados (coluna "Responsável" sem
-resolução de nome em nenhum lugar do app hoje; cor por categoria sem taxonomia real por trás,
-mesmo padrão "KPI theater" já rejeitado) registrados como pendência de produto, não código.
-**Fornecedores/Criar/Detalhe/Renovar vencimento: FECHADAS, validadas e commitadas 2026-09-20**
-(`543b3f7`) — StatusFilter/IconButton extraídos como componentes compartilhados, novo componente
-`SummaryHero`, achados reais viraram pendências #15/#16 abaixo (nome de usuário, filtro de
-atividade por item), não implementados agora. **Em andamento agora: Configurações**
-(`prototype/Configuracoes.dc.html` → `frontend/src/routes/Settings.tsx`, a confirmar caminho
-exato) — última tela do protótipo pendente.
+`docs/frontend/design-system-v2/`. **Porte para o código real: 6 das 7 telas do protótipo FECHADAS
+e commitadas** (processo tela-por-tela de Marcelo: avaliar protótipo → corrigir inconsistência →
+aplicar → screenshot em `prototype/_tmp_validacao/` → validação dele → próxima; screenshot local
+via `vite build`+`preview`+cookie transplantado, D-308) — Visão Geral, Vencimentos, Fornecedores,
+Criar/Detalhe/Renovar vencimento (D-308/D-309, commits `543b3f7`/`793b6fb`/`65659e9`). **Única
+pendente: Configurações (`frontend/src/routes/Settings.tsx`)** — mudanças reais já implementadas
+(4 `Section` com ícone, `Panel` com `padded` corrigido, botões com ícone) e screenshot já mostrado
+a Marcelo várias vezes (última: `prototype/_tmp_validacao/07-configuracoes.png`, ícone
+"Dados da organização" trocado de `Settings`/gear pra `IdCard` a pedido dele), mas **sem
+"aprovado" explícito ainda — não commitado**. Próxima ação real: confirmar aprovação e commitar
+(ou aplicar o ajuste que ele pedir). Pendências novas de produto (não código): #15/#16 abaixo.
 (`Proximas_Tarefas_Identidade_Visual.md`, raiz do repo, deliberadamente fora do
 `ROOT_MD_ALLOWLIST` — nunca commitar sem mover para `docs/` ou atualizar o allowlist.)
 
@@ -96,10 +91,9 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
 ## Próxima ação recomendada
 
 **P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** A ordem real de trabalho para a próxima sessão foi definida diretamente por
-Marcelo em 2026-09-20 — ver seção dedicada **"PRÓXIMA SESSÃO — ordem definida por Marcelo
-(2026-09-20)"** logo abaixo do mandato autônomo do Programa de Performance; ela tem prioridade sobre
-retomar a escada 100k/500k.
+— ver seções acima.** Ordem real: (1) fechar Configurações (aprovação pendente de Marcelo, ver
+Roadmap acima); (2) investigar a segunda trava do degrau de 100k (ver Programa de Performance
+abaixo); (3) itens ainda não decididos de 2026-09-20 (seção própria abaixo).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
@@ -119,8 +113,19 @@ decisão e dos incidentes reais pós-deploy (bug de checkpoint, gap de IAM em `P
 `TransactWriteItems`, `reconcileDst` cancelando ocorrências atrasadas, sweeper travando por
 partição compartilhada no GSI6) já está em `decisions-log.md` (D-299 a D-304) e
 `docs/engineering/performance/TODO.md` — não recontar aqui. **Estado atual**: degrau de 10k padrão
-revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s); 100k/500k ainda não executados (ver
-seção de ordem de trabalho abaixo). D-304 continua `PENDING_PROTOCOL_REVIEW` (protocolo suspenso).
+revalidado 2026-09-20 (10.000/10.000, p100=230,26s, SLO 300s). D-304 continua
+`PENDING_PROTOCOL_REVIEW` (protocolo suspenso). **Degrau de 100k (`ladder-100k-2026-09-20`):
+seed 100% completo (10 tenants × 10.000 pares), mas o run original falhou na fase de
+materialização por um bug real de HARNESS (não de backend) — buffer fixo de 5min antes do
+`target`, corrigido pra escalar com o cohort (D-310). `target` (2026-09-21T03:22:00Z) já passou
+sem o resultado real de disparo ter sido capturado a tempo; uma tentativa de recuperação
+(`node scripts/perf-reminder-burst.mjs materialize ladder-100k-2026-09-20` — comando novo,
+D-310) travou de novo (timeout de 240s sem confirmar as 100k linhas) por motivo AINDA NÃO
+investigado — pode ser round-trip real de AWS numa escala nunca testada, ou uma linha
+genuinamente presa. **Próxima ação real**: investigar essa segunda trava (rodar sem timeout /
+com timeout bem maior, monitorando quais linhas específicas não retornam) e, uma vez com
+`cohort.json` reconstruído, rodar `verify` pra saber se o disparo real ficou dentro do SLO de
+300s ou não — a pipeline real em si nunca deu sinal de erro/lentidão (CloudWatch limpo).
 
 **Backlog registrado, não implementado**: `dispatch-outbox-relay-processor.ts` processa lotes de
 stream sequencialmente (~14 registros/s, `map-with-concurrency.ts` existe mas não é usado aqui) —
@@ -129,11 +134,10 @@ esperar o protocolo Claude↔Codex voltar antes de mexer no caminho crítico de 
 
 ## PRÓXIMA SESSÃO — mandato autônomo explícito (Marcelo, 2026-09-19, ler antes de qualquer outra coisa)
 
-**Status 2026-09-20**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima),
-limpeza de `dev` concluída, checklist de conclusão aplicado (ver `decisions-log.md`). Marcelo
-inseriu 3 itens antes de retomar a escada (ver seção **"PRÓXIMA SESSÃO — ordem definida por Marcelo
-(2026-09-20)"** mais abaixo) — quando chegar a hora de retomar em 100k, as regras desta seção
-inteira continuam todas válidas (cohort padrão, sem protocolo, etc.).
+**Status 2026-09-21**: degrau de 10k revalidado (`accepted: true`, p100=230,26s — ver D-304 acima).
+Degrau de 100k já rodou (seed completo, achado de harness real, recuperação em andamento — ver
+Programa de Performance abaixo/D-310). As regras desta seção inteira continuam válidas (cohort
+padrão, sem protocolo, etc.) pra quando a recuperação do 100k terminar e/ou for a vez do 500k.
 
 **Escada de escala, autônoma, sem parar para perguntar**: rodar 10k → se `accepted: true` (SLO
 300s, zero perda, sem regressão), seguir para 100k → se passar, seguir para 500k. Parar a escada
@@ -211,46 +215,19 @@ no X-Ray para as atingidas. Correção exigiria `collector.yaml` customizado emp
 registrar como pendência, mesma categoria do débito técnico de infra do roadmap (`docs/project/
 roadmap-competitivo-2026-09-01.md` §17/§18.6), não implementar agora.
 
-## PRÓXIMA SESSÃO — ordem definida por Marcelo (2026-09-20), tem prioridade sobre a escada 100k/500k
+## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 
-Ordem literal pedida por ele, autônoma (sem parar para confirmar entre os itens, só nos pontos de
-decisão de produto explicitamente marcados abaixo):
-
-1. ~~Corrigir o CI quebrado (PR #380)~~ — **RESOLVIDO 2026-09-20**, ver item 0 da lista de
-   pendências acima.
-2. ~~Corrigir a separação de ambientes~~ — **DECIDIDO 2026-09-20**, narrativa completa em
-   `decisions-log.md` D-305 (ADR-0014, Fase 1 feita, Fases 2-4 aguardam autorização de Marcelo)
-   e D-306 (emenda: `cd.yml` dispara em `develop`, não `main`; validado empiricamente com sucesso
-   após um deploy manual limpo, já que o primeiro push automático colidiu com a corrida de lock do
-   item 13 da lista de pendências acima). Ambos `PENDING_PROTOCOL_REVIEW`.
-3. **Avaliação de horário padrão de envio de lembretes/alertas** (proposta de Marcelo, não
-   decidida): horário padrão sorteado aleatoriamente na entrada do cliente no sistema (onboarding),
-   restrito a horas cheias/meias BRT entre 10:00 e 17:00 (10:00, 10:30, 11:00, ..., 17:00 — nunca
-   minutos quebrados como 10:23), e ajustável depois pelo próprio cliente. **Estado real hoje**
-   (achado, nada disto implementado ainda): `ReminderPolicy.localTime`
-   (`src/modules/reminder/domain/reminder-policy.ts`) já é um campo `HH:mm` por trigger, totalmente
-   editável pelo cliente — mas o valor DEFAULT que a UI propõe ao criar um trigger novo é hardcoded
-   `"09:00"` para todo mundo (`DEFAULT_LOCAL_TIME`,
-   `frontend/src/routes/items/ItemReminderPolicy.tsx`), nunca sorteado, nunca ciente do tenant.
-   `Organization.timezone` já existe e é setado no onboarding (`POST /bff/organizations`) — gancho
-   natural para o sorteio. `quietHours` (`notification-preferences.ts`) é um conceito DIFERENTE
-   (janela de supressão de envio, não horário preferido) — não confundir os dois na proposta. O
-   pipeline de disparo (`reminder-producer`, `infra/modules/reminder-schedule/main.tf`) roda
-   `rate(1 minute)` 24/7 sem geofencing de horário comercial — o que estiver due dispara na hora,
-   então mudar só a UI/onboarding basta, não o pipeline em si. Decisões de produto reais antes de
-   implementar (ponto de parada — perguntar a Marcelo): nível do default (por tenant ou por
-   usuário individual dentro do tenant), se aplica só a triggers NOVOS ou também retroativamente
-   aos já existentes, e onde exatamente em Configurações o cliente ajusta isso.
-4. **Antes da decisão sobre o item 3 vs. 100k**: Marcelo pediu, 2026-09-20, rodar primeiro um
-   degrau extra de **50** (mesmo tenant file padrão `perf-11b-tenants.json`, mesma regra de
-   segurança de e-mail do mandato acima) como sanity check pós-limpeza de `dev`/pós-fix do
-   sweeper, antes de escolher entre implementar a feature do item 3 ou seguir para 100k.
-5. **Novo item, 2026-09-20 (Marcelo)**: pesquisa/planejamento (sem implementar ainda) de
-   subagentes customizados de aprovação por domínio técnico, acionados ao final de toda tarefa —
-   cada um responsável por um eixo já formalizado em `joint-review-criteria.md`
-   (Arquitetura/Qualidade de Engenharia/Observabilidade-Operações-SRE/etc.); tarefa só
-   considerada concluída quando aprovada por todos. Entregável: documento de proposta (não
-   subagente real ainda) para revisão de Marcelo.
+- **Horário padrão de lembretes** (proposta de Marcelo, não decidida nem iniciada — sessão pivotou
+  pro workstream de identidade visual antes de chegar aqui): sortear um horário fixo BRT
+  (10:00-17:00, hora/meia cheia) no onboarding, ajustável depois. Achado já registrado:
+  `ReminderPolicy.localTime` é por trigger e editável, mas o DEFAULT da UI é hardcoded `"09:00"`
+  (`DEFAULT_LOCAL_TIME`, `frontend/src/routes/items/ItemReminderPolicy.tsx`); `Organization.timezone`
+  já existe como gancho pro sorteio; `quietHours` é conceito diferente (não confundir). Pontos de
+  decisão antes de implementar: nível do default (tenant ou usuário), retroativo ou só novos
+  triggers, onde em Configurações o cliente ajusta.
+- **Subagentes de aprovação por domínio** (Marcelo): pesquisa/planejamento (não implementar ainda)
+  de subagentes acionados ao fim de toda tarefa, um por eixo de `joint-review-criteria.md`. Não
+  iniciado nesta sessão.
 
 ## Status de evidência (não presumir E2E sem checar)
 
