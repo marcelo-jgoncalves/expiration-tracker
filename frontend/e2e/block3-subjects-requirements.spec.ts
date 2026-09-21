@@ -493,6 +493,9 @@ test.describe("A11Y-focus-not-obscured - Block 3 screens: nothing sticky/fixed (
         Array.from(document.querySelectorAll("body *"))
           .filter((element) => ["sticky", "fixed"].includes(getComputedStyle(element).position))
           .filter((element) => !element.classList.contains("skip-link"))
+          // `.app-shell__nav` is sticky WITHIN its own flex column, never overlapping main
+          // content - see `accessibility.spec.ts`'s identical filter for the full rationale.
+          .filter((element) => !element.classList.contains("app-shell__nav"))
           .map((element) => element.tagName.toLowerCase() + "." + String(element.className).split(" ")[0]),
       );
       expect(pinned, `${name}: sticky/fixed elements found`).toEqual([]);

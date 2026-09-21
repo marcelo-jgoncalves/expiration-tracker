@@ -23,6 +23,17 @@
   font-size: var(--font-size-200);
 }
 
+/* WCAG 2.5.8 target size (24x24 CSS px minimum) - real defect the e2e a11y focus-target-size
+   probe caught (Marcelo, 2026-09-21): the bare `<Link>` every "← Voltar para X" back-link passes
+   as `above` here measured 16px tall, same class of bug `DocumentTypesCollection.tsx`'s own
+   `ButtonLink` comment already documents for a different link. Fixed at the shared component
+   level (every screen using `PageHeader`'s `above` slot benefits), not per-screen. */
+.ui-page-header__back a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-sm);
+}
+
 /* Marcelo, 2026-09-20 (tela Detalhe do Vencimento): mesmo espaçamento de `.ui-page-header__back`
    acima - título->pills/descrição igual a back-link->título, não um token menor - vale para toda
    tela que usa este slot (PageHeader é compartilhado), não só Detalhe. */

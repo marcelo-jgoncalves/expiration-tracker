@@ -168,7 +168,10 @@ test("E2E-B6-07: a valid link shows the requester/requirement names and complete
   await page.goto("/document-archive/guest/document-requests/tok-1");
   await expect(page.getByText(/Atlas Schindler solicitou evidência para o requisito/)).toBeVisible();
 
-  await page.getByLabel(/Tipo de documento \*/).selectOption("dt-1");
+  // D-309 v2 reskin: field now goes through the shared SelectField ("(obrigatório)"/"(opcional)"
+  // suffix convention, `SelectField.tsx`), never a literal "*" - this regex was stale from before
+  // that reskin, matching against a suffix the component hasn't rendered since.
+  await page.getByLabel(/Tipo de documento \(obrigatório\)/).selectOption("dt-1");
   await page.getByRole("button", { name: "Continuar" }).click();
   await expect(page.getByRole("heading", { name: "Arquivo" })).toBeVisible();
 
@@ -220,7 +223,7 @@ test("E2E-B6-07b (ADR-0013/D-265): when uploadUrl is offered, PUTs the real byte
   });
 
   await page.goto("/document-archive/guest/document-requests/tok-1");
-  await page.getByLabel(/Tipo de documento \*/).selectOption("dt-1");
+  await page.getByLabel(/Tipo de documento \(obrigatório\)/).selectOption("dt-1");
   await page.getByRole("button", { name: "Continuar" }).click();
   await expect(page.getByRole("heading", { name: "Arquivo" })).toBeVisible();
   await page.setInputFiles('input[type="file"]', { name: "cnd.pdf", mimeType: "application/pdf", buffer: Buffer.from("conteudo") });
@@ -317,6 +320,9 @@ test("A11Y-focus-not-obscured: nothing sticky/fixed on A14 while idle (no toast/
     Array.from(document.querySelectorAll("body *"))
       .filter((element) => ["sticky", "fixed"].includes(getComputedStyle(element).position))
       .filter((element) => !element.classList.contains("skip-link"))
+      // `.app-shell__nav` is sticky WITHIN its own flex column, never overlapping main
+      // content - see `accessibility.spec.ts`'s identical filter for the full rationale.
+      .filter((element) => !element.classList.contains("app-shell__nav"))
       .map((element) => element.tagName.toLowerCase() + "." + String(element.className).split(" ")[0]),
   );
   expect(pinned, "A14: sticky/fixed elements found").toEqual([]);
