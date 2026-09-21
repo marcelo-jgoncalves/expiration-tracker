@@ -22,7 +22,15 @@ body {
   font-size: var(--font-size-300);
   line-height: var(--line-height-default);
   color: var(--color-text-primary);
-  background: var(--color-surface-page);
+  /* Real finding, 2026-09-21: `--color-surface-page` is a gradient - using it via the `background`
+     shorthand only ever set `background-image`, leaving `background-color` at its initial
+     `transparent`. Anything reading `background-color` specifically (this app's own WCAG
+     contrast e2e probe, but also print stylesheets and no-images/reduced-data modes) saw
+     transparent, which the probe's luminance math treats as opaque black - failing every page's
+     heading contrast even though the gradient itself renders near-white. `--color-neutral-50`
+     was the page background before the gradient existed, so it is a real fallback, not a guess. */
+  background-color: var(--color-neutral-50);
+  background-image: var(--color-surface-page);
 }
 
 h1,

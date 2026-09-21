@@ -294,7 +294,9 @@ test("E2E-B3-13: navigate A08 -> A09 -> A11 and back", async ({ page }) => {
   await mockRequirementsForSubject(page, [requirement()]);
 
   await page.goto("/subjects");
-  await page.getByRole("link", { name: "Fornecedor Alfa Ltda" }).click();
+  // exact: true - the row's "Editar Fornecedor Alfa Ltda" icon-only action link has that
+  // subject's name as a real substring of its own (correctly specific) aria-label.
+  await page.getByRole("link", { name: "Fornecedor Alfa Ltda", exact: true }).click();
   await expect(page).toHaveURL(/\/subjects\/subj-1$/);
   await expect(page.locator("#surface-content")).toBeFocused();
 

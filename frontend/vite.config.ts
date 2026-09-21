@@ -20,7 +20,7 @@ const bffProxy = process.env["VITE_BFF_ORIGIN"]
     }
   : undefined;
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, isPreview }) => ({
   plugins: [
     react(),
     // Real finding, 2026-09-20: the BFF's session/PKCE cookies are `__Host-` prefixed (Secure
@@ -30,10 +30,12 @@ export default defineConfig(({ command }) => ({
     // `http://localhost`, so the whole authenticated-login loop 401s at `/bff/callback` with
     // no cookie ever stored, no matter how correct the credentials are. `basicSsl()` serves the
     // dev server itself over HTTPS (self-signed - the browser will prompt to trust it once),
-    // which is enough for `Secure` cookies to be accepted. Dev-server only (`command ===
-    // "serve"`), never applied to `vite build` or `vitest` - production traffic is always
-    // real HTTPS via CloudFront already, and the test environment never hits real cookies.
-    ...(command === "serve" ? [basicSsl()] : []),
+    // which is enough for `Secure` cookies to be accepted. `vite dev` only - `command === "serve"`
+    // is also true for `vite preview` (Vite reports the same command for both), so `isPreview`
+    // must be excluded too, or the Playwright smoke test's `vite preview` serves HTTPS while
+    // playwright.config.ts's webServer.url is hardcoded `http://`, hanging until its 60s
+    // timeout (real CI failure, 2026-09-21, every push since this plugin was added).
+    ...(command === "serve" && !isPreview ? [basicSsl()] : []),
     // PERF-09 (Ciclo B) - bundle analyzer. Only produces `dist/stats.html`, an HTML report file;
     // it does not change what `vite build` emits for the app itself and has no dev-server cost
     // (the plugin's own docs: safe to leave on for every build, only runs at build time -
