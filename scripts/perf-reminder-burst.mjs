@@ -249,11 +249,21 @@ function database() {
   return DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION, maxAttempts: 3 }));
 }
 
-async function materialize(manifest, dir, db) {
+async function materialize(manifest, dir, db, { skipDeadline = false } = {}) {
   const seeds = manifest.tenants.flatMap(t => read(path.join(dir, `tenant-${t.index}.json`)));
   requireThat(seeds.length === EXPECTED && seeds.every(s => s.itemId && s.policyId && !s.pending) &&
     new Set(seeds.map(s => `${s.tenantId}/${s.itemId}`)).size === EXPECTED, 'Seed incomplete or duplicate');
-  const deadline = Date.parse(manifest.target) - 5 * 60000;
+  // Real finding, ladder-100k-2026-09-20: a fixed 5min buffer (fine through the 10k rung) was
+  // too tight at 100k - seeding itself consumed nearly all of minLeadMs's reserved lead, and the
+  // 16-way poll loop below still hadn't confirmed every row by target-5min even though the
+  // cohort *was* fully SCHEDULED shortly after (verified directly in DynamoDB post-failure, zero
+  // throttle/error in the scan Lambdas over the same window - not a backend regression). Scaled
+  // like `minLeadMs`, but with only this one real data point behind it - if a 100k/500k run
+  // still hits this, re-tune again with that run's number rather than assuming this holds.
+  // `skipDeadline` (the `materialize` CLI recovery command only) is for reconstructing
+  // `cohort.json` after `target` has already passed - a target-relative deadline is meaningless
+  // then (always in the past), so the loop below would throw on its very first check.
+  const deadline = skipDeadline ? Infinity : Date.parse(manifest.target) - Math.max(5 * 60000, Math.ceil((EXPECTED / 10000) * 20 * 60000));
   const occurrences = await mapLimit(seeds, 16, async seedRow => {
     while (Date.now() < deadline) {
       let key;
@@ -265,7 +275,11 @@ async function materialize(manifest, dir, db) {
         found.push(...page.Items); key = page.LastEvaluatedKey;
       } while (key);
       if (found.length) {
-        requireThat(found.length === 1 && found[0].status === 'SCHEDULED' && found[0].scheduledAt === manifest.target &&
+        // `skipDeadline` recovery runs after `target` has already passed - the real dispatch
+        // pipeline may have already moved this row past SCHEDULED (e.g. to TRIGGERED) by the
+        // time this reconstructs `cohort.json`, which is expected here and not itself a defect;
+        // `verify()`'s own `assess()` is what judges the CURRENT status, not this rebuild step.
+        requireThat(found.length === 1 && (skipDeadline || found[0].status === 'SCHEDULED') && found[0].scheduledAt === manifest.target &&
           found[0].policyId === seedRow.policyId && found[0].tenantId === seedRow.tenantId && found[0].itemId === seedRow.itemId,
         'Materialized occurrence does not match the planned cohort');
         const { PK, SK, tenantId, itemId, policyId, scheduledAt } = found[0];
@@ -343,8 +357,8 @@ async function verify(manifest, dir, db) {
 
 async function main() {
   const [command, runId, target] = process.argv.slice(2);
-  requireThat(['plan', 'preflight', 'run', 'verify'].includes(command) && /^[a-z0-9-]{1,64}$/.test(runId ?? ''),
-    'Usage: node scripts/perf-reminder-burst.mjs plan|preflight|run|verify <unique-run-id> [target-ISO-for-plan]');
+  requireThat(['plan', 'preflight', 'run', 'verify', 'materialize'].includes(command) && /^[a-z0-9-]{1,64}$/.test(runId ?? ''),
+    'Usage: node scripts/perf-reminder-burst.mjs plan|preflight|run|verify|materialize <unique-run-id> [target-ISO-for-plan]');
   const dir = path.join(LOCAL, runId);
   if (command === 'plan') {
     requireThat(!existsSync(dir), 'Run ID already exists; use a new ID');
@@ -371,6 +385,20 @@ async function main() {
       requireThat(aws('sts', 'get-caller-identity').Account === ACCOUNT, 'Wrong AWS account');
       const report = await verify(manifest, dir, database());
       process.exitCode = report.withinFiveMinutes ? 0 : 2;
+      return;
+    }
+    // Recovery path (ladder-100k-2026-09-20 real finding): `run`'s materialize() step can still
+    // be mid-flight or freshly failed (its own deadline just missed) with seeding already fully
+    // done and `cohort.json` not yet written - re-running the whole `run` command from scratch
+    // would re-check the pre-seed lead-time floor below (which fails once `target` itself has
+    // passed) and has no business re-touching `seed()`'s already-complete tenant journals. This
+    // re-materializes (idempotent - re-queries, never re-writes) and writes `cohort.json` alone,
+    // so `verify` becomes runnable again without re-seeding.
+    if (command === 'materialize') {
+      requireThat(aws('sts', 'get-caller-identity').Account === ACCOUNT, 'Wrong AWS account');
+      await materialize(manifest, dir, database(), { skipDeadline: true });
+      save(path.join(dir, 'ready.json'), { at: new Date().toISOString(), materialized: EXPECTED, target: manifest.target });
+      log({ phase: 'ready', materialized: EXPECTED, target: manifest.target });
       return;
     }
     const baseline = infrastructure();
