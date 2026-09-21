@@ -13,7 +13,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Check } from "lucide-react";
+import { Check, RotateCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useRenewItem } from "../../hooks/useRenewItem.js";
@@ -101,6 +101,7 @@ export function RenewItem() {
           actions={
             <Button
               variant="secondary"
+              icon={RotateCw}
               onClick={() => {
                 mutation.reset();
                 void itemQuery.refetch();

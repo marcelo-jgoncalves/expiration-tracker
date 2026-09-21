@@ -50,7 +50,7 @@ function StorageQuotaCard({ orgPath }: { orgPath: (path: string) => string }) {
 
   const percent = Math.round(usage.usedPercent * 100);
   return (
-    <Panel>
+    <Panel padded>
       <p>
         <strong>Armazenamento:</strong> {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
       </p>
