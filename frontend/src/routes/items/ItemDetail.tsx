@@ -11,7 +11,7 @@
  * rows, and there is exactly one record here.
  */
 import { Link, useLocation, useParams } from "react-router-dom";
-import { Activity, Bell, ClipboardList, Paperclip, RefreshCw } from "lucide-react";
+import { Activity, Bell, ClipboardList, Paperclip, Plus, RefreshCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
@@ -223,7 +223,7 @@ function DetailBody({
           </Panel>
         </Section>
       ) : null}
-      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points">
+      <Section heading="Mais sobre este vencimento" headingId="detail-entry-points" icon={Plus}>
         {/* Mesmo padrão visual do AttentionRow (Visão Geral, Marcelo 2026-09-20) - badge de
             ícone colorido + texto - com o ajuste necessário: aqui não há contagem, cada card
             mostra um título e um estado dinâmico (real, via hooks), não um número. */}

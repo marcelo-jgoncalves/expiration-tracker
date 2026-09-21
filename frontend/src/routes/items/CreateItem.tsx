@@ -24,7 +24,7 @@ import {
   validateCreateItemDraft,
   type CreateItemDraft,
 } from "../../api/validation.js";
-import { Check } from "lucide-react";
+import { Check, List, Plus } from "lucide-react";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
 import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
@@ -116,7 +116,7 @@ export function CreateItem() {
       <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={generalErrors} fieldErrors={toSummaryFieldErrors(fieldErrors)} />
         <Panel padded>
-          <Section heading="O essencial" headingId="create-item-essential" description="O que é, de que tipo é, e quando vence.">
+          <Section heading="O essencial" headingId="create-item-essential" description="O que é, de que tipo é, e quando vence." icon={Plus}>
             <TextField id={fieldId("name")} label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
             <TextField
               id={fieldId("category")}
@@ -139,7 +139,7 @@ export function CreateItem() {
           </Section>
         </Panel>
         <Panel padded>
-          <Section heading="Complemento" headingId="create-item-complement" description="Tudo aqui é opcional e pode ser preenchido depois.">
+          <Section heading="Complementos" headingId="create-item-complement" description="Tudo aqui é opcional e pode ser preenchido depois." icon={List}>
             <TextField
               id={fieldId("description")}
               label="Descrição"
