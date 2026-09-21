@@ -38,13 +38,13 @@ export class IdentityBootstrapService {
   ) {}
 
   /**
-   * `emailNormalized` is only used on first-login creation, and only by callers who actually
-   * have a verified email at hand (BFF/OIDC login — `idClaims.email`). The direct-API path
-   * (bearer JWT, no OIDC claims beyond `sub`) omits it, matching prior behavior
-   * (`emailNormalized: ""`) exactly — same single bootstrap contract both real call sites share
-   * since B2B-2 (D-087).
+   * `emailNormalized`/`displayName` are only used on first-login creation, and only by callers
+   * who actually have them at hand (BFF/OIDC login — `idClaims.email`/`idClaims.name`, #15
+   * 2026-09-21 for the latter). The direct-API path (bearer JWT, no OIDC claims beyond `sub`)
+   * omits both, matching prior behavior (`emailNormalized: ""`, `displayName: undefined`)
+   * exactly — same single bootstrap contract both real call sites share since B2B-2 (D-087).
    */
-  async bootstrapUser(cognitoSub: string, newUserId: string, emailNormalized = ""): Promise<BootstrapResult> {
+  async bootstrapUser(cognitoSub: string, newUserId: string, emailNormalized = "", displayName?: string): Promise<BootstrapResult> {
     const existingMapping = await this.store.get<IdentityMapping>(identityMappingKey(cognitoSub));
     if (existingMapping) {
       const user = await this.store.get<GlobalUser>(globalUserKey(existingMapping.userId));
@@ -53,10 +53,10 @@ export class IdentityBootstrapService {
       }
       return { mapping: existingMapping, user };
     }
-    return this.createAll(cognitoSub, newUserId, emailNormalized);
+    return this.createAll(cognitoSub, newUserId, emailNormalized, displayName);
   }
 
-  private async createAll(cognitoSub: string, newUserId: string, emailNormalized: string): Promise<BootstrapResult> {
+  private async createAll(cognitoSub: string, newUserId: string, emailNormalized: string, displayName?: string): Promise<BootstrapResult> {
     const now = this.now();
     const mapping: IdentityMapping = {
       ...identityMappingKey(cognitoSub),
@@ -72,6 +72,7 @@ export class IdentityBootstrapService {
       entityType: "GlobalUser",
       userId: newUserId,
       emailNormalized,
+      displayName,
       identityStatus: "ACTIVE",
       createdAt: now,
       updatedAt: now,

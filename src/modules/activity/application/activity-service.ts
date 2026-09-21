@@ -40,6 +40,8 @@ export interface ListActivityQuery {
    * this — fetch batches are still 4-wide; filtering narrower than the fetch cost is a
    * documented v1 simplification, not a correctness issue). */
   resourceType?: string;
+  /** Same post-merge filtering approach/cost as resourceType above. */
+  resourceId?: string;
   limit?: number;
   cursor?: string;
 }
@@ -153,6 +155,9 @@ export class ActivityService {
     let entries = page.map((item) => toActivityEntry(item.partition, item.raw));
     if (query.resourceType) {
       entries = entries.filter((entry) => entry.resourceType === query.resourceType);
+    }
+    if (query.resourceId) {
+      entries = entries.filter((entry) => entry.resourceId === query.resourceId);
     }
 
     return {

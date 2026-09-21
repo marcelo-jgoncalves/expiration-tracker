@@ -67,7 +67,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
   });
   const proxy = new ProxyService(backend, "https://api.example.com");
   const deps: BffHttpDeps = { auth, proxy, appOrigin: "https://app.example.com" };
-  return { deps, cognitoClient, setClock: (iso: string) => { clock = iso; } };
+  return { deps, cognitoClient, idTokenVerifier, setClock: (iso: string) => { clock = iso; } };
 }
 
 function extractCookieValue(setCookieHeaders: string[] | undefined, name: string): string | undefined {
@@ -138,6 +138,17 @@ describe("handleGetSession", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ authenticated: true, onboardingState: "NO_TENANT_NO_MEMBERSHIP" });
     expect((res.body as Record<string, unknown>)["activeOrganizationId"]).toBeUndefined();
+  });
+
+  // #15/sidebar identity card (2026-09-21) - displayName/email resolved from GlobalUser, never
+  // session.userId itself (excluded by design, D-095/D-096).
+  it("includes displayName/email resolved from the GlobalUser row created at login", async () => {
+    const { deps, idTokenVerifier } = buildDeps();
+    idTokenVerifier.nextResult = { subject: "cognito-sub-1", email: "ana@example.com", name: "Ana Exemplo" };
+    const { sessionCookie } = await loginViaHttp(deps);
+    const res = await handleGetSession(deps, authenticatedRequest({ sessionCookie }));
+    expect(res.body).toMatchObject({ displayName: "Ana Exemplo", email: "ana@example.com" });
+    expect((res.body as Record<string, unknown>)["userId"]).toBeUndefined();
   });
 
   it("returns 200 {authenticated:false} when there is definitively no session (missing cookie)", async () => {

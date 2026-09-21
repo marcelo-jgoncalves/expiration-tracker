@@ -107,8 +107,10 @@ export async function handleCallback(deps: BffHttpDeps, req: BffHttpRequest): Pr
  * the two is present: an established organization, or the reason there isn't one yet. */
 export async function handleGetSession(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const { activeOrganizationId, onboardingState, organizationSelectionRequired } = await deps.auth.resolveSessionWithOnboarding(cookiesOf(req)[SESSION_COOKIE_NAME]);
-    return { statusCode: 200, body: { authenticated: true, activeOrganizationId, onboardingState, organizationSelectionRequired } };
+    const { activeOrganizationId, onboardingState, organizationSelectionRequired, displayName, email } = await deps.auth.resolveSessionWithOnboarding(
+      cookiesOf(req)[SESSION_COOKIE_NAME],
+    );
+    return { statusCode: 200, body: { authenticated: true, activeOrganizationId, onboardingState, organizationSelectionRequired, displayName, email } };
   } catch (err) {
     if (err instanceof AuthenticationError) {
       // Definitive: no session, or one that is genuinely gone (expired/revoked/malformed) -

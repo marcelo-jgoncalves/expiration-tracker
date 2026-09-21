@@ -23,6 +23,7 @@ interface Row {
   actor: { type: "USER"; userId: string };
   action: string;
   resourceType: string;
+  resourceId?: string;
   changes: Record<string, unknown>;
 }
 
@@ -49,7 +50,7 @@ class InMemoryAuditPartitionStore implements AuditPartitionStore {
   }
 }
 
-function row(partitionPk: string, occurredAt: string, id: string, resourceType = "X"): Row {
+function row(partitionPk: string, occurredAt: string, id: string, resourceType = "X", resourceId?: string): Row {
   return {
     PK: partitionPk,
     SK: `EVT#${occurredAt}#${id}`,
@@ -58,6 +59,7 @@ function row(partitionPk: string, occurredAt: string, id: string, resourceType =
     actor: { type: "USER", userId: "user-a" },
     action: "CREATE",
     resourceType,
+    resourceId,
     changes: {},
   };
 }
@@ -131,5 +133,19 @@ describe("ActivityService.listActivity", () => {
     const page = await service.listActivity(ctx(), { month, resourceType: "ExpirationExport" });
 
     expect(page.entries.map((e) => e.auditEventId)).toEqual(["t1"]);
+  });
+
+  it("filters by resourceId after merge", async () => {
+    const store = new InMemoryAuditPartitionStore();
+    const month = "202609";
+    store.seed(`TENANT#tenant-a#AUDIT#${month}`, [
+      row(`TENANT#tenant-a#AUDIT#${month}`, "2026-09-01T10:00:00.000Z", "e1", "ExpirationItem", "item-1"),
+      row(`TENANT#tenant-a#AUDIT#${month}`, "2026-09-01T09:00:00.000Z", "e2", "ExpirationItem", "item-2"),
+    ]);
+
+    const service = new ActivityService({ store });
+    const page = await service.listActivity(ctx(), { month, resourceId: "item-2" });
+
+    expect(page.entries.map((e) => e.auditEventId)).toEqual(["e2"]);
   });
 });

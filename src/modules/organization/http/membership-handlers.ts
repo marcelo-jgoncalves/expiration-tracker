@@ -132,8 +132,13 @@ export async function handleListMembers(deps: MembershipHttpDeps, req: HttpReque
     // Wave B2B-14 (D-120): real finding - this used to return the raw Membership item
     // (PK/SK/GSI4PK/GSI4SK/entityType, internal DynamoDB key structure) straight to the client,
     // unlike handleListInvitations' sibling below which already projects to a safe subset.
-    // Never found until a real browser session actually inspected the response body.
-    return { statusCode: 200, body: { members: members.map((m) => ({ userId: m.userId, role: m.role, status: m.status, version: m.version })) } };
+    // Never found until a real browser session actually inspected the response body. #15
+    // (2026-09-21): email/displayName added to the same explicit allowlist, never a raw spread -
+    // ListMembersService.listMembers() already omits them for a non-ACTIVE global identity.
+    return {
+      statusCode: 200,
+      body: { members: members.map((m) => ({ userId: m.userId, role: m.role, status: m.status, version: m.version, email: m.email, displayName: m.displayName })) },
+    };
   });
 }
 

@@ -33,6 +33,10 @@ export interface CognitoOidcClient {
  * CognitoOidcClient so application-layer tests stay hermetic (no real JWKS fetch).
  */
 export interface IdTokenVerifier {
-  /** Throws on any failure: bad signature, wrong issuer/audience, expired, or nonce mismatch. */
-  verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string }>;
+  /** Throws on any failure: bad signature, wrong issuer/audience, expired, or nonce mismatch.
+   * `name` (#15, 2026-09-21) requires the `profile` OIDC scope (already in Cognito's
+   * `allowed_oauth_scopes`, `infra/modules/cognito/main.tf` - only the requested `scope` string
+   * in `bff-auth-service.ts` needed to catch up) - absent when the identity provider never sent
+   * a `name` claim, same "optional, never guessed" treatment `email` already gets. */
+  verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string; name?: string }>;
 }

@@ -50,6 +50,13 @@ export interface GlobalUser {
    * field directly — a future router (fatia 2+) must always re-read this field fresh and check
    * consent against ITS current value, never trust a stale copy. */
   phoneE164?: string;
+  /** #15 (2026-09-21): the display name to resolve for `assigneeUserId` in item/requirement UIs
+   * instead of showing a raw userId. Set only on first-login `bootstrapUser()` creation (same
+   * "first-login only, never backfilled" contract `emailNormalized` already has above), from the
+   * OIDC `name` claim (`profile` scope) - absent when the identity provider never sent one, or
+   * for identities created before this field existed. Never inferred/derived (e.g. from email
+   * local-part) - an absent value must read as "no name on file", not a guess. */
+  displayName?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
