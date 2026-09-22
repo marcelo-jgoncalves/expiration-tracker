@@ -32,15 +32,18 @@ function mockDashboard(page: Page, response: unknown, status = 200) {
   return page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ status, json: response }));
 }
 
-test("an unauthenticated visit is redirected to the BFF login, carrying the originally requested path as returnTo", async ({ page }) => {
+// D-321 (reversal of D-320): `reauthenticate()` now does a same-origin client-side `navigate()`
+// to the app's own `/login` screen, never a network request to a `/bff/login` Hosted UI redirect
+// (that route stays dormant, refresh/revoke only - see ProtectedRoute.tsx's own header comment).
+// Would fail if a stale Hosted-UI-era redirect ever came back.
+test("an unauthenticated visit is redirected to the app's own /login screen, carrying the originally requested path as returnTo", async ({ page }) => {
   await mockSession(page, { authenticated: false });
-  const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
-  await page.route("**/bff/login**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>mock hosted UI</body></html>" }));
 
   await page.goto("/items");
 
-  const request = await loginRequest;
-  const url = new URL(request.url());
+  await page.waitForURL(/\/login\?/);
+  const url = new URL(page.url());
+  expect(url.pathname).toBe("/login");
   expect(url.searchParams.get("returnTo")).toBe("/items");
 });
 
@@ -135,34 +138,31 @@ test("a backend failure on the dashboard call shows the error state with a worki
   expect(callCount).toBe(2);
 });
 
-test("a 401 mid-session (session expired) triggers a redirect back to the BFF login", async ({ page }) => {
+test("a 401 mid-session (session expired) triggers a redirect back to the app's own /login screen", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ status: 401, json: { code: "AUTH_REQUIRED", category: "AUTH", message: "sessão expirada", retryable: false } }));
-  const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
-  await page.route("**/bff/login**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>mock hosted UI</body></html>" }));
 
   await page.goto("/overview");
 
-  const request = await loginRequest;
-  const url = new URL(request.url());
+  await page.waitForURL(/\/login\?/);
+  const url = new URL(page.url());
+  expect(url.pathname).toBe("/login");
   // D-2xx (Block 0): by the time the 401 fires, "/overview" has already healed forward to the
   // real /app/:orgId/overview URL (LegacyOrgRedirect) - returnTo correctly captures THAT
   // current path (mission §23's "current path" contract), not the pre-migration one requested.
   expect(url.searchParams.get("returnTo")).toBe("/app/org-1/overview");
 });
 
-test("logout calls the BFF's logout endpoint and returns to the login redirect", async ({ page }) => {
+test("logout calls the BFF's logout endpoint and returns to the app's own /login screen", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
   await mockDashboard(page, { items: [] });
   const logoutRequest = page.waitForRequest((req) => req.url().includes("/bff/session/logout") && req.method() === "POST");
   await page.route("**/bff/session/logout", (route) => route.fulfill({ status: 204, body: "" }));
-  const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
-  await page.route("**/bff/login**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>mock hosted UI</body></html>" }));
 
   await page.goto("/overview");
   await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
   await page.getByRole("button", { name: "Sair" }).click();
 
   await logoutRequest;
-  await loginRequest;
+  await page.waitForURL(/\/login\?/);
 });

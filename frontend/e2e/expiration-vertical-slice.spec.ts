@@ -13,10 +13,6 @@ function mockSession(page: Page, session: { authenticated: boolean; activeOrgani
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
-function mockLoginRedirect(page: Page) {
-  return page.route("**/bff/login**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>mock hosted UI</body></html>" }));
-}
-
 function mockDashboard(page: Page, items: unknown[]) {
   return page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items } }));
 }
@@ -165,7 +161,6 @@ test("E2E-05: OCC conflict -> recovery", async ({ page }) => {
 });
 
 test("E2E-06: session interruption during create -> reauthentication -> draft and idempotency key recovered", async ({ page }) => {
-  await mockLoginRedirect(page);
   const idempotencyKeysSeen: string[] = [];
   let firstCreateInterrupted = false;
   await page.route("**/bff/api/items", (route) => {
@@ -185,13 +180,15 @@ test("E2E-06: session interruption during create -> reauthentication -> draft an
   await page.getByLabel(/^Categoria/).fill("Licenças");
   await page.getByLabel(/^Data de vencimento/).fill("2026-11-01");
 
-  const loginRequest = page.waitForRequest((req) => req.url().includes("/bff/login"));
   await page.getByRole("button", { name: "Criar vencimento" }).click();
-  await loginRequest; // the 401 mid-submission triggered AuthContext's SESSION_EXPIRED -> ProtectedRoute's reauthenticate()
+  // D-321 (reversal of D-320): the 401 mid-submission triggers AuthContext's SESSION_EXPIRED ->
+  // ProtectedRoute's reauthenticate(), a same-origin client-side navigate() to the app's own
+  // `/login` screen - never a network request to the old `/bff/login` Hosted UI redirect.
+  await page.waitForURL(/\/login\?/);
 
-  // Simulate returning from the BFF/Cognito round trip authenticated again, landing back on
-  // the same route the whole time (returnTo carries the path, mission §23) - sessionStorage
-  // (draft + idempotency key) survives this real in-page navigation, same tab, same origin.
+  // Simulate returning from the login screen authenticated again, landing back on the same
+  // route the whole time (returnTo carries the path, mission §23) - sessionStorage (draft +
+  // idempotency key) survives this real in-page navigation, same tab, same origin.
   await page.goto("/items/new");
 
   await expect(page.getByLabel(/^Nome/)).toHaveValue("Alvará resiliente");
