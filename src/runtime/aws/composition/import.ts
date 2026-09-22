@@ -10,6 +10,7 @@ import { ImportService } from "../../../modules/import/application/import-servic
 import { S3UploadUrlSigner } from "../../../modules/document/persistence/s3-upload-url-signer.js";
 import { UlidIdGenerator } from "../ids.js";
 import { buildSubjectDeps } from "./subject.js";
+import { buildExpirationDeps } from "./expiration.js";
 import type { TenantQuotaService } from "../../../modules/identity/application/quota.js";
 
 export function buildImportHttpDeps(client: DynamoDBDocumentClient, tableName: string, rawBucket: string, planBucket: string, quota: TenantQuotaService) {
@@ -41,10 +42,13 @@ export function buildImportCommitWorkerDeps(client: DynamoDBDocumentClient, tabl
   // commitImportJob() reaproveita SubjectService.createSubject() INALTERADO (design) - nunca
   // uma segunda implementação de criação de subject só para o worker de import.
   const { subjects } = buildSubjectDeps(client, tableName);
+  // D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) - ramo Item reaproveita
+  // ExpirationService.createItem() INALTERADO, mesmo motivo do `subjects` acima.
+  const { expiration } = buildExpirationDeps(client, tableName);
   // D-192 §6 (fatia 8) - Document/Requirement geram documentId/requirementId ANTES da
   // transação de commit via os mesmos planejadores puros que document-archive-service.ts usa;
   // `UlidIdGenerator` já implementa `DocumentArchiveIdGenerator` (mesma instância reaproveitada
   // em toda a composição AWS, nunca um segundo gerador de ids).
   const documentArchiveIds = new UlidIdGenerator();
-  return { store, objectStore, planBucket, tableName, subjects, documentArchiveIds, now: () => new Date().toISOString() };
+  return { store, objectStore, planBucket, tableName, subjects, expiration, documentArchiveIds, now: () => new Date().toISOString() };
 }

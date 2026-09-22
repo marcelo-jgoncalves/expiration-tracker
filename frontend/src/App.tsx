@@ -102,6 +102,13 @@ const LegacyGuestUpload = lazy(() =>
   import("./routes/guest/LegacyGuestUpload.js").then((m) => ({ default: m.LegacyGuestUpload })),
 );
 const ImportWizard = lazy(() => import("./routes/imports/ImportWizard.js").then((m) => ({ default: m.ImportWizard })));
+// D-3xx (reversal of D-320) - the app's own login/signup/reset-password screens, replacing the
+// Cognito Hosted UI redirect as the frontend's real entry point.
+const Login = lazy(() => import("./routes/auth/Login.js").then((m) => ({ default: m.Login })));
+const SignUp = lazy(() => import("./routes/auth/SignUp.js").then((m) => ({ default: m.SignUp })));
+const VerifyEmail = lazy(() => import("./routes/auth/VerifyEmail.js").then((m) => ({ default: m.VerifyEmail })));
+const ForgotPassword = lazy(() => import("./routes/auth/ForgotPassword.js").then((m) => ({ default: m.ForgotPassword })));
+const ResetPassword = lazy(() => import("./routes/auth/ResetPassword.js").then((m) => ({ default: m.ResetPassword })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -310,6 +317,18 @@ export function App() {
                     discipline as A20/A21/A22. */}
                 <Route path="reports" element={null} />
               </Route>
+              {/* D-3xx (reversal of D-320) - fully public, NEVER wrapped in ProtectedRoute (the
+                  opposite posture of every route above): these are exactly the screens an
+                  unauthenticated visitor needs. Each one redirects an already-AUTHENTICATED
+                  visitor away itself (see each component's own effect), matching the "don't
+                  show a login form to someone who doesn't need one" posture without a shared
+                  route-level guard that would have to know each screen's own post-auth
+                  destination. */}
+              <Route path="login" element={<Login />} />
+              <Route path="signup" element={<SignUp />} />
+              <Route path="verify-email" element={<VerifyEmail />} />
+              <Route path="forgot-password" element={<ForgotPassword />} />
+              <Route path="reset-password" element={<ResetPassword />} />
               {/* Sibling of the two groups above, never nested under ActiveOrganizationProvider/
                   OnboardingGate (Wave B2B-14, D-120) - an invitee may have zero Memberships
                   anywhere yet, exactly the case those two assume never happens. */}

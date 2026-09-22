@@ -25,9 +25,14 @@ export interface RadioGroupProps {
   error?: string;
   required?: boolean;
   name?: string;
+  /** "list" (default) is the stacked dot+label row every existing consumer uses. "cards" turns
+   * each option into a bordered, individually selectable card (protótipo `entregaSolicitacao.
+   * html`, Marcelo 2026-09-22) - opt-in per call site, so every other `RadioGroup` usage renders
+   * byte-for-byte as before. */
+  variant?: "list" | "cards";
 }
 
-export function RadioGroup({ legend, options, value, onChange, error, required, name: providedName }: RadioGroupProps) {
+export function RadioGroup({ legend, options, value, onChange, error, required, name: providedName, variant = "list" }: RadioGroupProps) {
   const generatedName = useId();
   const name = providedName ?? generatedName;
   const errorId = `${name}-error`;
@@ -37,7 +42,7 @@ export function RadioGroup({ legend, options, value, onChange, error, required, 
       <legend className="ui-radio-group__legend">
         {legend} <span className="ui-field__requirement">{required ? "(obrigatório)" : "(opcional)"}</span>
       </legend>
-      <div className="ui-radio-group__options">
+      <div className={variant === "cards" ? "ui-radio-group__options ui-radio-group__options--cards" : "ui-radio-group__options"}>
         {options.map((option) => {
           const id = `${name}-${option.value}`;
           const hintId = option.hint ? `${id}-hint` : undefined;

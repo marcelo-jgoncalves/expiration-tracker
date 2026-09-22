@@ -77,6 +77,36 @@ describe("ImportService (M11, D-042)", () => {
     expect(job.status).toBe("UPLOADED");
   });
 
+  // D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) - closes the pre-existing gap where
+  // reserveImport() hardcoded "TrackedSubject" unconditionally, with no HTTP path to create any
+  // other target type. Would fail if targetEntityType stopped being read from the request, or if
+  // the Item job didn't get its fixed v1 columnMapping seeded immediately (same as TrackedSubject).
+  it("reserveImport with targetEntityType=Item creates an Item job with DEFAULT_ITEM_COLUMN_MAPPING already seeded (no AWAITING_MAPPING hop needed)", async () => {
+    const result = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256, targetEntityType: "Item" }, "idem-item-1");
+    const job = await service.getImportJob(ctx(), result.jobId);
+    expect(job.targetEntityType).toBe("Item");
+    expect(job.status).toBe("UPLOADED");
+    expect(job.columnMapping?.targetKind).toBe("Item");
+    expect(job.columnMappingSha256).toBeTruthy();
+  });
+
+  // Would fail if omitting targetEntityType stopped defaulting to "TrackedSubject", breaking
+  // every pre-existing caller that never sends this new optional field.
+  it("reserveImport without targetEntityType still defaults to TrackedSubject (backward compat)", async () => {
+    const result = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-default-1");
+    const job = await service.getImportJob(ctx(), result.jobId);
+    expect(job.targetEntityType).toBe("TrackedSubject");
+  });
+
+  // Would fail if Document/Requirement started getting a default columnMapping too, silently
+  // skipping the AWAITING_MAPPING/POST-mapping flow those two target types still require.
+  it("reserveImport with targetEntityType=Document creates a job with NO default columnMapping (still requires POST /mapping)", async () => {
+    const result = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256, targetEntityType: "Document" }, "idem-doc-1");
+    const job = await service.getImportJob(ctx(), result.jobId);
+    expect(job.targetEntityType).toBe("Document");
+    expect(job.columnMapping).toBeUndefined();
+  });
+
   it("reserveImport is idempotent - the same Idempotency-Key returns the SAME jobId, never a second job", async () => {
     const first = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-1");
     const second = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-1");

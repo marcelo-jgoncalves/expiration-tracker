@@ -18,11 +18,13 @@ import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncSt
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
-import { PageHeader } from "../../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import type { TrackedSubjectType } from "../../api/types.js";
+import { Plus } from "lucide-react";
+import "./SubjectForm.css";
 
 const TYPE_OPTIONS: TrackedSubjectType[] = ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"];
 
@@ -120,27 +122,47 @@ export function SubjectForm() {
   return (
     <div>
       <PageHeader above={<ButtonLink variant="secondary" size="sm" to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")}>← Voltar</ButtonLink>} title={isEdit ? "Editar fornecedor" : "Novo fornecedor"} />
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={generalErrors} fieldErrors={fieldErrors} />
         {isConflictState ? <p role="alert">Este fornecedor mudou desde que a página carregou — recarregue antes de salvar de novo.</p> : null}
-        <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
-        {isEdit ? null : (
-          <>
-            <SelectField
-              id="subject-type"
-              label="Tipo"
-              value={type}
-              onChange={(v) => setType(v as TrackedSubjectType)}
-              required
-              options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
-            />
-            <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} hint="Não pode ser alterado depois de criado." />
-          </>
-        )}
-        <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
-        <Button type="submit" variant="primary" pending={pending}>
-          {pending ? "Salvando…" : "Salvar"}
-        </Button>
+        <Panel padded>
+          <Section
+            heading="Dados do fornecedor"
+            headingId="subject-form-heading"
+            description="Cadastre uma empresa ou parceiro para acompanhar documentos e vencimentos."
+            icon={Plus}
+          >
+            <div className="subject-form__grid">
+              <div className="subject-form__grid-full">
+                <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
+              </div>
+              {isEdit ? null : (
+                <>
+                  <SelectField
+                    id="subject-type"
+                    label="Tipo"
+                    value={type}
+                    onChange={(v) => setType(v as TrackedSubjectType)}
+                    required
+                    options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
+                  />
+                  <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} hint="Não pode ser alterado depois de criado." />
+                </>
+              )}
+              <div className="subject-form__grid-full">
+                <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
+              </div>
+            </div>
+          </Section>
+        </Panel>
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={pending}>
+            {pending ? "Salvando…" : "Salvar"}
+          </Button>
+          <ButtonLink to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")} variant="tertiary">
+            Cancelar
+          </ButtonLink>
+        </div>
       </form>
     </div>
   );

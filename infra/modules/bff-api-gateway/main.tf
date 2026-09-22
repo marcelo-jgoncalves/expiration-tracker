@@ -55,11 +55,22 @@ resource "aws_apigatewayv2_integration" "bff" {
 
 locals {
   bff_routes = {
-    login      = { method = "GET", path = "/bff/login" }
-    callback   = { method = "GET", path = "/bff/callback" }
-    session    = { method = "GET", path = "/bff/session" }
-    logout     = { method = "POST", path = "/bff/session/logout" }
-    logout_all = { method = "POST", path = "/bff/session/logout-all" }
+    # D-3xx (reversal of D-320): direct-auth routes backing the app's own login/signup/
+    # reset-password screens - the frontend's real entry point now. `login`/`callback` below are
+    # kept registered too (dormant rollback path, decisions-log.md D-3xx) - removing THEIR
+    # routes here would be the one thing that actually breaks that fallback, even though nothing
+    # links to them anymore.
+    login_password          = { method = "POST", path = "/bff/login" }
+    signup                  = { method = "POST", path = "/bff/signup" }
+    signup_confirm          = { method = "POST", path = "/bff/signup/confirm" }
+    signup_resend           = { method = "POST", path = "/bff/signup/resend" }
+    forgot_password         = { method = "POST", path = "/bff/forgot-password" }
+    forgot_password_confirm = { method = "POST", path = "/bff/forgot-password/confirm" }
+    login                   = { method = "GET", path = "/bff/login" }
+    callback                = { method = "GET", path = "/bff/callback" }
+    session                 = { method = "GET", path = "/bff/session" }
+    logout                  = { method = "POST", path = "/bff/session/logout" }
+    logout_all              = { method = "POST", path = "/bff/session/logout-all" }
     # Wave B2B-5 (D-095): first real HTTP consumer of CreateOrganizationService (B2B-3/D-091) -
     # authorized by identity alone inside the handler, never by API Gateway.
     organizations_create = { method = "POST", path = "/bff/organizations" }

@@ -29,8 +29,47 @@ run "every_bff_route_is_unauthenticated_at_the_gateway_layer" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.bff) == 10
-    error_message = "Expected exactly 10 BFF routes (login, callback, session, logout, logout-all, organizations create, organizations list, organization select, invitations accept, proxy catch-all)"
+    condition     = length(aws_apigatewayv2_route.bff) == 16
+    error_message = "Expected exactly 16 BFF routes (D-3xx added 6 direct-auth routes: login_password, signup, signup_confirm, signup_resend, forgot_password, forgot_password_confirm - alongside the original 10: login, callback, session, logout, logout-all, organizations create, organizations list, organization select, invitations accept, proxy catch-all)"
+  }
+}
+
+# D-3xx (reversal of D-320): the frontend's own login/signup/reset-password screens call these
+# directly now - same "route wiring, not just handler code" existence-check discipline the
+# D-117/D-120 findings above established, applied proactively this time instead of reactively.
+run "direct_auth_routes_exist_for_the_app_own_login_signup_and_reset_screens" {
+  command = apply
+
+  variables {
+    api_name          = "expiration-tracker-test-bff"
+    bff_invoke_arn    = "arn:aws:lambda:us-east-1:123456789012:function:test-bff:live"
+    bff_function_name = "test-bff"
+    app_origin        = "https://app.example.com"
+  }
+
+  assert {
+    condition     = aws_apigatewayv2_route.bff["login_password"].route_key == "POST /bff/login"
+    error_message = "The POST /bff/login route must exist - handleLoginPassword is otherwise unreachable"
+  }
+  assert {
+    condition     = aws_apigatewayv2_route.bff["signup"].route_key == "POST /bff/signup"
+    error_message = "The POST /bff/signup route must exist - handleSignUp is otherwise unreachable"
+  }
+  assert {
+    condition     = aws_apigatewayv2_route.bff["signup_confirm"].route_key == "POST /bff/signup/confirm"
+    error_message = "The POST /bff/signup/confirm route must exist - handleConfirmSignUp is otherwise unreachable"
+  }
+  assert {
+    condition     = aws_apigatewayv2_route.bff["signup_resend"].route_key == "POST /bff/signup/resend"
+    error_message = "The POST /bff/signup/resend route must exist - handleResendConfirmationCode is otherwise unreachable"
+  }
+  assert {
+    condition     = aws_apigatewayv2_route.bff["forgot_password"].route_key == "POST /bff/forgot-password"
+    error_message = "The POST /bff/forgot-password route must exist - handleForgotPassword is otherwise unreachable"
+  }
+  assert {
+    condition     = aws_apigatewayv2_route.bff["forgot_password_confirm"].route_key == "POST /bff/forgot-password/confirm"
+    error_message = "The POST /bff/forgot-password/confirm route must exist - handleConfirmForgotPassword is otherwise unreachable"
   }
 }
 

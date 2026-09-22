@@ -28,6 +28,7 @@ import { IconButton, IconButtonLink } from "../../components/ui/IconButton.js";
 import { PageHeader, Panel, StatusFilter, Toolbar } from "../../components/ui/Layout.js";
 import { TextField } from "../../components/forms/TextField.js";
 import type { TrackedSubject, TrackedSubjectStatus } from "../../api/types.js";
+import "./SubjectsCollection.css";
 
 const STATUS_TABS: { value: TrackedSubjectStatus; label: string }[] = [
   { value: "ACTIVE", label: "Ativos" },
@@ -96,7 +97,9 @@ export function SubjectsCollection() {
       />
       <Toolbar>
         <StatusFilter options={STATUS_TABS} value={status} onChange={selectStatus} />
-        <TextField label="Buscar fornecedores" hideLabel placeholder="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
+        <div className="subjects-search">
+          <TextField label="Buscar fornecedores" hideLabel placeholder="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
+        </div>
         {isBackgroundRefreshing ? <BackgroundRefreshIndicator /> : null}
       </Toolbar>
       {allSubjects.length === 0 ? (

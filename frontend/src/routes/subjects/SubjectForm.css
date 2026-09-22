@@ -1,0 +1,33 @@
+/* Two-column field grid for this screen only (Marcelo, protótipo `novofornecedor.html`,
+   2026-09-22) — same scoped-exception pattern already used by `CreateItem.css`: every other
+   form in the product keeps the single-column GOV.UK stacked layout (Form.css header comment,
+   mission §38). */
+.subject-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-6);
+}
+
+.subject-form__grid > .ui-field,
+.subject-form__grid > .subject-form__grid-full {
+  margin-bottom: var(--space-6);
+}
+
+.subject-form__grid > .ui-field:last-child,
+.subject-form__grid > .subject-form__grid-full:last-child {
+  margin-bottom: 0;
+}
+
+.subject-form__grid > .subject-form__grid-full {
+  grid-column: 1 / -1;
+}
+
+.subject-form__grid > .subject-form__grid-full > .ui-field {
+  margin-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .subject-form__grid {
+    grid-template-columns: 1fr;
+  }
+}

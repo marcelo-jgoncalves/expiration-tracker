@@ -37,6 +37,12 @@ export interface IdTokenVerifier {
    * `name` (#15, 2026-09-21) requires the `profile` OIDC scope (already in Cognito's
    * `allowed_oauth_scopes`, `infra/modules/cognito/main.tf` - only the requested `scope` string
    * in `bff-auth-service.ts` needed to catch up) - absent when the identity provider never sent
-   * a `name` claim, same "optional, never guessed" treatment `email` already gets. */
-  verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string; name?: string }>;
+   * a `name` claim, same "optional, never guessed" treatment `email` already gets.
+   *
+   * `expectedNonce` is `undefined` for the D-3xx direct-auth path (loginWithPassword) - a
+   * `nonce` only exists to bind an ID token to the specific `/oauth2/authorize` redirect that
+   * requested it; `InitiateAuth`'s ID token was never minted in response to one, so there is
+   * nothing to compare against. Signature/issuer/audience verification still runs either way -
+   * only the nonce check is skipped when this is `undefined`. */
+  verify(idToken: string, expectedNonce: string | undefined): Promise<{ subject: string; email?: string; name?: string }>;
 }

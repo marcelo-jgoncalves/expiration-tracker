@@ -9,6 +9,7 @@ import { AcceptInvitationService } from "../../../modules/organization/applicati
 import { DynamoDbSessionStore } from "../../../modules/bff/persistence/dynamodb-session-store.js";
 import { KmsTokenEncryptor, createKmsClient } from "../../../modules/bff/persistence/kms-token-encryptor.js";
 import { FetchCognitoOidcClient } from "../../../modules/bff/persistence/fetch-cognito-oidc-client.js";
+import { CognitoIdpAuthClient, createCognitoIdpClient } from "../../../modules/bff/persistence/cognito-idp-auth-client.js";
 import { AwsJwtIdTokenVerifier } from "../../../modules/bff/persistence/aws-jwt-id-token-verifier.js";
 import { BffAuthService } from "../../../modules/bff/application/bff-auth-service.js";
 import { ProxyService, type BackendFetcher } from "../../../modules/bff/application/proxy-service.js";
@@ -54,11 +55,16 @@ export function buildBffDeps(mainClient: DynamoDBDocumentClient, sessionClient: 
   const sessionStore = new DynamoDbSessionStore(sessionClient, config.sessionTableName);
   const tokenEncryptor = new KmsTokenEncryptor(createKmsClient(), config.kmsKeyId);
   const cognitoClient = new FetchCognitoOidcClient(config.cognitoDomain, config.cognitoClientId, config.cognitoClientSecret);
+  // D-3xx: direct-auth port (InitiateAuth/SignUp/ForgotPassword family) - separate SDK client
+  // from cognitoClient above (a plain `fetch` OAuth2 REST caller), since these are stateful,
+  // exception-shaped Cognito Identity Provider APIs the official SDK models properly.
+  const cognitoAuthClient = new CognitoIdpAuthClient(createCognitoIdpClient(), config.cognitoClientId, config.cognitoClientSecret);
   const idTokenVerifier = new AwsJwtIdTokenVerifier(config.cognitoUserPoolId, config.cognitoClientId);
 
   const auth = new BffAuthService({
     sessionStore,
     cognitoClient,
+    cognitoAuthClient,
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,

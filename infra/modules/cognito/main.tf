@@ -57,6 +57,13 @@ resource "aws_cognito_user_pool" "this" {
 
   deletion_protection = var.deletion_protection
 
+  # D-3xx: D-320's ESSENTIALS bump is reverted here - it existed only to unlock the Managed
+  # Login branding designer (aws_cognito_managed_login_branding, removed below). The direct-auth
+  # APIs this app now uses instead (InitiateAuth/SignUp/ForgotPassword/ConfirmForgotPassword -
+  # src/modules/bff/persistence/cognito-idp-auth-client.ts) are core Cognito Identity Provider
+  # APIs available on every tier, including the default (LITE) this omission now falls back to -
+  # nothing here depends on Essentials/Plus. Leaving `user_pool_tier` unset (rather than pinning
+  # `"LITE"` explicitly) matches how the module looked before D-320 ever touched it.
   tags = var.tags
 }
 
@@ -64,13 +71,22 @@ resource "aws_cognito_user_pool_client" "web_client" {
   name         = "WebClient"
   user_pool_id = aws_cognito_user_pool.this.id
 
-  # authFlows: { userSrp: true } - D-054 (Full BFF hardening amendment) removed
-  # ALLOW_REFRESH_TOKEN_AUTH: it is mutually exclusive with refresh_token_rotation below (a
-  # client that can call /oauth2/token's refresh_token grant AND has native rotation enabled
-  # would let a caller bypass rotation via InitiateAuth directly) - the only supported way to
-  # refresh a token for this client is now the Hosted UI's /oauth2/token endpoint, which the
-  # BFF alone calls server-side (src/modules/bff/persistence/fetch-cognito-oidc-client.ts).
-  explicit_auth_flows = ["ALLOW_USER_SRP_AUTH"]
+  # D-054 (Full BFF hardening amendment) removed ALLOW_REFRESH_TOKEN_AUTH: it is mutually
+  # exclusive with refresh_token_rotation below (a client that can call /oauth2/token's
+  # refresh_token grant AND has native rotation enabled would let a caller bypass rotation via
+  # InitiateAuth directly) - the only supported way to refresh a token for this client is the
+  # /oauth2/token endpoint, which the BFF alone calls server-side
+  # (src/modules/bff/persistence/fetch-cognito-oidc-client.ts). Unchanged by D-3xx.
+  #
+  # D-3xx (reversal of D-320): ALLOW_USER_SRP_AUTH -> ALLOW_USER_PASSWORD_AUTH. SRP was never
+  # actually used by any real code path (no src/ call site ever issued a USER_SRP_AUTH
+  # InitiateAuth - this flag predates any direct-auth implementation entirely); the app's own
+  # login screen now calls InitiateAuth with AuthFlow=USER_PASSWORD_AUTH server-side from the
+  # BFF (src/modules/bff/persistence/cognito-idp-auth-client.ts) - the credential still travels
+  # over TLS to Cognito directly, same trust boundary the Hosted UI's own login form had, without
+  # reimplementing SRP's client-side math (explicitly out of scope - "não reinventar
+  # criptografia"). Only the flow this app actually uses is enabled - least privilege.
+  explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH"]
 
   # BFF session pattern (blueprint §4.2): client secret held server-side only, never in the
   # browser.
@@ -112,8 +128,20 @@ resource "aws_cognito_user_pool_client" "web_client" {
 
 # Full BFF (D-053/D-054): the OAuth2 endpoints (/oauth2/authorize, /oauth2/token,
 # /oauth2/revoke) the BFF calls server-side are served by this domain, not by the User Pool
-# API directly - `allowed_oauth_flows = ["code"]` above is inert without one.
+# API directly - `allowed_oauth_flows = ["code"]` above is inert without one. This domain stays
+# even after D-3xx (reversal of D-320): /oauth2/token (refresh_token grant) and /oauth2/revoke
+# are still called by fetch-cognito-oidc-client.ts on every session refresh/logout, and the
+# rendered login PAGE this domain also serves (now unbranded classic Hosted UI, D-320's
+# `managed_login_version = 2` removed below) stays reachable as GET /bff/login's dormant
+# fallback (bff-handlers.ts's handleLogin/handleCallback, kept but no longer linked from the
+# frontend).
 resource "aws_cognito_user_pool_domain" "this" {
   domain       = var.domain_prefix
   user_pool_id = aws_cognito_user_pool.this.id
 }
+
+# D-3xx: aws_cognito_managed_login_branding.web_client (D-320) removed - the app's own
+# login/signup/reset-password screens (frontend/src/routes/{Login,SignUp,ForgotPassword,
+# ResetPassword}.tsx) replaced the Cognito-rendered login page as the real entry point, so this
+# branding config has no page left to apply to. See decisions-log.md D-3xx for the full
+# rationale (Marcelo chose the app's own UI over Managed Login for visual fidelity).

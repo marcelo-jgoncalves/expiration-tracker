@@ -2,11 +2,13 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryImportStore, FakeImportObjectStore, activeLifecycleRecord } from "./in-memory-store.js";
 import { InMemorySubjectStore, makeSubjectIdGenerator } from "../subject/in-memory-store.js";
 import { SubjectService } from "../../../src/modules/subject/application/subject-service.js";
+import { InMemoryExpirationStore, makeExpirationIdGenerator, allowAllMemberEligibilityChecker, activeLifecycleRecord as expirationActiveLifecycleRecord } from "../expiration/in-memory-store.js";
+import { ExpirationService } from "../../../src/modules/expiration/application/expiration-service.js";
 import { commitImportJob } from "../../../src/modules/import/application/import-commit-service.js";
 import { importJobKey, type ImportJob } from "../../../src/modules/import/domain/import-job.js";
 import { importDedupKey, type ImportDedupRecord } from "../../../src/modules/import/domain/import-dedup.js";
 import { importRowOutcomeKey, type ImportRowOutcome } from "../../../src/modules/import/domain/import-row-outcome.js";
-import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportRowPlanEntry } from "../../../src/modules/import/domain/import-row.js";
+import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportRowPlanEntry, ItemImportRowPlanEntry } from "../../../src/modules/import/domain/import-row.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { defaultEntitlement, type TenantEntitlement } from "../../../src/modules/subject/domain/entitlement.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
@@ -59,14 +61,24 @@ function planEntry(rowNumber: number, overrides: Partial<Extract<ImportRowPlanEn
 describe("commitImportJob (M11, D-042)", () => {
   let store: InMemoryImportStore;
   let subjectStore: InMemorySubjectStore;
+  let expirationStore: InMemoryExpirationStore;
   let objectStore: FakeImportObjectStore;
   let subjects: SubjectService;
+  let expiration: ExpirationService;
 
   beforeEach(async () => {
     store = new InMemoryImportStore();
     subjectStore = new InMemorySubjectStore();
+    expirationStore = new InMemoryExpirationStore([expirationActiveLifecycleRecord(TENANT)]);
     objectStore = new FakeImportObjectStore();
     subjects = new SubjectService({ store: subjectStore, tableName: "MainTable", ids: makeSubjectIdGenerator(), now: () => NOW });
+    expiration = new ExpirationService({
+      store: expirationStore,
+      tableName: "MainTable",
+      ids: makeExpirationIdGenerator(),
+      members: allowAllMemberEligibilityChecker(),
+      now: () => NOW,
+    });
 
     const job: ImportJob = {
       ...importJobKey(TENANT, JOB_ID),
@@ -85,7 +97,7 @@ describe("commitImportJob (M11, D-042)", () => {
   });
 
   function deps() {
-    return { store, objectStore, planBucket: PLAN_BUCKET, tableName: "MainTable", subjects, documentArchiveIds: makeDocumentArchiveIds(), now: () => NOW };
+    return { store, objectStore, planBucket: PLAN_BUCKET, tableName: "MainTable", subjects, expiration, documentArchiveIds: makeDocumentArchiveIds(), now: () => NOW };
   }
 
   async function seedPlan(entries: ImportRowPlanEntry[]): Promise<string> {
@@ -229,6 +241,7 @@ describe("commitImportJob - Document/Requirement (D-192 §6, fatia 8)", () => {
   let store: InMemoryImportStore;
   let objectStore: FakeImportObjectStore;
   let subjects: SubjectService;
+  let expiration: ExpirationService;
 
   function seedActiveTrackedSubject(subjectId: string): Record<string, unknown> & { PK: string; SK: string } {
     return {
@@ -279,13 +292,20 @@ describe("commitImportJob - Document/Requirement (D-192 §6, fatia 8)", () => {
     store = new InMemoryImportStore();
     objectStore = new FakeImportObjectStore();
     subjects = new SubjectService({ store: new InMemorySubjectStore(), tableName: "MainTable", ids: makeSubjectIdGenerator(), now: () => NOW });
+    expiration = new ExpirationService({
+      store: new InMemoryExpirationStore([expirationActiveLifecycleRecord(TENANT)]),
+      tableName: "MainTable",
+      ids: makeExpirationIdGenerator(),
+      members: allowAllMemberEligibilityChecker(),
+      now: () => NOW,
+    });
     await store.putIfAbsent(activeLifecycleRecord(TENANT, NOW));
     await store.putIfAbsent(seedActiveTrackedSubject(SUBJECT_ID));
     await store.putIfAbsent(seedActiveDocumentType(DOCTYPE_ID));
   });
 
   function deps() {
-    return { store, objectStore, planBucket: PLAN_BUCKET, tableName: "MainTable", subjects, documentArchiveIds: makeDocumentArchiveIds(), now: () => NOW };
+    return { store, objectStore, planBucket: PLAN_BUCKET, tableName: "MainTable", subjects, expiration, documentArchiveIds: makeDocumentArchiveIds(), now: () => NOW };
   }
 
   async function seedPlan(entries: Array<DocumentImportRowPlanEntry | RequirementImportRowPlanEntry>): Promise<void> {
@@ -445,5 +465,142 @@ describe("commitImportJob - Document/Requirement (D-192 §6, fatia 8)", () => {
     const outcome2 = await store.get<ImportRowOutcome>(importRowOutcomeKey(TENANT, JOB_ID, 2));
     expect(outcome2?.outcome).toBe("FAILED");
     expect(outcome2?.failureReason).toBe("EXTERNAL_ID_ALREADY_EXISTS");
+  });
+});
+
+/**
+ * D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) — Item commit path. Mirrors the TrackedSubject
+ * describe block above's coverage shape exactly (same claim-then-create-as-black-box protocol,
+ * `commitItemRows()`'s own doc comment explains why it is NOT the Document/Requirement
+ * TENTATIVA/FALLBACK protocol) - calls `ExpirationService.createItem()` instead of
+ * `SubjectService.createSubject()`, backed by a SEPARATE in-memory store
+ * (`InMemoryExpirationStore`), same as `subjects`/`subjectStore` above are already separate from
+ * `store`/`InMemoryImportStore` despite sharing one physical DynamoDB table in production.
+ */
+describe("commitImportJob — Item branch (D-3xx, PENDING_PROTOCOL_REVIEW)", () => {
+  let store: InMemoryImportStore;
+  let expirationStore: InMemoryExpirationStore;
+  let objectStore: FakeImportObjectStore;
+  let expiration: ExpirationService;
+
+  function itemEntry(rowNumber: number, overrides: Partial<Extract<ItemImportRowPlanEntry, { action: "CREATE_ITEM" }>["row"]> = {}): Extract<ItemImportRowPlanEntry, { action: "CREATE_ITEM" }> {
+    const category = overrides.category ?? "Licenca";
+    const name = overrides.name ?? `Item ${rowNumber}`;
+    const dueDate = overrides.dueDate ?? "2026-12-31T00:00:00.000Z";
+    return {
+      rowNumber,
+      action: "CREATE_ITEM",
+      row: { rowNumber, name, category, dueDate, tags: [], warnings: [], ...overrides },
+      dedupKey: `${category.toLowerCase()}|${name.toLowerCase()}|${dueDate}`,
+    };
+  }
+
+  beforeEach(async () => {
+    store = new InMemoryImportStore();
+    expirationStore = new InMemoryExpirationStore([expirationActiveLifecycleRecord(TENANT)]);
+    objectStore = new FakeImportObjectStore();
+    expiration = new ExpirationService({
+      store: expirationStore,
+      tableName: "MainTable",
+      ids: makeExpirationIdGenerator(),
+      members: allowAllMemberEligibilityChecker(),
+      now: () => NOW,
+    });
+
+    const job: ImportJob = {
+      ...importJobKey(TENANT, JOB_ID),
+      entityType: "ImportJob",
+      jobId: JOB_ID,
+      tenantId: TENANT,
+      targetEntityType: "Item",
+      status: "COMMITTING",
+      createdByUserId: "user-1",
+      expiresAt: "2026-08-30T12:00:00.000Z",
+      createdAt: NOW,
+      updatedAt: NOW,
+      version: 1,
+    };
+    await store.putIfAbsent(job);
+  });
+
+  function deps() {
+    return {
+      store,
+      objectStore,
+      planBucket: PLAN_BUCKET,
+      tableName: "MainTable",
+      subjects: new SubjectService({ store: new InMemorySubjectStore(), tableName: "MainTable", ids: makeSubjectIdGenerator(), now: () => NOW }),
+      expiration,
+      documentArchiveIds: makeDocumentArchiveIds(),
+      now: () => NOW,
+    };
+  }
+
+  async function seedPlan(entries: ItemImportRowPlanEntry[]): Promise<void> {
+    const content = entries.map((e) => JSON.stringify(e)).join("\n");
+    const { createHash } = await import("node:crypto");
+    const sha256 = createHash("sha256").update(content, "utf-8").digest("hex");
+    const key = `tenant/${TENANT}/imports/${JOB_ID}/plan/page-0.jsonl`;
+    objectStore.seed(PLAN_BUCKET, key, content);
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    await store.update<ImportJob>({ ...job!, planObjectKey: key, planSha256: sha256 });
+  }
+
+  // Would fail if commitImportJob() stopped branching to commitItemRows() for targetEntityType
+  // "Item", or if createItem() stopped being invoked per CREATE_ITEM entry.
+  it("creates an ExpirationItem per CREATE_ITEM entry and marks the job COMMITTED", async () => {
+    await seedPlan([itemEntry(1), itemEntry(2)]);
+
+    const outcome = await commitImportJob(deps(), ctx(), JOB_ID);
+
+    expect(outcome).toEqual({ kind: "COMMITTED", createdCount: 2 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("COMMITTED");
+    expect(job?.lastCommittedRowNumber).toBe(2);
+
+    const created = expirationStore.allItems().filter((i) => i["entityType"] === "ExpirationItem");
+    expect(created).toHaveLength(2);
+  });
+
+  // Would fail if the ImportDedupRecord claim (putIfAbsent) were removed, letting a retry
+  // re-create the same Item a second time.
+  it("retry safety: re-running commit for an already-committed job never creates duplicate items (idempotent restart, SQS at-least-once)", async () => {
+    await seedPlan([itemEntry(1), itemEntry(2)]);
+
+    const first = await commitImportJob(deps(), ctx(), JOB_ID);
+    expect(first).toEqual({ kind: "COMMITTED", createdCount: 2 });
+
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    await store.update<ImportJob>({ ...job!, status: "COMMITTING" });
+
+    const second = await commitImportJob(deps(), ctx(), JOB_ID);
+    expect(second).toEqual({ kind: "COMMITTED", createdCount: 0 });
+
+    const created = expirationStore.allItems().filter((i) => i["entityType"] === "ExpirationItem");
+    expect(created).toHaveLength(2); // still exactly 2, never duplicated
+  });
+
+  // Would fail if the dedup record's field values (kind/subjectId placeholder->real id) were
+  // wrong, breaking the same-Item-across-jobs dedup contract decision 3 relies on.
+  it("writes an ImportDedupRecord (kind ITEM) keyed by the synthetic composite dedupKey, updated with the real itemId after creation", async () => {
+    await seedPlan([itemEntry(1)]);
+
+    await commitImportJob(deps(), ctx(), JOB_ID);
+
+    const entry = itemEntry(1);
+    const dedup = await store.get<ImportDedupRecord>(importDedupKey(TENANT, "ITEM", entry.dedupKey));
+    expect(dedup?.kind).toBe("ITEM");
+    expect(dedup?.subjectId).toBeTruthy(); // real itemId, no longer the "" placeholder
+  });
+
+  // Would fail if the planned CreateItemInput mapping dropped optional fields (description/
+  // issuer/number/periodicity/priority/tags) instead of passing them through to createItem().
+  it("passes optional fields (description/issuer/number/periodicity/priority/tags) through to the created Item", async () => {
+    await seedPlan([itemEntry(1, { description: "nota", issuer: "Prefeitura", number: "123", periodicity: "ANNUAL", priority: "HIGH", tags: ["urgente"] })]);
+
+    await commitImportJob(deps(), ctx(), JOB_ID);
+
+    const created = expirationStore.allItems().find((i) => i["entityType"] === "ExpirationItem");
+    expect(created).toMatchObject({ description: "nota", issuer: "Prefeitura", number: "123", periodicity: "ANNUAL", priority: "HIGH", tags: ["urgente"] });
   });
 });

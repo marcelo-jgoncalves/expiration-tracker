@@ -20,6 +20,7 @@ import { AcceptInvitationService } from "../../organization/application/accept-i
 import type { OrganizationStore } from "../../organization/ports/organization-store.js";
 import type { SessionStore } from "../ports/session-store.js";
 import type { CognitoOidcClient, IdTokenVerifier } from "../ports/cognito-oidc-client.js";
+import type { CognitoAuthClient, CognitoAuthTokens } from "../ports/cognito-auth-client.js";
 import type { TokenEncryptor } from "../ports/token-encryptor.js";
 import { issueOpaqueToken, parseOpaqueToken, opaqueTokenSecretMatches, hmacTokenCrypto } from "../domain/opaque-token.js";
 import { issueCsrfSecret } from "../domain/csrf.js";
@@ -35,6 +36,11 @@ import type { RefreshOutcome } from "../domain/refresh-outcome.js";
 export interface BffAuthServiceDeps {
   sessionStore: SessionStore;
   cognitoClient: CognitoOidcClient;
+  /** D-3xx (reversal of D-320's Managed Login decision): direct-auth port (InitiateAuth/
+   * SignUp/ForgotPassword family) backing the app's own login/signup/reset-password screens.
+   * `cognitoClient` above stays untouched - it still serves refresh/revoke (and the dormant
+   * OIDC/PKCE fallback, handleCallback below). */
+  cognitoAuthClient: CognitoAuthClient;
   idTokenVerifier: IdTokenVerifier;
   tokenEncryptor: TokenEncryptor;
   /** Wave B2B-5 (D-095): renamed from `TenantBootstrapService` — no longer creates any
@@ -190,6 +196,118 @@ export class BffAuthService {
     });
 
     const idClaims = await this.deps.idTokenVerifier.verify(tokens.idToken, attempt.nonce);
+    const { sessionToken, csrfToken } = await this.establishSession(tokens, idClaims);
+    return { sessionToken, csrfToken, returnTo: attempt.returnTo };
+  }
+
+  /** D-3xx: direct-auth login (`POST /bff/login`), replacing the Hosted UI redirect as the
+   * frontend's primary entry point (D-320 reversed - see decisions-log.md). Cognito's own
+   * `prevent_user_existence_errors = "ENABLED"` already collapses "no such user" and "wrong
+   * password" into one indistinguishable outcome (`INVALID_CREDENTIALS`) - this method preserves
+   * that by throwing the exact same generic `AuthenticationError` for it, `USER_NOT_CONFIRMED`,
+   * `PASSWORD_RESET_REQUIRED` and `UNSUPPORTED_CHALLENGE` alike, never a message that would let a
+   * caller distinguish "this account doesn't exist" from "this account exists but locked". */
+  async loginWithPassword(input: { email: string; password: string }): Promise<{ sessionToken: string; csrfToken: string }> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.authenticateWithPassword({ username, password: input.password });
+    if (outcome.kind !== "SUCCESS") {
+      throw new AuthenticationError("E-mail ou senha inválidos.");
+    }
+
+    // Direct-auth ID token was never minted against an `/oauth2/authorize` nonce (undefined is
+    // the documented "skip nonce check" signal - see IdTokenVerifier.verify's own doc comment).
+    const idClaims = await this.deps.idTokenVerifier.verify(outcome.tokens.idToken, undefined);
+    return this.establishSession(outcome.tokens, idClaims);
+  }
+
+  /** D-3xx: self-service signup (`POST /bff/signup`) - the same path the Hosted UI's own "Sign
+   * up" link exercised (the pool has no `admin_create_user_config` restricting registration to
+   * admins, `infra/modules/cognito/main.tf` - self-service signup was already live, this is
+   * parity, not a new capability). `auto_verified_attributes = ["email"]` means Cognito always
+   * requires the confirmation-code step below before the account can log in. */
+  async signUp(input: { email: string; password: string }): Promise<{ status: "CONFIRMATION_REQUIRED" }> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.signUp({ username, password: input.password });
+    if (outcome.kind === "EMAIL_ALREADY_REGISTERED") {
+      throw new ConflictError("Já existe uma conta com este e-mail.");
+    }
+    if (outcome.kind === "INVALID_PASSWORD") {
+      throw new ValidationError("A senha não atende aos requisitos mínimos de segurança.");
+    }
+    if (outcome.kind !== "CONFIRMATION_REQUIRED") {
+      throw new DependencyUnavailableError("Não foi possível criar a conta - tente novamente.");
+    }
+    return { status: "CONFIRMATION_REQUIRED" };
+  }
+
+  /** D-3xx: `POST /bff/signup/confirm` - the e-mail verification step Cognito's
+   * `auto_verified_attributes` requires before a freshly self-registered account can log in. */
+  async confirmSignUp(input: { email: string; confirmationCode: string }): Promise<void> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.confirmSignUp({ username, confirmationCode: input.confirmationCode });
+    if (outcome.kind === "INVALID_CODE_OR_EXPIRED") {
+      throw new ValidationError("Código inválido ou expirado.");
+    }
+    if (outcome.kind === "ALREADY_CONFIRMED") {
+      // Idempotent from the caller's point of view - the account is confirmed either way, which
+      // is exactly what the caller wanted, so this is not surfaced as an error.
+      return;
+    }
+    if (outcome.kind !== "SUCCESS") {
+      throw new DependencyUnavailableError("Não foi possível confirmar o e-mail - tente novamente.");
+    }
+  }
+
+  /** D-3xx: `POST /bff/signup/resend` - lets a user whose confirmation code expired get a new
+   * one without restarting the whole signup form. */
+  async resendConfirmationCode(input: { email: string }): Promise<void> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.resendConfirmationCode({ username });
+    if (outcome.kind === "TRANSIENT_FAILURE" || outcome.kind === "UNKNOWN_OUTCOME") {
+      throw new DependencyUnavailableError("Não foi possível reenviar o código - tente novamente.");
+    }
+    // SENT or ALREADY_CONFIRMED: both are a benign no-op from the caller's perspective (a
+    // confirmed account never needs the code anyway) - anti-enumeration posture (decision 3):
+    // never let the response distinguish "this e-mail isn't registered" from either of those.
+  }
+
+  /** D-3xx: `POST /bff/forgot-password` - always resolves the same way regardless of whether
+   * the e-mail is registered (Cognito's own anti-enumeration posture under
+   * `prevent_user_existence_errors = "ENABLED"`, preserved by CognitoIdpAuthClient.
+   * forgotPassword folding UserNotFoundException into SUCCESS too - belt and suspenders). Only a
+   * genuine transient/unknown failure surfaces differently, and even then never says why. */
+  async startForgotPassword(input: { email: string }): Promise<void> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.forgotPassword({ username });
+    if (outcome.kind === "TRANSIENT_FAILURE" || outcome.kind === "UNKNOWN_OUTCOME") {
+      throw new DependencyUnavailableError("Não foi possível iniciar a redefinição de senha - tente novamente.");
+    }
+  }
+
+  /** D-3xx: `POST /bff/forgot-password/confirm` - the code+new-password step. */
+  async confirmForgotPassword(input: { email: string; confirmationCode: string; newPassword: string }): Promise<void> {
+    const username = input.email.trim().toLowerCase();
+    const outcome = await this.deps.cognitoAuthClient.confirmForgotPassword({ username, confirmationCode: input.confirmationCode, newPassword: input.newPassword });
+    if (outcome.kind === "INVALID_CODE_OR_EXPIRED") {
+      throw new ValidationError("Código inválido ou expirado.");
+    }
+    if (outcome.kind === "INVALID_PASSWORD") {
+      throw new ValidationError("A nova senha não atende aos requisitos mínimos de segurança.");
+    }
+    if (outcome.kind !== "SUCCESS") {
+      throw new DependencyUnavailableError("Não foi possível redefinir a senha - tente novamente.");
+    }
+  }
+
+  /** Shared by `handleCallback` (OIDC/PKCE, dormant fallback) and `loginWithPassword` (D-3xx,
+   * the real entry point now) - both end with an already-obtained token set and verified ID
+   * claims, and both need the exact same bootstrap/device-session/session-creation sequence.
+   * Extracted here (was duplicated inline in handleCallback before D-3xx) so the two callers can
+   * never drift apart on how a session actually gets created. */
+  private async establishSession(
+    tokens: CognitoAuthTokens,
+    idClaims: { subject: string; email?: string; name?: string },
+  ): Promise<{ sessionToken: string; csrfToken: string }> {
     // Access token claims are decoded (not independently re-verified) - it was obtained via a
     // direct server-to-server call to Cognito's token endpoint over TLS with client
     // credentials, the same trusted backchannel that just produced a signature-verified ID
@@ -256,7 +374,7 @@ export class BffAuthService {
     }
 
     void accessClaims; // decoded for future use (e.g. audit logging tokenId); not persisted raw
-    return { sessionToken: issuedSession.token, csrfToken: csrfSecret, returnTo: attempt.returnTo };
+    return { sessionToken: issuedSession.token, csrfToken: csrfSecret };
   }
 
   /** Resolves a session cookie to its record, refreshing the cached access token first if it

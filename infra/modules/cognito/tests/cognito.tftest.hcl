@@ -2,7 +2,12 @@
 # `terraform test` assertions. Uses a mocked AWS provider (no real credentials/resources
 # needed or created — see ADR-0009 and the repo's hard rule against `terraform apply`
 # against real AWS; this mocked apply never touches AWS at all).
-
+#
+# D-3xx (found while verifying this file's own new assertions): every run block was missing
+# `domain_prefix`, a required variable since e8c3ce87 (D-053/D-054, long before D-3xx) - this
+# whole test file has been erroring out on its first run block (and skipping every other run,
+# including this one's own web_client checks) for as long as that variable has existed. Fixed
+# here as a pre-existing gap incidentally found, not something D-3xx introduced.
 mock_provider "aws" {}
 
 run "defaults_to_optional_mfa_with_totp_and_password_policy" {
@@ -10,6 +15,7 @@ run "defaults_to_optional_mfa_with_totp_and_password_policy" {
 
   variables {
     user_pool_name = "expiration-tracker-test"
+    domain_prefix  = "expiration-tracker-test"
   }
 
   assert {
@@ -43,6 +49,7 @@ run "mfa_policy_off_disables_software_token_mfa" {
 
   variables {
     user_pool_name = "expiration-tracker-test-off"
+    domain_prefix  = "expiration-tracker-test-off"
     mfa_policy     = "OFF"
   }
 
@@ -62,6 +69,7 @@ run "mfa_policy_required_maps_to_on" {
 
   variables {
     user_pool_name = "expiration-tracker-test-required"
+    domain_prefix  = "expiration-tracker-test-required"
     mfa_policy     = "REQUIRED"
   }
 
@@ -71,16 +79,25 @@ run "mfa_policy_required_maps_to_on" {
   }
 }
 
-run "web_client_uses_srp_auth_and_generates_a_secret" {
+run "web_client_uses_password_auth_and_generates_a_secret" {
   command = apply
 
   variables {
     user_pool_name = "expiration-tracker-test-client"
+    domain_prefix  = "expiration-tracker-test-client"
+  }
+
+  # D-3xx (reversal of D-320): USER_SRP_AUTH -> USER_PASSWORD_AUTH - see main.tf's own comment
+  # on explicit_auth_flows for the full rationale (SRP was never actually used by any real code
+  # path; the app's own login screen calls InitiateAuth with USER_PASSWORD_AUTH server-side).
+  assert {
+    condition     = contains(aws_cognito_user_pool_client.web_client.explicit_auth_flows, "ALLOW_USER_PASSWORD_AUTH")
+    error_message = "Web client must allow USER_PASSWORD_AUTH - the direct-auth login screen's InitiateAuth call requires it"
   }
 
   assert {
-    condition     = contains(aws_cognito_user_pool_client.web_client.explicit_auth_flows, "ALLOW_USER_SRP_AUTH")
-    error_message = "Web client must allow USER_SRP_AUTH"
+    condition     = !contains(aws_cognito_user_pool_client.web_client.explicit_auth_flows, "ALLOW_USER_SRP_AUTH")
+    error_message = "Web client must not allow USER_SRP_AUTH - unused by any real code path since D-3xx (least privilege)"
   }
 
   assert {

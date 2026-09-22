@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-service.js";
 import { InMemorySessionStore, HookableSessionStore } from "./in-memory-session-store.js";
-import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor, fakeAccessToken } from "./fakes.js";
+import { FakeCognitoOidcClient, FakeCognitoAuthClient, FakeIdTokenVerifier, FakeTokenEncryptor, fakeAccessToken } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
 import { GlobalUserRepository, globalUserKey } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { CreateOrganizationService } from "../../../src/modules/organization/application/create-organization.js";
 import { AcceptInvitationService } from "../../../src/modules/organization/application/accept-invitation.js";
-import { AuthenticationError, ConflictError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
+import { AuthenticationError, ConflictError, DependencyUnavailableError, ValidationError } from "../../../src/shared/errors/app-error.js";
 
 const TABLE = "MainTable";
 
@@ -27,6 +27,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
   });
   const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => `org-${++orgIdCounter}`, newMembershipId: () => `membership-${orgIdCounter}`, newInvitationId: () => `invitation-${orgIdCounter}`, newAuditEventId: () => `audit-${orgIdCounter}` }, "test-pepper");
   const cognitoClient = new FakeCognitoOidcClient();
+  const cognitoAuthClient = new FakeCognitoAuthClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
   let userCounter = 0;
@@ -36,6 +37,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
   const service = new BffAuthService({
     sessionStore,
     cognitoClient,
+    cognitoAuthClient,
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,
@@ -60,6 +62,7 @@ function buildService(overrides: Partial<{ now: () => string }> = {}) {
     organizations,
     globalUsers,
     cognitoClient,
+    cognitoAuthClient,
     idTokenVerifier,
     tokenEncryptor,
     setClock: (iso: string) => {
@@ -555,6 +558,7 @@ describe("BffAuthService.resolveSession", () => {
     const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
     const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
     const cognitoClient = new FakeCognitoOidcClient();
+    const cognitoAuthClient = new FakeCognitoAuthClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
     const tokenEncryptor = new FakeTokenEncryptor();
     let userCounter = 0;
@@ -563,6 +567,7 @@ describe("BffAuthService.resolveSession", () => {
     const now = () => clock;
     const depsBase = {
       cognitoClient,
+      cognitoAuthClient,
       idTokenVerifier,
       tokenEncryptor,
       bootstrap,
@@ -628,6 +633,7 @@ describe("BffAuthService.resolveSession", () => {
     const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
     const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
     const cognitoClient = new FakeCognitoOidcClient();
+    const cognitoAuthClient = new FakeCognitoAuthClient();
     const idTokenVerifier = new FakeIdTokenVerifier();
     const tokenEncryptor = new FakeTokenEncryptor();
     let userCounter = 0;
@@ -636,6 +642,7 @@ describe("BffAuthService.resolveSession", () => {
     const now = () => clock;
     const depsBase = {
       cognitoClient,
+      cognitoAuthClient,
       idTokenVerifier,
       tokenEncryptor,
       bootstrap,
@@ -778,6 +785,110 @@ describe("BffAuthService.logout / logoutAll", () => {
     const user = await ctx.globalUsers.get(session.userId);
     expect(user?.globalLogoutAfter).toBeTruthy();
     await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
+  });
+});
+
+// D-3xx (reversal of D-320): direct-auth methods - loginWithPassword replaces handleCallback as
+// the frontend's real entry point (handleCallback's own tests above stay green untouched, it's
+// a dormant fallback now, never removed).
+describe("BffAuthService.loginWithPassword", () => {
+  it("establishes a real session on a successful password login, same shape as the OIDC path", async () => {
+    const ctx = buildService();
+    const result = await ctx.service.loginWithPassword({ email: "User@Example.com", password: "correct-horse" });
+    expect(result.sessionToken).toMatch(/^[a-f0-9]{32}\.[a-f0-9]{64}$/);
+    expect(result.csrfToken).toBeTruthy();
+    const session = await ctx.service.resolveSession(result.sessionToken);
+    expect(session.userId).toBeTruthy();
+  });
+
+  it("lowercases/trims the e-mail before calling Cognito (username normalization)", async () => {
+    const ctx = buildService();
+    await ctx.service.loginWithPassword({ email: "  User@Example.com  ", password: "x" });
+    expect(ctx.cognitoAuthClient.authenticateCalls[0]?.username).toBe("user@example.com");
+  });
+
+  it("throws the same generic AuthenticationError for INVALID_CREDENTIALS, USER_NOT_CONFIRMED, PASSWORD_RESET_REQUIRED and an unsupported challenge (anti-enumeration, decision 3)", async () => {
+    const ctx = buildService();
+    for (const outcome of [
+      { kind: "INVALID_CREDENTIALS" as const },
+      { kind: "USER_NOT_CONFIRMED" as const },
+      { kind: "PASSWORD_RESET_REQUIRED" as const },
+      { kind: "UNSUPPORTED_CHALLENGE" as const, challengeName: "SOFTWARE_TOKEN_MFA" },
+    ]) {
+      ctx.cognitoAuthClient.nextAuthenticateOutcome = outcome;
+      await expect(ctx.service.loginWithPassword({ email: "user@example.com", password: "x" })).rejects.toBeInstanceOf(AuthenticationError);
+    }
+  });
+
+  it("verifies the ID token with no expected nonce (direct-auth has none)", async () => {
+    const ctx = buildService();
+    await ctx.service.loginWithPassword({ email: "user@example.com", password: "x" });
+    expect(ctx.idTokenVerifier.lastCall?.expectedNonce).toBeUndefined();
+  });
+});
+
+describe("BffAuthService.signUp", () => {
+  it("returns CONFIRMATION_REQUIRED on a fresh signup", async () => {
+    const ctx = buildService();
+    const result = await ctx.service.signUp({ email: "new@example.com", password: "correct-horse-battery-1" });
+    expect(result).toEqual({ status: "CONFIRMATION_REQUIRED" });
+  });
+
+  it("throws ConflictError when the e-mail is already registered", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextSignUpOutcome = { kind: "EMAIL_ALREADY_REGISTERED" };
+    await expect(ctx.service.signUp({ email: "taken@example.com", password: "x" })).rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+describe("BffAuthService.confirmSignUp", () => {
+  it("resolves on a valid confirmation code", async () => {
+    const ctx = buildService();
+    await expect(ctx.service.confirmSignUp({ email: "user@example.com", confirmationCode: "123456" })).resolves.toBeUndefined();
+  });
+
+  it("treats ALREADY_CONFIRMED as a benign no-op, not an error", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextConfirmSignUpOutcome = { kind: "ALREADY_CONFIRMED" };
+    await expect(ctx.service.confirmSignUp({ email: "user@example.com", confirmationCode: "123456" })).resolves.toBeUndefined();
+  });
+
+  it("throws ValidationError on an invalid/expired code", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextConfirmSignUpOutcome = { kind: "INVALID_CODE_OR_EXPIRED" };
+    await expect(ctx.service.confirmSignUp({ email: "user@example.com", confirmationCode: "000000" })).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("BffAuthService.startForgotPassword", () => {
+  it("resolves the same way regardless of Cognito's real outcome, up to a transient failure (anti-enumeration, decision 3)", async () => {
+    const ctx = buildService();
+    await expect(ctx.service.startForgotPassword({ email: "anyone@example.com" })).resolves.toBeUndefined();
+  });
+
+  it("surfaces a DependencyUnavailableError only on a genuine transient/unknown failure", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextForgotPasswordOutcome = { kind: "TRANSIENT_FAILURE", cause: new Error("network") };
+    await expect(ctx.service.startForgotPassword({ email: "user@example.com" })).rejects.toBeInstanceOf(DependencyUnavailableError);
+  });
+});
+
+describe("BffAuthService.confirmForgotPassword", () => {
+  it("resolves on a valid code + a password that satisfies the policy", async () => {
+    const ctx = buildService();
+    await expect(ctx.service.confirmForgotPassword({ email: "user@example.com", confirmationCode: "123456", newPassword: "Correct-Horse-1" })).resolves.toBeUndefined();
+  });
+
+  it("throws ValidationError on an invalid/expired code", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextConfirmForgotPasswordOutcome = { kind: "INVALID_CODE_OR_EXPIRED" };
+    await expect(ctx.service.confirmForgotPassword({ email: "user@example.com", confirmationCode: "000000", newPassword: "x" })).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws ValidationError when the new password fails Cognito's policy", async () => {
+    const ctx = buildService();
+    ctx.cognitoAuthClient.nextConfirmForgotPasswordOutcome = { kind: "INVALID_PASSWORD" };
+    await expect(ctx.service.confirmForgotPassword({ email: "user@example.com", confirmationCode: "123456", newPassword: "weak" })).rejects.toBeInstanceOf(ValidationError);
   });
 });
 

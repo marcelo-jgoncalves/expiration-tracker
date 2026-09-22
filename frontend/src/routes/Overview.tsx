@@ -105,7 +105,7 @@ export function Overview() {
   const header = (
     <PageHeader
       title="Visão geral"
-      description="Seus vencimentos ativos, do mais urgente para o menos urgente."
+      description="Seus vencimentos ativos, do mais para o menos urgente."
       actions={
         <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
           Novo vencimento
@@ -181,7 +181,7 @@ export function Overview() {
         </InlineNotice>
       )}
       <Panel>
-        <DataTable caption="Vencimentos ativos, do mais urgente para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
+        <DataTable caption="Vencimentos ativos, do mais para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
       </Panel>
     </>
   );

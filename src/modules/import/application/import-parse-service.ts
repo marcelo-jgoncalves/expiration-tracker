@@ -19,12 +19,17 @@ import {
   validateDocumentImportRow,
   extractRawRequirementRow,
   validateRequirementImportRow,
+  extractRawItemRow,
+  validateItemImportRow,
+  buildItemDedupKey,
   type RawImportRow,
   type ImportRowPlanEntry,
   type DocumentImportRowPlanEntry,
   type RequirementImportRowPlanEntry,
+  type ItemImportRowPlanEntry,
   type ValidatedDocumentImportRow,
   type ValidatedRequirementImportRow,
+  type ValidatedItemImportRow,
 } from "../domain/import-row.js";
 import { normalizeDisplayName, type TrackedSubjectType } from "../../subject/domain/tracked-subject.js";
 import { importDedupKey } from "../domain/import-dedup.js";
@@ -118,7 +123,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
 
     const namedRows = mapCsvRowsToNamedFields(header, rows);
 
-    let plan: ImportRowPlanEntry[] | DocumentImportRowPlanEntry[] | RequirementImportRowPlanEntry[];
+    let plan: ImportRowPlanEntry[] | DocumentImportRowPlanEntry[] | RequirementImportRowPlanEntry[] | ItemImportRowPlanEntry[];
     let acceptedRows = 0;
     let rejectedRows = 0;
     let duplicateRows = 0;
@@ -235,7 +240,7 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
       }
       documentPlan.sort((a, b) => a.rowNumber - b.rowNumber);
       plan = documentPlan;
-    } else {
+    } else if (job.targetEntityType === "Requirement") {
       const mapping = job.columnMapping;
       if (!mapping || mapping.targetKind !== "Requirement") throw new Error("COLUMN_MAPPING_TARGET_KIND_MISMATCH");
       const columns = mapping.columns;
@@ -283,6 +288,49 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
       }
       requirementPlan.sort((a, b) => a.rowNumber - b.rowNumber);
       plan = requirementPlan;
+    } else {
+      // D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) — Item branch. No reference-resolution phase
+      // (ExpirationItem has no subjectId/requirementId - see import-job.ts's ColumnMapping "Item"
+      // variant comment) and no full-tenant weak-fallback preload (import-dedup.ts's "ITEM" kind
+      // comment - Item volume is unbounded, unlike TrackedSubject's small entitlement-capped
+      // corpus). Dedup is a per-row point lookup against ImportDedupRecord, same cost class as
+      // TrackedSubject's own per-row externalId check above, bounded by MAX_IMPORT_ROWS either way.
+      const mapping = job.columnMapping;
+      if (!mapping || mapping.targetKind !== "Item") throw new Error("COLUMN_MAPPING_TARGET_KIND_MISMATCH");
+      const columns = mapping.columns;
+
+      const seenDedupKeysInFile = new Set<string>();
+      const itemPlan: ItemImportRowPlanEntry[] = [];
+
+      for (let i = 0; i < namedRows.length; i++) {
+        const raw = extractRawItemRow(namedRows[i]!, columns, i + 1);
+        const validated = validateItemImportRow(raw);
+        if ("rejection" in validated) {
+          itemPlan.push({ rowNumber: raw.rowNumber, action: "REJECT", reason: validated.rejection.reason, field: validated.rejection.field });
+          rejectedRows += 1;
+          continue;
+        }
+        const row: ValidatedItemImportRow = validated.row;
+        const dedupKey = buildItemDedupKey(row.category, row.name, row.dueDate);
+
+        if (seenDedupKeysInFile.has(dedupKey)) {
+          itemPlan.push({ rowNumber: row.rowNumber, action: "REJECT", reason: "DUPLICATE_IN_FILE", field: "name" });
+          rejectedRows += 1;
+          continue;
+        }
+        seenDedupKeysInFile.add(dedupKey);
+
+        const existingDedup = await deps.store.get(importDedupKey(tenantId, "ITEM", dedupKey));
+        if (existingDedup) {
+          itemPlan.push({ rowNumber: row.rowNumber, action: "SKIP_DUPLICATE", reason: "ITEM_ALREADY_IMPORTED", name: row.name });
+          duplicateRows += 1;
+          continue;
+        }
+
+        itemPlan.push({ rowNumber: row.rowNumber, action: "CREATE_ITEM", row, dedupKey });
+        acceptedRows += 1;
+      }
+      plan = itemPlan;
     }
 
     // IMPORT_ROWS só é conhecido agora (total real de linhas) - checagem fail-closed antes de

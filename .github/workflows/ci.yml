@@ -57,18 +57,11 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend tooling
-        working-directory: frontend
-        run: npm ci
-
-      - name: Install Chromium
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
 
       - name: Create ephemeral BFF session
+        # D-322: perf-04-auth.mjs now calls POST /bff/login directly via native fetch (no
+        # Playwright/Chromium, no frontend node_modules) - the "Install frontend tooling"/
+        # "Install Chromium" steps this job used to need are gone with it.
         env:
           PERF_TEST_EMAIL: ${{ secrets.PERF_TEST_EMAIL }}
           PERF_TEST_PASSWORD: ${{ secrets.PERF_TEST_PASSWORD }}
@@ -276,6 +269,23 @@ jobs:
     permissions:
       contents: read
       id-token: write # required for OIDC
+    # D-306: the top-level `ci-${{ github.ref }}` group (line 31) locks per branch/PR, but
+    # the resource this job actually contends over - the S3-native lock on the `dev`
+    # Terraform state (bucket=expiration-tracker-dev-tfstate) - is the same regardless of
+    # which branch/PR is running. Two pushes on different branches used to run `terraform
+    # plan` here concurrently and hit "Error acquiring the state lock" against each other
+    # (real incident, this session) or against cd.yml's `terraform apply` (`group:
+    # cd-develop`). A job-level `concurrency` overrides the workflow-level one for just this
+    # job (GitHub Actions semantics) - fixed group name, not parameterized by ref, shared
+    # with cd.yml's own lock scope. cancel-in-progress: false queues instead of cancelling,
+    # same reasoning as cd.yml line 46-47: cancelling a Terraform run mid-plan/apply can
+    # leave a stuck state lock, and a cancelled `plan` here would give a false-green rerun
+    # incentive. This does not change ci-${{ github.ref }}'s behavior for any other job in
+    # this workflow (guardrails/frontend/dynamodb-integration/performance-smoke) - only
+    # `infra` now queues on the shared Terraform lock instead of the per-branch CI group.
+    concurrency:
+      group: terraform-dev-lock
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: infra

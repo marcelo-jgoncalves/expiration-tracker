@@ -4,7 +4,25 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildBffDeps } from "../composition/bff.js";
-import { handleLogin, handleCallback, handleGetSession, handleLogout, handleLogoutAll, handleCreateOrganization, handleAcceptInvitation, handleListOrganizations, handleSelectOrganization, handleProxy, type BffHttpDeps } from "../../../modules/bff/http/bff-handlers.js";
+import {
+  handleLogin,
+  handleCallback,
+  handleLoginPassword,
+  handleSignUp,
+  handleConfirmSignUp,
+  handleResendConfirmationCode,
+  handleForgotPassword,
+  handleConfirmForgotPassword,
+  handleGetSession,
+  handleLogout,
+  handleLogoutAll,
+  handleCreateOrganization,
+  handleAcceptInvitation,
+  handleListOrganizations,
+  handleSelectOrganization,
+  handleProxy,
+  type BffHttpDeps,
+} from "../../../modules/bff/http/bff-handlers.js";
 import type { BffHttpRequest, BffHttpResponse } from "../../../modules/bff/http/http-types.js";
 import { runWithContext } from "../../../shared/observability/context.js";
 import { withHandlerTiming } from "../../../shared/observability/handler-timing.js";
@@ -80,6 +98,16 @@ export const handler = withHandlerTiming<APIGatewayProxyEventV2, APIGatewayProxy
 async function route(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const req = toBffRequest(event);
   const routeKey = `${event.requestContext.http.method} ${event.routeKey.split(" ")[1] ?? event.rawPath}`;
+
+  // D-3xx (reversal of D-320): the app's own login/signup/reset screens now call these
+  // directly - GET /bff/login and GET /bff/callback below are kept dormant (never removed) as
+  // a documented rollback path (decisions-log.md D-3xx), not the frontend's entry point anymore.
+  if (routeKey === "POST /bff/login") return toApiGatewayResult(await handleLoginPassword(deps, req));
+  if (routeKey === "POST /bff/signup") return toApiGatewayResult(await handleSignUp(deps, req));
+  if (routeKey === "POST /bff/signup/confirm") return toApiGatewayResult(await handleConfirmSignUp(deps, req));
+  if (routeKey === "POST /bff/signup/resend") return toApiGatewayResult(await handleResendConfirmationCode(deps, req));
+  if (routeKey === "POST /bff/forgot-password") return toApiGatewayResult(await handleForgotPassword(deps, req));
+  if (routeKey === "POST /bff/forgot-password/confirm") return toApiGatewayResult(await handleConfirmForgotPassword(deps, req));
 
   if (routeKey === "GET /bff/login") return toApiGatewayResult(await handleLogin(deps, req));
   if (routeKey === "GET /bff/callback") return toApiGatewayResult(await handleCallback(deps, req));

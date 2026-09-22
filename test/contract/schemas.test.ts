@@ -1040,6 +1040,28 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) - optional targetEntityType, closes the
+  // pre-existing gap where reserveImport() hardcoded "TrackedSubject" unconditionally.
+
+  it("accepts a valid reserve-import-request with targetEntityType=Item", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "a".repeat(64),
+      targetEntityType: "Item",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reserve-import-request with an unrecognized targetEntityType", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reserve-import-request.v1.json", {
+      contentLength: 1024,
+      checksumSha256: "a".repeat(64),
+      targetEntityType: "NotARealEntity",
+    });
+    expect(valid).toBe(false);
+  });
+
   // Evolucao estrategica do roadmap (M9, D-036) - schemas novos do modulo subject.
 
   it("accepts a valid create-subject-request", () => {

@@ -73,10 +73,10 @@ decisão de Marcelo entre 3 caminhos nomeados em D-202. Detalhe item-a-item: `de
 
 Ambas substancialmente fechadas — todo achado HIGH/ALTA corrigido (E-015/E-016/E-018/E-020/E-021,
 achados P0.1-P0.4/P0.6/P1.6/P2.1-P2.4 da auditoria externa: ver `decisions-log.md` D-232 a D-290
-para detalhe item-a-item, nunca recontado aqui). **Únicos gates ainda não atingidos, ambos
-decisão-dependente, não engenharia**: **E-019** (jurídico — aviso de privacidade/DPA Meta/residência
-de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Marcelo sobre
-`coverage.thresholds` em `vitest.config.ts`). **E-017** teve seus 2 achados pendentes corrigidos
+para detalhe item-a-item, nunca recontado aqui). **Único gate ainda não atingido, decisão-dependente,
+não engenharia**: **E-019** (jurídico — aviso de privacidade/DPA Meta/residência de dados, bloqueia
+WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thresholds` resolvido
+2026-09-21 (D-317, `vitest.config.ts`). **E-017** teve seus 2 achados pendentes corrigidos
 (`definition-of-done.md`), drift desta linha corrigido 2026-09-19.
 
 ## Pendências reais que dependem de decisão de Marcelo (lista consolidada)
@@ -88,22 +88,43 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
    do PR #380 verdes; PR mergeado em `main` (`mergedAt=2026-09-20T16:08:53Z`).
 1. Item 3 do backlog P1 (busca OCR/full-text) — escolher entre 3 caminhos nomeados em D-202.
 2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` — não executado (fora do escopo autorizado 2026-09-20, ver seção de limpeza abaixo); postergado, não perguntar de novo até ele sinalizar.
-3. `coverage.thresholds` em `vitest.config.ts` — ainda não decidido (E-023).
+3. ~~`coverage.thresholds` em `vitest.config.ts`~~ — **RESOLVIDO 2026-09-21 (D-317)**: medido primeiro
+   (statements 86,55%/branches 84,84%/functions 86,9%/lines 86,55%, 270 arquivos/3148 testes),
+   thresholds configurados ~1,5-2pts abaixo (85/83/85/85) como guard-rail sem quebrar CI.
 4. WhatsApp com usuário real (item 3 P0, engenharia 100% fechada desde D-286 — rota de opt-in também já construída) — resta só aviso de privacidade, DPA Meta, residência de dados (E-019).
 5. Wave 1b (Design System) — quais componentes com overlay/focus-trap (`Combobox`/`DateInput`/`Tooltip`/`Popover`/`DropdownMenu`/`Modal`/`Drawer`/`Tabs`/`Pagination`/`Breadcrumb`/`Avatar`/`Card`) abordar primeiro — deliberadamente por último, por pedido de Marcelo.
 6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
 7. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
-9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. Aguardando sinal de Marcelo para virar iniciativa.
+9. ~~Import CSV em massa para Items~~ — **RESOLVIDO 2026-09-21 (D-319, `PENDING_PROTOCOL_REVIEW`)**:
+   4º tipo em `src/modules/import/` (`ImportTargetEntityType: "Item"`), mesmo padrão de
+   `TrackedSubject`/`Document`/`Requirement` (D-042/D-192). 4 decisões de produto tomadas e
+   documentadas em D-319 (mapeamento fixo v1 sem `assigneeUserId`; `ReminderPolicy` sempre
+   configurada depois, nunca na mesma linha; dedupe via chave sintética
+   `categoryNormalized|nameNormalized|dueDate` em `ImportDedupRecord`; validação linha-a-linha
+   reaproveitando 100% a infraestrutura existente). Commit worker reaproveita o protocolo de
+   2 chamadas do ramo `TrackedSubject` (claim de dedupe + `ExpirationService.createItem()` como
+   caixa-preta), não o TENTATIVA/FALLBACK de `Document`/`Requirement` (`Item` não tem referência
+   nenhuma a resolver). `reserveImport()` generalizado para aceitar `targetEntityType` opcional
+   (fechou incidentalmente o mesmo gap para `Document`/`Requirement`, que nunca tiveram via HTTP
+   real de criação de job). Sem tela de frontend nova (`ImportWizard.tsx` já é documentadamente
+   `TrackedSubject`-only, mesmo gap que os outros 2 tipos já tinham). Backend 271/3179 verdes
+   (+31 novos), cobertura 86,63%/84,85%/86,95%/86,63% (acima do threshold 85/83/85/85, D-317).
+   Revisão adversarial Codex pendente quando o protocolo voltar (ver item 20 abaixo).
 10. ~~`NotificationEntitlements` nunca provisionado~~ — **RESOLVIDO 2026-09-21 (D-315,
     `PENDING_PROTOCOL_REVIEW`)**: seedado atomicamente na criação da Organization
     (`CreateOrganizationService`), `email.enabled: true`/`whatsapp.enabled: false` por padrão.
     Tenants `dev`/sintéticos já existentes ANTES desta mudança continuam sem o registro (sem
     backfill, aceitável sem usuário real). Revisão adversarial Codex pendente quando o protocolo
     voltar.
-11. **Revisão adversarial Codex pendente — horário padrão de lembretes (`Organization.defaultReminderLocalTime`, sessão 2026-09-20)**: implementação já concluída e mergeada (nível 4 pela `change-risk-scale.md` — campo opcional aditivo, sem novo GSI/chave/schema/contrato externo, reaproveita `UpdateOrganizationSettingsService` já existente — o protocolo `AGENTS.md` §4 não é normativamente exigido neste nível). Marcelo pediu explicitamente, 2026-09-20, uma rodada adversarial extra do Codex mesmo assim, assim que ele voltar a responder (bloqueado até 2026-09-23, ver mandato do Programa de Performance acima) — não é `PENDING_PROTOCOL_REVIEW` (esse rótulo é para decisão nível 5-6 tomada sem o protocolo obrigatório; aqui é rigor extra voluntário, não uma dispensa de gate obrigatório). Contexto para a rodada: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`, diff em `src/modules/organization/{domain,application,http}/`, `frontend/src/{routes/Settings.tsx,routes/items/ItemReminderPolicy.tsx,lib/reminderDefaults.ts}`.
+11. **Revisão adversarial Codex pendente (voluntária, não `PENDING_PROTOCOL_REVIEW`) — horário padrão de lembretes (`Organization.defaultReminderLocalTime`)**: já implementado/mergeado, nível 4 (protocolo não exigido normativamente), mas Marcelo pediu rodada extra assim que Codex voltar (2026-09-23). Contexto: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`.
 12. **Separação de ambientes (`ADR-0014`, D-305) — protocolo Claude↔Codex + autorização de Marcelo pendentes para as Fases 2-4**: decisão/pesquisa/Fase 1 completas (ver item 2 da ordem acima). Assim que o protocolo voltar (Codex 2026-09-23), rodar a revisão adversarial completa deste ADR (nível 6 — nota cega, ≥9,0, mínimo 3 rodadas). Independente disso, Fases 2-4 (criar conta AWS `staging`/`production`, provisionar, pipeline de promoção `dev→staging→produção`) exigem autorização explícita de Marcelo antes de qualquer execução — não é uma decisão que a rodada Claude↔Codex sozinha desbloqueia, é criação de fronteira de conta/billing real.
-13. **`ci.yml` sem fila global de lock do Terraform (achado real, 2026-09-20, ver D-306)** — job "Validate Infra (Terraform)" tem `concurrency: group: ci-${{ github.ref }}` (por branch/PR, não global), então pushes simultâneos em branches diferentes rodam `terraform plan` em paralelo contra o mesmo lock S3 do backend `dev`, podendo colidir entre si ou com `cd.yml` (`group: cd-develop`). Já causou uma falha real (`Error acquiring the state lock`) nesta sessão. Candidato de correção: dar a esse job um concurrency group compartilhado com `cd.yml` (ou um lock/fila própria) — não implementado ainda.
+13. ~~`ci.yml` sem fila global de lock do Terraform~~ — **RESOLVIDO 2026-09-21 (D-318)**: job
+    `infra` ganhou `concurrency` de nível-job próprio (`group: terraform-dev-lock`,
+    `cancel-in-progress: false`), e `cd.yml` renomeado de `cd-develop` para o mesmo
+    `terraform-dev-lock` — os dois agora disputam a mesma fila real em vez de duas filas
+    com nomes diferentes. `ci-${{ github.ref }}` de nível-workflow continua intacto para os
+    outros jobs de `ci.yml`.
 14. ~~Endpoint agregado de contagem por urgência para a Visão Geral~~ — **RESOLVIDO 2026-09-21
     (D-316, `PENDING_PROTOCOL_REVIEW`)**: `GET /dashboard/summary` já existia (Roadmap P0.6) e já
     computava os 3 números internamente — só faltava expor `itemsOverdueCount`/
@@ -112,28 +133,56 @@ de dados, bloqueia WhatsApp com usuário real) e **E-023** (falta decisão de Ma
     continua removido por redundância (detalhe: `decisions-log.md` D-308/D-316).
 15. ~~Resolução de nome de usuário (Responsável)~~ — **RESOLVIDO 2026-09-21**: `GET /organizations/members` agora resolve `email`/`displayName` do `GlobalUser` (só quando identidade ACTIVE, mesma regra do `recipient-resolver.ts`); nome capturado via claim OIDC `name` no login (escopo `profile` adicionado). Frontend (Membros, "Responsável" no Detalhe) mostra nome/e-mail resolvido com fallback pro ID.
 16. ~~Filtro de atividade por item/recurso~~ — **RESOLVIDO 2026-09-21**: `GET /activity` aceita `resourceId`, mesmo padrão já usado por `resourceType`. Card "Histórico de auditoria" do Detalhe agora mostra contagem real e leva a um log pré-filtrado.
-17. **PR #382 (`develop`→`main`) aberto, não mergeado** — criado por engano (Claude leu "pode fazer o push também" como pedido de merge; Marcelo corrigiu pra "push pra dev"). Confirmar com ele se ainda quer esse merge ou se o PR deve ser fechado sem mergear.
+17. ~~PR #382 (`develop`→`main`) aberto, não mergeado~~ — **RESOLVIDO 2026-09-21**: fechado sem
+    merge (defasado, só 7/18 telas) a pedido explícito de Marcelo; PR #383 novo aberto com o
+    estado atual de `develop` (31/31 telas + D-313 a D-316) e mergeado em `main`. CI da PR pegou
+    3 regressões reais de e2e/a11y nunca detectadas localmente (vitest não cobre Playwright):
+    sidebar sticky quebrando o check "nada é sticky/fixed" (SC 2.4.11) em 5 specs — corrigido
+    allowlisting `.app-shell__nav` por nome, não é violação real (própria coluna flex, nunca
+    sobrepõe conteúdo); label stale com "*" literal em 2 testes do guest wizard após reskin pro
+    `SelectField` real; back-link "← Voltar" (`PageHeader`'s `above`) abaixo do mínimo de 24px do
+    WCAG 2.5.8, corrigido na CSS compartilhada `.ui-page-header__back`. Suíte e2e completa
+    (158/158) verde após as correções, commit `590d40a3`.
 18. ~~Falha pré-existente em `documents.test.ts` (`computeChecksumSha256`)~~ — **RESOLVIDA (achado
     2026-09-21)**: os 2 casos passam de forma estável e reproduzível (3 reruns isolados + 2 rodadas
     completas da suíte) — provavelmente resolvida por um bump de dependência jsdom/Node desde D-311,
     não por nenhuma mudança de código nesta sessão. Nenhuma ação necessária.
 19. **Versionamento completo de `Document` (item-level) — `PENDING_PROTOCOL_REVIEW` (D-314, 2026-09-21)**: pedido de Marcelo após comparar a tela "Documento" real com o protótipo, que assume um modelo de "substituir arquivo" inexistente hoje (`Document` é 1 linha = 1 arquivo, sem histórico/versão). Investigação confirmou que é mudança nível 5-6, estruturalmente equivalente ao D-143 (Domínio Documental, 6 rodadas de protocolo) — não implementado, nenhum código escrito. Assim que o protocolo Claude↔Codex voltar (Codex 2026-09-23), rodar a revisão adversarial completa, incluindo a alternativa de menor risco identificada (reaproveitar a máquina de versionamento já existente em `document-archive`/D-143 em vez de duplicá-la). "Baixar documento" (a outra metade do mesmo pedido) já foi implementado nesta sessão sem precisar de protocolo (D-313, nível 1-3, aditivo puro).
 20. **`NotificationEntitlements` seedado no onboarding e endpoint agregado de urgência da Visão Geral — ambos `PENDING_PROTOCOL_REVIEW` (D-315/D-316, 2026-09-21)**: implementados a pedido explícito de Marcelo (nível 3-4 cada, código real escrito e testado — ver itens #10/#14 acima e `decisions-log.md` para detalhe), mas envolveram decisão de produto (política de entitlement do plano free; quais 3 números mapeiam para os cards) tomada sem o protocolo Claude↔Codex formal. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23).
+21. ~~Página de login customizada~~ — **REVISTO 2026-09-22 (D-321, `PENDING_PROTOCOL_REVIEW`)**:
+    D-320 (Managed Login) revertido a pedido direto de Marcelo (fidelidade visual/consistência
+    com o design system v2); UI própria implementada (`frontend/src/routes/auth/*`) com login
+    direto via `InitiateAuth`/`USER_PASSWORD_AUTH` no BFF, signup/verificação de e-mail,
+    esqueci-senha/redefinição. Hosted UI/rotas OIDC originais mantidas como fallback dormente,
+    nunca removidas. Detalhe completo das 4 decisões técnicas: `decisions-log.md` D-321.
+22. **Import CSV em massa para Items — `PENDING_PROTOCOL_REVIEW` (D-319, 2026-09-21)**: implementado a pedido explícito de Marcelo (nível 5-6, código real escrito e testado — ver item #9 acima e `decisions-log.md` D-319 para as 4 decisões de produto), mas decidido/implementado sem o protocolo Claude↔Codex formal (suspenso). Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial ao trade-off de dedupe (decisão 3: sem proteção contra colisão com Item criado fora de import) e à generalização de `reserveImport()`'s `targetEntityType` (efeito colateral sobre Document/Requirement).
+23. **Login/signup/reset de senha via UI própria (reversão de D-320) — `PENDING_PROTOCOL_REVIEW` (D-321, 2026-09-22)**: ver item #21 acima e `decisions-log.md` D-321. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial à escolha `USER_PASSWORD_AUTH` (vs. SRP) e ao SECRET_HASH server-side no BFF (nova superfície de autenticação).
+24. ~~CI vermelho pós-D-321 + drift do Managed Login~~ — **RESOLVIDO 2026-09-22 (D-322/D-323)**: specs e2e/gate k6 assumiam o redirect antigo pra Hosted UI, corrigidos. Gap aberto sem impacto real: `dev` continua `ManagedLoginVersion=2` (Terraform de D-321 não força downgrade, optional+computed) — só importa se `GET /bff/login` reativar como fallback. Detalhe: `decisions-log.md` D-322/D-323.
 
 ## Próxima ação recomendada
 
-**P0/P1/full-audit round2/auditoria externa são contexto histórico já fechado, não a próxima ação
-— ver seções acima.** Degrau de 100k do Programa de Performance encerrado (achado real confirmado,
-ver seção própria abaixo — não é mais pendência).
+**P0/P1/full-audit round2/auditoria externa/identidade visual v2 (31/31 telas) são contexto
+histórico já fechado, não a próxima ação — ver seções acima.** Degrau de 100k do Programa de
+Performance encerrado (achado real confirmado, ver seção própria acima — não é mais pendência).
 
-**Próxima ação real (2026-09-21)**: workstream de identidade visual v2 — os 18 protótipos novos já
-chegaram (`prototype/ui_kits_2/webapp/screens-package-2/standalone/`, ver seção "Identidade visual"
-acima). **Retomar o processo tela-por-tela** aplicando cada um ao código real, mesma disciplina das
-13 anteriores. **Antes disso, decidir com Marcelo o que fazer com os ~79 arquivos não commitados da
-sessão de 2026-09-21** (ver aviso de estado na seção "Identidade visual"). Fora isso, resta só:
-itens ainda não decididos de 2026-09-20 (seção própria abaixo, só "subagentes de aprovação por
-domínio" — horário padrão de lembretes já estava implementado, ver correção 2026-09-21 na seção do
-Roadmap).
+**MANDATO AUTÔNOMO EXPLÍCITO (Marcelo, 2026-09-21) — trabalhar sem parar para pedir permissão nos
+4 itens abaixo (numeração da lista consolidada de pendências acima), na ordem que fizer mais
+sentido tecnicamente. Só parar/perguntar se uma decisão genuinamente exigir informação que só ele
+tem (não uma escolha técnica razoável que já cabe a esta sessão decidir sozinha):**
+
+1. ~~Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)~~ — **RESOLVIDO 2026-09-21
+   (D-317)**, ver item 3 da lista consolidada de pendências acima.
+2. ~~Item #9 — Import CSV em massa para Items~~ — **RESOLVIDO 2026-09-21 (D-319,
+   `PENDING_PROTOCOL_REVIEW`)**, ver item 9 da lista consolidada de pendências acima.
+3. ~~Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)~~ — **RESOLVIDO 2026-09-21
+   (D-318)**, ver item 13 da lista consolidada de pendências acima.
+4. ~~Item #21 — Página de login customizada~~ — **REVISTO 2026-09-22 (D-321,
+   `PENDING_PROTOCOL_REVIEW`)**: D-320 foi revertido a pedido direto de Marcelo, UI própria
+   implementada. Ver item 21/23 da lista consolidada de pendências acima.
+
+Cada item, ao terminar, passa pelo checklist completo (`docs/engineering/task-completion-checklist.md`)
+antes de ser marcado concluído — mesmo padrão desta sessão. Commit + push a cada item fechado, sem
+esperar os 4 para começar a commitar.
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
@@ -203,7 +252,7 @@ listadas aqui para retomar quando Codex/Antigravity voltarem.
 pré-existente de cold start (`performance/TODO.md` §PERF-14); ADOT descarta lotes de trace sob
 carga sustentada sem afetar requisições reais (correção exigiria `collector.yaml` customizado em
 ~69 Lambdas, registrado como débito técnico); consolidação de 23 PRs Dependabot do Terraform em
-andamento; import CSV em massa para Items ainda não escopado (item 9 da lista de pendências abaixo).
+andamento.
 
 ## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 

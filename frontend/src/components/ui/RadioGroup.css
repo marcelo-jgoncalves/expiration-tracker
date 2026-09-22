@@ -115,3 +115,61 @@
     border-color: ButtonBorder;
   }
 }
+
+/* "cards" variant (protótipo `entregaSolicitacao.html`, Marcelo 2026-09-22) - each `.ui-radio`
+   becomes the bordered/selectable card itself (not `.ui-radio__label`), so the hint paragraph -
+   already its sibling - reads as inside the same card with zero DOM restructuring, and every
+   other `RadioGroup` call site (list variant, default) is untouched. `:has()` already used
+   elsewhere in this file (`.ui-radio__label:has(...)`, line 103), so this is an established
+   pattern here, not a new browser-support bar. */
+.ui-radio-group__options--cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.ui-radio-group__options--cards .ui-radio {
+  position: relative;
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-5) var(--space-4) 46px;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.ui-radio-group__options--cards .ui-radio:hover {
+  border-color: var(--color-accent-600);
+}
+
+.ui-radio-group__options--cards .ui-radio:has(.ui-radio__input:checked) {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-50);
+}
+
+.ui-radio-group__options--cards .ui-radio__label {
+  display: block;
+  min-height: 0;
+}
+
+.ui-radio-group__options--cards .ui-radio__dot {
+  position: absolute;
+  left: 17px;
+  top: var(--space-5);
+}
+
+.ui-radio-group__options--cards .ui-radio__text {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-2);
+}
+
+.ui-radio-group__options--cards .ui-radio__hint {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .ui-radio-group__options--cards {
+    grid-template-columns: 1fr;
+  }
+}
