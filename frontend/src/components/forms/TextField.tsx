@@ -10,7 +10,8 @@
  *  - `id` may be supplied so an ErrorSummary at the top of the form can link straight to the
  *    control (mission §40). When omitted it still falls back to a generated `useId`.
  */
-import { useId } from "react";
+import { useId, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import "./Form.css";
 
 export interface TextFieldProps {
@@ -21,7 +22,7 @@ export interface TextFieldProps {
   hint?: string;
   required?: boolean;
   maxLength?: number;
-  type?: "text" | "date" | "time" | "email" | "password";
+  type?: "text" | "date" | "month" | "time" | "email" | "password";
   autoComplete?: string;
   multiline?: boolean;
   /** Stable id, so an error summary can link to this control. */
@@ -43,6 +44,10 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
   const describedBy = [hint ? hintId : undefined, error ? errorId : undefined].filter(Boolean).join(" ") || undefined;
+  // Every password field gets a reveal toggle (Marcelo, 2026-09-22) - state lives here, not per
+  // call site, so Login/SignUp/ResetPassword all get it for free and never drift out of sync.
+  const [revealed, setRevealed] = useState(false);
+  const isPassword = type === "password";
 
   const control = multiline ? (
     <textarea
@@ -59,8 +64,8 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
   ) : (
     <input
       id={id}
-      className="ui-field__control"
-      type={type}
+      className={isPassword ? "ui-field__control ui-field__control--with-toggle" : "ui-field__control"}
+      type={isPassword && revealed ? "text" : type}
       value={value}
       maxLength={maxLength}
       autoComplete={autoComplete}
@@ -82,7 +87,22 @@ export function TextField({ label, value, onChange, error, hint, required, maxLe
           {hint}
         </p>
       ) : null}
-      {control}
+      {isPassword ? (
+        <div className="ui-field__toggle-wrap">
+          {control}
+          <button
+            type="button"
+            className="ui-field__toggle"
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? "Ocultar senha" : "Mostrar senha"}
+            aria-pressed={revealed}
+          >
+            {revealed ? <EyeOff size={18} strokeWidth={2} aria-hidden="true" /> : <Eye size={18} strokeWidth={2} aria-hidden="true" />}
+          </button>
+        </div>
+      ) : (
+        control
+      )}
       {error ? (
         // No icon glyph inside the message: the invalid state already carries three
         // non-colour cues (thicker control border, the left rule on the whole field, bold

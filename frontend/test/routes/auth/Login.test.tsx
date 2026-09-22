@@ -69,6 +69,20 @@ describe("Login", () => {
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/42", { replace: true }));
   });
 
+  // Marcelo, 2026-09-22: every password field gets a reveal toggle (TextField.tsx). Would fail
+  // if clicking it stopped switching the input's real `type` between "password" and "text".
+  it("toggles the password field between hidden and visible via the reveal button", () => {
+    renderLogin();
+    const passwordField = screen.getByLabelText(/Senha/) as HTMLInputElement;
+    expect(passwordField.type).toBe("password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar senha" }));
+    expect(passwordField.type).toBe("text");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar senha" }));
+    expect(passwordField.type).toBe("password");
+  });
+
   it("shows a generic error message on invalid credentials (never distinguishes user-not-found from wrong-password)", async () => {
     loginMock.mockRejectedValue(new Error("invalid"));
     renderLogin();

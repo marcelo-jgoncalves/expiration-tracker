@@ -1,3 +1,14 @@
+/* Real achado de Marcelo, 2026-09-22, confirmado com screenshot de sessão real: `.ui-form`
+   (Form.css) trava a largura em `--layout-reading-max` (42rem/672px) - certo para um formulário
+   de coluna única (texto corrido), mas espreme a grade de 2 colunas abaixo contra uma sobra de
+   espaço vazio à direita do Panel, nunca usando a largura real disponível (`--layout-content-
+   max`, 1440px, o mesmo teto que telas com DataTable já usam). Escopado só a este form via
+   `:has()` (mesmo padrão já usado em `RadioGroup.css`) - nenhum outro formulário do produto muda,
+   todos continuam na largura de leitura de coluna única. */
+.ui-form:has(.create-item__grid) {
+  max-width: none;
+}
+
 /* Two-column field grid for this screen only (Marcelo, protótipo `expiration-tracker-novo-
    vencimento.html`, 2026-09-22) — deliberately NOT promoted to `Form.css`/`.ui-field`: every
    other form in the product keeps the single-column GOV.UK stacked layout (Form.css header

@@ -1,108 +1,27 @@
-/* Filters grid (protótipo `expiration-tracker-log-atividade(1).html`, Marcelo 2026-09-22):
-   Mês/Tipo de recurso side by side, Recurso (ID) spans the full row - scoped to this screen,
-   same pattern as `CreateItem.css`/`SubjectForm.css`. */
+/* Filters grid (Marcelo 2026-09-22): Mês/Tipo de recurso/Recurso (ID) all in a single row on
+   desktop - scoped to this screen, same pattern as `CreateItem.css`/`SubjectForm.css`. */
 .activity-filters__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 var(--space-6);
 }
 
-.activity-filters__grid > .ui-field,
-.activity-filters__grid > .activity-filters__grid-full {
+.activity-filters__grid > .ui-field {
   margin-bottom: var(--space-6);
 }
 
-.activity-filters__grid > .activity-filters__grid-full {
-  grid-column: 1 / -1;
+.activity-filters__grid > .ui-field:last-child {
+  margin-bottom: 0;
 }
 
-.activity-filters__grid > .activity-filters__grid-full > .ui-field {
-  margin-bottom: 0;
+@media (max-width: 900px) {
+  .activity-filters__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
   .activity-filters__grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* Actor/resource cells: an icon + text, matching the prototype's avatar/resource-icon rows.
-   No fabricated email/role/name here - the real `ActivityEntry.actor` only ever carries a raw
-   `userId` (confirmed against `activity-service.ts`, see this file's own header comment) - only
-   the visual shape (icon + label) is adopted, never invented actor identity data. */
-.activity-actor {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.activity-actor__avatar {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.activity-actor__avatar--user {
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
-}
-
-.activity-actor__avatar--system {
-  background: var(--color-surface-subtle);
-  color: var(--color-text-secondary);
-}
-
-.activity-resource {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.activity-resource__icon {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--color-surface-subtle);
-  color: var(--color-text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Action pill - local to this screen, deliberately not `StatusBadge` (see `actionTone`'s own
-   comment: different claim system, `entry.action` has no closed CREATE/UPDATE/DELETE enum). */
-.activity-action {
-  display: inline-flex;
-  align-items: center;
-  font-size: var(--font-size-100);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  white-space: nowrap;
-}
-
-.activity-action--success {
-  color: var(--color-status-success-fg);
-  background: var(--color-status-success-bg);
-}
-
-.activity-action--info {
-  color: var(--color-status-info-fg);
-  background: var(--color-status-info-bg);
-}
-
-.activity-action--critical {
-  color: var(--color-status-critical-fg);
-  background: var(--color-status-critical-bg);
-}
-
-.activity-action--neutral {
-  color: var(--color-status-neutral-fg);
-  background: var(--color-status-neutral-bg);
 }

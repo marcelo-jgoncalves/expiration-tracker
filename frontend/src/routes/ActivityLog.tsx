@@ -151,7 +151,10 @@ export function ActivityLog() {
     setResourceId("");
   }
 
-  const monthFilter = /^\d{6}$/.test(month) ? month : undefined;
+  // `month` holds the native <input type="month"> value (YYYY-MM, ISO - the browser renders it
+  // locale-formatted, pt-BR shows it as a real month/year picker, never a raw digit string the
+  // user has to already know the convention for). The backend contract is YYYYMM (no dash).
+  const monthFilter = /^\d{4}-\d{2}$/.test(month) ? month.replace("-", "") : undefined;
   const resourceTypeFilter = resourceType.trim() || undefined;
   const resourceIdFilter = resourceId.trim() || undefined;
 
@@ -227,17 +230,15 @@ export function ActivityLog() {
         <Panel padded>
           <form className="ui-form" onSubmit={applyFilters}>
             <div className="activity-filters__grid">
-              <TextField id="activity-filter-month" label="Mês (AAAAMM)" value={draftMonth} onChange={setDraftMonth} hint="Ex.: 202609. Vazio usa o mês atual." />
+              <TextField id="activity-filter-month" label="Mês" type="month" value={draftMonth} onChange={setDraftMonth} hint="Vazio usa o mês atual." />
               <TextField id="activity-filter-resource-type" label="Tipo de recurso" value={draftResourceType} onChange={setDraftResourceType} hint="Ex.: ExpirationItem. Vazio mostra todos." />
-              <div className="activity-filters__grid-full">
-                <TextField
-                  id="activity-filter-resource-id"
-                  label="Recurso (ID)"
-                  value={draftResourceId}
-                  onChange={setDraftResourceId}
-                  hint="Ex.: o ID de um vencimento específico. Vazio mostra todos."
-                />
-              </div>
+              <TextField
+                id="activity-filter-resource-id"
+                label="Recurso (ID)"
+                value={draftResourceId}
+                onChange={setDraftResourceId}
+                hint="Ex.: o ID de um vencimento específico. Vazio mostra todos."
+              />
             </div>
             <div className="ui-form__actions">
               <Button type="submit" variant="primary" icon={Search}>

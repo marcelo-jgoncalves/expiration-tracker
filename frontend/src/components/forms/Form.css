@@ -65,6 +65,42 @@ textarea.ui-field__control {
   border-color: var(--color-border-strong);
 }
 
+/* Password reveal toggle (Marcelo, 2026-09-22) - every `type="password"` TextField gets one for
+   free (see TextField.tsx). The eye icon is purely visual/redundant with `aria-label`, never the
+   sole way to know the field's state - `aria-pressed` carries that for assistive tech. */
+.ui-field__toggle-wrap {
+  position: relative;
+}
+
+.ui-field__control--with-toggle {
+  padding-right: calc(var(--control-height-lg) + var(--space-2));
+}
+
+.ui-field__toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: var(--control-height-lg);
+  width: var(--control-height-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.ui-field__toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.ui-field__toggle:focus-visible {
+  outline: var(--border-width-thick) solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
 .ui-field__control:disabled {
   background: var(--color-surface-disabled);
   color: var(--color-text-disabled);
