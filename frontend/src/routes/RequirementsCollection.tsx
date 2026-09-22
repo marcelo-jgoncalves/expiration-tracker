@@ -188,7 +188,12 @@ export function RequirementsCollection() {
         </div>
       )}
       <Panel padded>
-        <TextField id="requirements-search" label="Buscar por nome" value={searchTerm} onChange={setSearchTerm} hint="Ex.: Certidão Negativa de Débitos." />
+        {/* Hint deliberately generic, never a specific example document name (Marcelo, 2026-09-22,
+            achado real de CI): "Ex.: Certidão Negativa de Débitos." collided in strict mode with
+            an e2e fixture using that exact real-sounding name on this same page
+            (E2E-B3-07, block3-subjects-requirements.spec.ts) - getByText("Certidão Negativa de
+            Débitos") matched both the hint and the actual row. */}
+        <TextField id="requirements-search" label="Buscar por nome" value={searchTerm} onChange={setSearchTerm} hint="Vazio mostra todos os requisitos." />
       </Panel>
       <Section heading="Requisitos" headingId="requirements-list" annotation={`(${requirements.length})`}>
         <Panel>
