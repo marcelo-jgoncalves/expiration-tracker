@@ -10,6 +10,12 @@ import { describe, expect, it } from "vitest";
 import {
   handleLogin,
   handleCallback,
+  handleLoginPassword,
+  handleSignUp,
+  handleConfirmSignUp,
+  handleResendConfirmationCode,
+  handleForgotPassword,
+  handleConfirmForgotPassword,
   handleGetSession,
   handleLogout,
   handleProxy,
@@ -20,7 +26,7 @@ import type { BffHttpRequest } from "../../../src/modules/bff/http/http-types.js
 import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-service.js";
 import { ProxyService, type BackendFetcher } from "../../../src/modules/bff/application/proxy-service.js";
 import { InMemorySessionStore } from "./in-memory-session-store.js";
-import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
+import { FakeCognitoOidcClient, FakeCognitoAuthClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
@@ -40,6 +46,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
   const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
   const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
   const cognitoClient = new FakeCognitoOidcClient();
+  const cognitoAuthClient = new FakeCognitoAuthClient();
   const idTokenVerifier = new FakeIdTokenVerifier();
   const tokenEncryptor = new FakeTokenEncryptor();
   let userCounter = 0;
@@ -49,6 +56,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
   const auth = new BffAuthService({
     sessionStore,
     cognitoClient,
+    cognitoAuthClient,
     idTokenVerifier,
     tokenEncryptor,
     bootstrap,
@@ -67,7 +75,7 @@ function buildDeps(backend: BackendFetcher = { fetch: async () => ({ statusCode:
   });
   const proxy = new ProxyService(backend, "https://api.example.com");
   const deps: BffHttpDeps = { auth, proxy, appOrigin: "https://app.example.com" };
-  return { deps, cognitoClient, idTokenVerifier, setClock: (iso: string) => { clock = iso; } };
+  return { deps, cognitoClient, cognitoAuthClient, idTokenVerifier, setClock: (iso: string) => { clock = iso; } };
 }
 
 function extractCookieValue(setCookieHeaders: string[] | undefined, name: string): string | undefined {
@@ -306,5 +314,132 @@ describe("handleCreateOrganization", () => {
       }),
     );
     expect(res.statusCode).toBe(201);
+  });
+});
+
+// D-3xx (reversal of D-320): the app's own login/signup/reset-password screens now call these
+// directly instead of redirecting to the Cognito Hosted UI - handleLogin/handleCallback above
+// stay covered by their own existing tests (dormant fallback, never removed).
+describe("handleLoginPassword", () => {
+  it("400s when email or password is missing", async () => {
+    const { deps } = buildDeps();
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("sets session and CSRF cookies on a successful password login", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextAuthenticateOutcome = {
+      kind: "SUCCESS",
+      tokens: { accessToken: "header." + Buffer.from(JSON.stringify({ sub: "s1" })).toString("base64url") + ".sig", idToken: "id-1", refreshToken: "refresh-1", expiresInSeconds: 900 },
+    };
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "correct-horse" }) });
+    expect(res.statusCode).toBe(200);
+    expect(extractCookieValue(res.cookies, SESSION_COOKIE_NAME)).toBeTruthy();
+    expect(extractCookieValue(res.cookies, CSRF_COOKIE_NAME)).toBeTruthy();
+  });
+
+  it("returns a generic 401 for invalid credentials - never distinguishes 'no such user' from 'wrong password' (anti-enumeration, D-3xx decision 3)", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextAuthenticateOutcome = { kind: "INVALID_CREDENTIALS" };
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }) });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns the same generic 401 for USER_NOT_CONFIRMED as for invalid credentials", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextAuthenticateOutcome = { kind: "USER_NOT_CONFIRMED" };
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("handleSignUp", () => {
+  it("400s when email or password is missing", async () => {
+    const { deps } = buildDeps();
+    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("202s with CONFIRMATION_REQUIRED on a fresh signup", async () => {
+    const { deps } = buildDeps();
+    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "new@example.com", password: "correct-horse-battery-1" }) });
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toEqual({ status: "CONFIRMATION_REQUIRED" });
+  });
+
+  it("409s when the e-mail is already registered", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextSignUpOutcome = { kind: "EMAIL_ALREADY_REGISTERED" };
+    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "taken@example.com", password: "x" }) });
+    expect(res.statusCode).toBe(409);
+  });
+});
+
+describe("handleConfirmSignUp", () => {
+  it("400s when email or confirmationCode is missing", async () => {
+    const { deps } = buildDeps();
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("204s on a valid confirmation code", async () => {
+    const { deps } = buildDeps();
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456" }) });
+    expect(res.statusCode).toBe(204);
+  });
+
+  it("400s on an invalid/expired code", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextConfirmSignUpOutcome = { kind: "INVALID_CODE_OR_EXPIRED" };
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com", confirmationCode: "000000" }) });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("handleResendConfirmationCode", () => {
+  it("204s regardless of whether the e-mail is registered (anti-enumeration)", async () => {
+    const { deps } = buildDeps();
+    const res = await handleResendConfirmationCode(deps, { method: "POST", path: "/bff/signup/resend", headers: {}, body: JSON.stringify({ email: "anyone@example.com" }) });
+    expect(res.statusCode).toBe(204);
+  });
+});
+
+describe("handleForgotPassword", () => {
+  it("202s regardless of whether the e-mail is registered (anti-enumeration, D-3xx decision 3)", async () => {
+    const { deps } = buildDeps();
+    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: {}, body: JSON.stringify({ email: "anyone@example.com" }) });
+    expect(res.statusCode).toBe(202);
+  });
+
+  it("400s when email is missing", async () => {
+    const { deps } = buildDeps();
+    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: {}, body: JSON.stringify({}) });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("handleConfirmForgotPassword", () => {
+  it("204s on a valid code + new password", async () => {
+    const { deps } = buildDeps();
+    const res = await handleConfirmForgotPassword(deps, {
+      method: "POST",
+      path: "/bff/forgot-password/confirm",
+      headers: {},
+      body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456", newPassword: "Correct-Horse-1" }),
+    });
+    expect(res.statusCode).toBe(204);
+  });
+
+  it("400s on an invalid/expired code", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextConfirmForgotPasswordOutcome = { kind: "INVALID_CODE_OR_EXPIRED" };
+    const res = await handleConfirmForgotPassword(deps, {
+      method: "POST",
+      path: "/bff/forgot-password/confirm",
+      headers: {},
+      body: JSON.stringify({ email: "user@example.com", confirmationCode: "000000", newPassword: "x" }),
+    });
+    expect(res.statusCode).toBe(400);
   });
 });

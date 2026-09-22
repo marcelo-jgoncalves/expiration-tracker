@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BffAuthService } from "../../../src/modules/bff/application/bff-auth-service.js";
 import { InMemorySessionStore } from "./in-memory-session-store.js";
-import { FakeCognitoOidcClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
+import { FakeCognitoOidcClient, FakeCognitoAuthClient, FakeIdTokenVerifier, FakeTokenEncryptor } from "./fakes.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { InMemoryOrganizationStore } from "../organization/in-memory-store.js";
 import { IdentityBootstrapService } from "../../../src/modules/identity/application/bootstrap-identity.js";
@@ -38,6 +38,7 @@ function buildService() {
   const service = new BffAuthService({
     sessionStore,
     cognitoClient: new FakeCognitoOidcClient(),
+    cognitoAuthClient: new FakeCognitoAuthClient(),
     idTokenVerifier: new FakeIdTokenVerifier(),
     tokenEncryptor: new FakeTokenEncryptor(),
     bootstrap,

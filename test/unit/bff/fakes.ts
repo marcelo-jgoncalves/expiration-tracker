@@ -1,4 +1,13 @@
 import type { CognitoOidcClient, CognitoRefreshOutcome, CognitoTokenResponse, IdTokenVerifier } from "../../../src/modules/bff/ports/cognito-oidc-client.js";
+import type {
+  CognitoAuthClient,
+  CognitoAuthenticateOutcome,
+  CognitoConfirmForgotPasswordOutcome,
+  CognitoConfirmSignUpOutcome,
+  CognitoForgotPasswordOutcome,
+  CognitoResendConfirmationOutcome,
+  CognitoSignUpOutcome,
+} from "../../../src/modules/bff/ports/cognito-auth-client.js";
 import type { TokenEncryptor } from "../../../src/modules/bff/ports/token-encryptor.js";
 
 /** BffAuthService decodes (never verifies) the access token's payload segment - the fake
@@ -41,12 +50,58 @@ export class FakeCognitoOidcClient implements CognitoOidcClient {
 export class FakeIdTokenVerifier implements IdTokenVerifier {
   nextResult: { subject: string; email?: string; name?: string } = { subject: "cognito-sub-1", email: "user@example.com" };
   shouldThrow = false;
-  lastCall?: { idToken: string; expectedNonce: string };
+  lastCall?: { idToken: string; expectedNonce: string | undefined };
 
-  async verify(idToken: string, expectedNonce: string): Promise<{ subject: string; email?: string; name?: string }> {
+  async verify(idToken: string, expectedNonce: string | undefined): Promise<{ subject: string; email?: string; name?: string }> {
     this.lastCall = { idToken, expectedNonce };
     if (this.shouldThrow) throw new Error("nonce mismatch");
     return this.nextResult;
+  }
+}
+
+/** Deterministic in-memory fake for the D-3xx direct-auth port - same style as
+ * FakeCognitoOidcClient above (mutate `next*` fields to drive scenarios, never hit real Cognito). */
+export class FakeCognitoAuthClient implements CognitoAuthClient {
+  authenticateCalls: { username: string; password: string }[] = [];
+  signUpCalls: { username: string; password: string }[] = [];
+  confirmSignUpCalls: { username: string; confirmationCode: string }[] = [];
+  resendCalls: { username: string }[] = [];
+  forgotPasswordCalls: { username: string }[] = [];
+  confirmForgotPasswordCalls: { username: string; confirmationCode: string; newPassword: string }[] = [];
+
+  nextAuthenticateOutcome: CognitoAuthenticateOutcome = {
+    kind: "SUCCESS",
+    tokens: { accessToken: fakeAccessToken(), idToken: "id-1", refreshToken: "refresh-1", expiresInSeconds: 900 },
+  };
+  nextSignUpOutcome: CognitoSignUpOutcome = { kind: "CONFIRMATION_REQUIRED" };
+  nextConfirmSignUpOutcome: CognitoConfirmSignUpOutcome = { kind: "SUCCESS" };
+  nextResendOutcome: CognitoResendConfirmationOutcome = { kind: "SENT" };
+  nextForgotPasswordOutcome: CognitoForgotPasswordOutcome = { kind: "SUCCESS" };
+  nextConfirmForgotPasswordOutcome: CognitoConfirmForgotPasswordOutcome = { kind: "SUCCESS" };
+
+  async authenticateWithPassword(input: { username: string; password: string }): Promise<CognitoAuthenticateOutcome> {
+    this.authenticateCalls.push(input);
+    return this.nextAuthenticateOutcome;
+  }
+  async signUp(input: { username: string; password: string }): Promise<CognitoSignUpOutcome> {
+    this.signUpCalls.push(input);
+    return this.nextSignUpOutcome;
+  }
+  async confirmSignUp(input: { username: string; confirmationCode: string }): Promise<CognitoConfirmSignUpOutcome> {
+    this.confirmSignUpCalls.push(input);
+    return this.nextConfirmSignUpOutcome;
+  }
+  async resendConfirmationCode(input: { username: string }): Promise<CognitoResendConfirmationOutcome> {
+    this.resendCalls.push(input);
+    return this.nextResendOutcome;
+  }
+  async forgotPassword(input: { username: string }): Promise<CognitoForgotPasswordOutcome> {
+    this.forgotPasswordCalls.push(input);
+    return this.nextForgotPasswordOutcome;
+  }
+  async confirmForgotPassword(input: { username: string; confirmationCode: string; newPassword: string }): Promise<CognitoConfirmForgotPasswordOutcome> {
+    this.confirmForgotPasswordCalls.push(input);
+    return this.nextConfirmForgotPasswordOutcome;
   }
 }
 

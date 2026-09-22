@@ -73,6 +73,110 @@ export async function handleLogin(deps: BffHttpDeps, req: BffHttpRequest): Promi
   }
 }
 
+/** D-3xx: `POST /bff/login` - direct-auth entry point replacing the Hosted UI redirect
+ * (`handleLogin`/`handleCallback` above stay in place, dormant fallback - see decisions-log.md
+ * D-3xx). No CSRF check: there is no session cookie yet to protect at this point, the exact
+ * same trust boundary `handleLogin` above already had (an unauthenticated GET redirect also
+ * carries no CSRF token) - login-CSRF (an attacker silently logging a victim into the
+ * attacker's OWN account) is a known, low-severity residual risk accepted here, never a gap
+ * introduced by this endpoint that the redirect-based flow didn't already have. */
+export async function handleLoginPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    const password = typeof body["password"] === "string" ? body["password"] : undefined;
+    if (!email || !password) throw new ValidationError("email and password are required.");
+
+    const { sessionToken, csrfToken } = await deps.auth.loginWithPassword({ email, password });
+    return {
+      statusCode: 200,
+      body: {},
+      cookies: [
+        buildSetCookieHeader(SESSION_COOKIE_NAME, sessionToken, SESSION_COOKIE_ATTRIBUTES),
+        buildSetCookieHeader(CSRF_COOKIE_NAME, csrfToken, CSRF_COOKIE_ATTRIBUTES),
+      ],
+    };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** D-3xx: `POST /bff/signup` - self-service registration (parity with the Hosted UI's own
+ * "Sign up" link, which was live by default - see BffAuthService.signUp's doc comment). */
+export async function handleSignUp(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    const password = typeof body["password"] === "string" ? body["password"] : undefined;
+    if (!email || !password) throw new ValidationError("email and password are required.");
+
+    const result = await deps.auth.signUp({ email, password });
+    return { statusCode: 202, body: result };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** D-3xx: `POST /bff/signup/confirm` - the e-mail verification step. */
+export async function handleConfirmSignUp(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    const confirmationCode = typeof body["confirmationCode"] === "string" ? body["confirmationCode"] : undefined;
+    if (!email || !confirmationCode) throw new ValidationError("email and confirmationCode are required.");
+
+    await deps.auth.confirmSignUp({ email, confirmationCode });
+    return { statusCode: 204, body: {} };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** D-3xx: `POST /bff/signup/resend` - reissues the confirmation code. */
+export async function handleResendConfirmationCode(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    if (!email) throw new ValidationError("email is required.");
+
+    await deps.auth.resendConfirmationCode({ email });
+    return { statusCode: 204, body: {} };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** D-3xx: `POST /bff/forgot-password` - always 202, anti-enumeration (decision 3): the caller
+ * can never tell from this response alone whether the e-mail is actually registered. */
+export async function handleForgotPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    if (!email) throw new ValidationError("email is required.");
+
+    await deps.auth.startForgotPassword({ email });
+    return { statusCode: 202, body: {} };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** D-3xx: `POST /bff/forgot-password/confirm` - code + new password. */
+export async function handleConfirmForgotPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
+  try {
+    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    const email = typeof body["email"] === "string" ? body["email"] : undefined;
+    const confirmationCode = typeof body["confirmationCode"] === "string" ? body["confirmationCode"] : undefined;
+    const newPassword = typeof body["newPassword"] === "string" ? body["newPassword"] : undefined;
+    if (!email || !confirmationCode || !newPassword) throw new ValidationError("email, confirmationCode and newPassword are required.");
+
+    await deps.auth.confirmForgotPassword({ email, confirmationCode, newPassword });
+    return { statusCode: 204, body: {} };
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
 export async function handleCallback(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
     const code = req.queryStringParameters?.["code"];
