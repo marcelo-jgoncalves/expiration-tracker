@@ -1,0 +1,9 @@
+/* Search field in the Fornecedores toolbar (Marcelo, 2026-09-22, achado real: o placeholder
+   "Nome ou CNPJ/identificador" ficava cortado no tamanho default de um TextField dentro de
+   `.ui-toolbar`, que encolhe para o conteúdo mínimo, não para o texto do placeholder). Largura
+   fixa suficiente para o placeholder inteiro, com teto de 100% para telas estreitas (o toolbar já
+   tem `flex-wrap: wrap`, então isso nunca força overflow horizontal). */
+.subjects-search {
+  flex: 1 1 22rem;
+  max-width: 22rem;
+}
