@@ -36,13 +36,14 @@
  *     had paused (`enabled: false`) without touching the times. The browser's timezone is
  *     detected (with a fallback if `Intl` throws) ONLY when the user fills in a window from
  *     genuinely empty (there is nothing prior to preserve).
- *  4. **"Idioma dos lembretes" is shown with an explicit, honest note that it does not affect
- *     delivered content yet.** Codex review round 1 finding, confirmed real: `notification-
- *     router-workflow.ts` hard-codes `locale: "pt-BR"` on every render command regardless of this
+ *  4. **REMOVED (2026-09-22, Marcelo): "Idioma dos lembretes" control.** It used to be shown with
+ *     an explicit note that it did not affect delivered content yet — `notification-router-
+ *     workflow.ts` hard-codes `locale: "pt-BR"` on every render command regardless of this
  *     preference, and `email-templates.ts`'s own header comment confirms only pt-BR templates
- *     exist today. The control still exists (the spec asks for it, and the backend schema stores
- *     the value for whenever real localization ships) but this screen never implies it already
- *     changes what a user receives.
+ *     exist today. Rather than keep offering a choice with zero real effect, the control was
+ *     removed outright; `FIXED_LOCALE` below is sent on every save so the backend's own
+ *     `required: ["emailEnabled", "locale"]` schema is still satisfied. Reinstate the picker only
+ *     once real localized templates exist.
  *
  * **G5 CLOSED (2026-09-22, Marcelo)**: `POST /notifications/whatsapp-opt-in` shipped in D-286
  * (`preferences-handlers.ts`'s own doc comment confirms the route, allowlisted in
@@ -89,19 +90,18 @@ import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { InitialLoading, ErrorState } from "../components/AsyncStates.js";
 import { PageHeader, Panel } from "../components/ui/Layout.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { Checkbox } from "../components/ui/Checkbox.js";
+import { Switch } from "../components/ui/Switch.js";
 import { Button } from "../components/ui/Button.js";
-import { SelectField } from "../components/forms/SelectField.js";
 import { TextField } from "../components/forms/TextField.js";
 import { ApiError, isConflict, isAuthError, isUnknownOutcome } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import type { NotificationConsentSource, NotificationQuietHours } from "../api/types.js";
 import "./NotificationPreferences.css";
 
-const LOCALE_OPTIONS = [
-  { value: "pt-BR", label: "Português (Brasil)" },
-  { value: "en-US", label: "English (US)" },
-];
+/** Único idioma real de conteúdo hoje (`email-templates.ts` só tem templates pt-BR,
+ * `notification-router-workflow.ts` hard-codes `locale: "pt-BR"` em todo render command) —
+ * removido o controle "Idioma dos lembretes" que antes oferecia uma escolha sem efeito real. */
+const FIXED_LOCALE = "pt-BR";
 
 // Codex review round 2 (D-2xx) MEDIUM finding, corrected: silently falling back to a fixed
 // timezone (e.g. "America/Sao_Paulo") when detection fails would be WORSE than the failure it
@@ -146,7 +146,6 @@ export function NotificationPreferences() {
 }
 
 interface Snapshot {
-  locale: string;
   quietStart: string;
   quietEnd: string;
 }
@@ -184,10 +183,9 @@ function PreferencesPanel() {
   }
 
   const [initialized, setInitialized] = useState(false);
-  const [locale, setLocale] = useState("pt-BR");
   const [quietStart, setQuietStart] = useState("");
   const [quietEnd, setQuietEnd] = useState("");
-  const [initialSnapshot, setInitialSnapshot] = useState<Snapshot>({ locale: "pt-BR", quietStart: "", quietEnd: "" });
+  const [initialSnapshot, setInitialSnapshot] = useState<Snapshot>({ quietStart: "", quietEnd: "" });
   // Deviation 3 (file header) - the loaded record's own enabled/timeZone, preserved verbatim
   // across saves that don't touch the times at all.
   const [originalQuietMeta, setOriginalQuietMeta] = useState<{ enabled: boolean; timeZone: string } | undefined>(undefined);
@@ -196,19 +194,18 @@ function PreferencesPanel() {
   const [reloadFailed, setReloadFailed] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  function hydrateFrom(quietHours: NotificationQuietHours | null, loadedLocale: string) {
+  function hydrateFrom(quietHours: NotificationQuietHours | null) {
     const start = quietHours?.startLocal ?? "";
     const end = quietHours?.endLocal ?? "";
-    setLocale(loadedLocale);
     setQuietStart(start);
     setQuietEnd(end);
-    setInitialSnapshot({ locale: loadedLocale, quietStart: start, quietEnd: end });
+    setInitialSnapshot({ quietStart: start, quietEnd: end });
     setOriginalQuietMeta(quietHours ? { enabled: quietHours.enabled, timeZone: quietHours.timeZone } : undefined);
   }
 
   useEffect(() => {
     if (!initialized && query.data) {
-      hydrateFrom(query.data.preferences.quietHours, query.data.preferences.locale);
+      hydrateFrom(query.data.preferences.quietHours);
       setInitialized(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,7 +217,7 @@ function PreferencesPanel() {
     };
   }, []);
 
-  const dirty = initialized && (locale !== initialSnapshot.locale || quietStart !== initialSnapshot.quietStart || quietEnd !== initialSnapshot.quietEnd);
+  const dirty = initialized && (quietStart !== initialSnapshot.quietStart || quietEnd !== initialSnapshot.quietEnd);
 
   // Deviation 2 (file header) — the achievable subset of "warn before leaving with unsaved
   // changes" without a router migration: tab close/refresh/leaving the site entirely.
@@ -283,8 +280,8 @@ function PreferencesPanel() {
     setSaveState("saving");
     try {
       // Deviation 1 (file header) - always echo the REAL loaded value, never force `true`.
-      const { preferences: saved } = await mutation.mutateAsync({ emailEnabled: preferences.emailEnabled, locale, quietHours, expectedVersion: preferences.version });
-      setInitialSnapshot({ locale, quietStart, quietEnd });
+      const { preferences: saved } = await mutation.mutateAsync({ emailEnabled: preferences.emailEnabled, locale: FIXED_LOCALE, quietHours, expectedVersion: preferences.version });
+      setInitialSnapshot({ quietStart, quietEnd });
       setOriginalQuietMeta(quietHours ? { enabled: quietHours.enabled, timeZone: quietHours.timeZone } : undefined);
       void saved; // cache already updated by the mutation hook itself (setQueryData, not just invalidate).
       setSaveState("success");
@@ -321,7 +318,7 @@ function PreferencesPanel() {
     // conflict notice, letting the next save repeat the same 409 forever. Only a genuinely fresh,
     // successful result may clear the conflict state.
     if (result.isSuccess) {
-      hydrateFrom(result.data.preferences.quietHours, result.data.preferences.locale);
+      hydrateFrom(result.data.preferences.quietHours);
       setConflict(false);
       setReloadFailed(false);
     } else {
@@ -358,7 +355,10 @@ function PreferencesPanel() {
           <p className="u-text-secondary">{preferences.emailEnabled ? "Canal padrão da sua conta" : "Desativado — contate o suporte para reativar"}</p>
         </div>
         <div className="notif-prefs__row-control">
-          <Checkbox label="Ativado" checked={preferences.emailEnabled} onChange={() => {}} disabled />
+          {/* Deviation 1 (file header) - still no real toggle here (e-mail is the mandatory
+              channel, A18 spec), only visually upgraded from Checkbox to the same Switch
+              component used for real toggles elsewhere (ItemReminderPolicy.tsx) for consistency. */}
+          <Switch label="Ativado" checked={preferences.emailEnabled} onChange={() => {}} disabled />
           <p className="u-text-secondary">{consentCopy(preferences.consentSource, preferences.createdAt, preferences.updatedAt)}</p>
         </div>
       </div>
@@ -393,16 +393,6 @@ function PreferencesPanel() {
               </Button>
             </>
           )}
-        </div>
-      </div>
-
-      <div className="notif-prefs__row">
-        <div className="notif-prefs__row-label">
-          <h3>Idioma dos lembretes</h3>
-        </div>
-        <div className="notif-prefs__row-control">
-          <SelectField label="Idioma" value={locale} onChange={setLocale} options={LOCALE_OPTIONS} required />
-          <p className="u-text-secondary">Ainda não afeta o conteúdo enviado — lembretes continuam em português.</p>
         </div>
       </div>
 

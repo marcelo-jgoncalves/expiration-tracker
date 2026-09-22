@@ -79,27 +79,26 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   });
 
   it("loads and displays the current preferences", async () => {
-    getMock.mockResolvedValue({ preferences: basePreferences({ locale: "en-US" }) });
+    getMock.mockResolvedValue({ preferences: basePreferences() });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("en-US"));
-    expect(screen.getByLabelText("Ativado")).toBeChecked();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked());
     // G5 closed (Marcelo, 2026-09-22, D-286): WhatsApp shows a real phone opt-in form now,
     // never the old permanent "Indisponível" badge.
     expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ativar WhatsApp" })).toBeInTheDocument();
   });
 
-  // Deviation 1 (file header comment, Codex review round 1 BLOQUEANTE finding): the checkbox is
+  // Deviation 1 (file header comment, Codex review round 1 BLOQUEANTE finding): the switch is
   // always disabled (no toggle control on this screen), but it must reflect the REAL value - an
   // SES-complaint suppression (`emailEnabled: false`) must never be shown/sent as re-enabled.
-  it("shows the e-mail checkbox unchecked (never forced checked) when the backend reports emailEnabled: false, and preserves it on save", async () => {
+  it("shows the e-mail switch off (never forced on) when the backend reports emailEnabled: false, and preserves it on save", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: false }) });
     putMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: false, version: 2 }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText("Ativado")).not.toBeChecked());
-    expect(screen.getByLabelText("Ativado")).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).not.toBeChecked());
+    expect(screen.getByRole("switch", { name: "Ativado" })).toBeDisabled();
     expect(screen.getByText("Desativado — contate o suporte para reativar")).toBeInTheDocument();
 
     screen.getByRole("button", { name: "Salvar preferências" }).click();
@@ -108,11 +107,11 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     );
   });
 
-  it("shows the e-mail checkbox checked when emailEnabled is true", async () => {
+  it("shows the e-mail switch on when emailEnabled is true", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: true }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText("Ativado")).toBeChecked());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked());
     expect(screen.getByText("Canal padrão da sua conta")).toBeInTheDocument();
   });
 
@@ -127,7 +126,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ consentSource: "USER_SETTINGS" }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     expect(screen.queryByText("Estas são as preferências padrão — ainda não personalizadas.")).not.toBeInTheDocument();
   });
 
@@ -171,12 +170,12 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
   });
 
-  it("saves the form and sends emailEnabled: true, the selected locale, and quietHours: null when both time fields are blank", async () => {
+  it("saves the form and sends emailEnabled: true, the fixed locale, and quietHours: null when both time fields are blank", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockResolvedValue({ preferences: basePreferences() });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() =>
@@ -189,7 +188,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockResolvedValue({ preferences: basePreferences({ version: 2 }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Salvo" })).toBeInTheDocument());
@@ -201,7 +200,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() => expect(screen.getByText(/alteradas em outro lugar/)).toBeInTheDocument());
@@ -218,18 +217,20 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     // the fallback avoids the mock queue running dry and returning `undefined`, which TanStack
     // Query treats as a hard query error.
     getMock
-      .mockResolvedValueOnce({ preferences: basePreferences({ locale: "pt-BR", version: 1 }) })
-      .mockResolvedValue({ preferences: basePreferences({ locale: "en-US", version: 2 }) });
+      .mockResolvedValueOnce({ preferences: basePreferences({ version: 1 }) })
+      .mockResolvedValue({
+        preferences: basePreferences({ version: 2, quietHours: { enabled: true, startLocal: "21:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" } }),
+      });
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR"));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "Recarregar" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
 
     screen.getByRole("button", { name: "Recarregar" }).click();
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("en-US"));
+    await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue("21:00"));
     expect(screen.getByRole("button", { name: "Salvar preferências" })).not.toBeDisabled();
   });
 
@@ -239,19 +240,18 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   // the same 409 forever, silently.
   it("keeps the conflict notice and Save disabled (never silently clears it) when 'Recarregar' itself fails", async () => {
     getMock
-      .mockResolvedValueOnce({ preferences: basePreferences({ locale: "pt-BR", version: 1 }) })
+      .mockResolvedValueOnce({ preferences: basePreferences({ version: 1 }) })
       .mockRejectedValue(new Error("network down"));
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR"));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "Recarregar" })).toBeInTheDocument());
 
     screen.getByRole("button", { name: "Recarregar" }).click();
     await waitFor(() => expect(screen.getByText(/Não foi possível recarregar agora/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
-    expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR");
   });
 
   // Codex review round 2 MEDIUM finding, corrected: silently falling back to a fixed timezone
@@ -284,17 +284,17 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockRejectedValue(ApiError.unknownOutcome(new Error("timeout")));
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() => expect(screen.getByText(/Não sabemos se suas preferências foram salvas/)).toBeInTheDocument());
     expect(screen.queryByText("Não foi possível salvar suas preferências. Tente novamente.")).not.toBeInTheDocument();
   });
 
-  // Deviation 3 (file header comment, Codex review round 1 ALTO finding): saving any OTHER field
-  // must never silently move a saved quiet-hours window to the browser's current timezone or
-  // re-enable a window the user had paused - both must be preserved verbatim.
-  it("preserves the loaded quiet-hours enabled:false and original timeZone when only the locale changes", async () => {
+  // Deviation 3 (file header comment, Codex review round 1 ALTO finding): saving must never
+  // silently move a saved quiet-hours window to the browser's current timezone or re-enable a
+  // window the user had paused - both must be preserved verbatim even on an unrelated save.
+  it("preserves the loaded quiet-hours enabled:false and original timeZone on save", async () => {
     getMock.mockResolvedValue({
       preferences: basePreferences({ quietHours: { enabled: false, startLocal: "21:00", endLocal: "07:00", timeZone: "Europe/Lisbon" } }),
     });
@@ -306,11 +306,10 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     renderScreen();
 
     await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue("21:00"));
-    fireEvent.change(screen.getByLabelText(/^Idioma/), { target: { value: "en-US" } });
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() =>
-      expect(putBody).toEqual({ emailEnabled: true, locale: "en-US", quietHours: { enabled: false, startLocal: "21:00", endLocal: "07:00", timeZone: "Europe/Lisbon" } }),
+      expect(putBody).toEqual({ emailEnabled: true, locale: "pt-BR", quietHours: { enabled: false, startLocal: "21:00", endLocal: "07:00", timeZone: "Europe/Lisbon" } }),
     );
   });
 
@@ -319,12 +318,12 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockRejectedValue(new Error("network down"));
     renderScreen();
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Falhou — tentar de novo" })).toBeInTheDocument());
     expect(screen.getByText("Não foi possível salvar suas preferências. Tente novamente.")).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR");
+    expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked();
   });
 
   // Codex review round 1 (D-2xx) BLOQUEANTE finding, corrected: this screen used to keep its
@@ -333,19 +332,19 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   // be saved against the NEW organization's version. `key={organizationId}` on `PreferencesPanel`
   // forces a full remount (and therefore a fresh hydration) on every switch.
   it("resets all local edit state to the NEW organization's own values when the active organization switches", async () => {
-    getMock.mockImplementation(() => Promise.resolve({ preferences: basePreferences({ locale: "pt-BR" }) }));
+    getMock.mockImplementation(() => Promise.resolve({ preferences: basePreferences() }));
     const { switchOrg } = renderWithOrg("org-1");
 
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR"));
-    fireEvent.change(screen.getByLabelText(/^Idioma/), { target: { value: "en-US" } });
-    expect(screen.getByLabelText(/^Idioma/)).toHaveValue("en-US");
+    await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue(""));
+    fireEvent.change(screen.getByLabelText(/^Das/), { target: { value: "21:00" } });
+    expect(screen.getByLabelText(/^Das/)).toHaveValue("21:00");
 
-    getMock.mockImplementation(() => Promise.resolve({ preferences: basePreferences({ locale: "pt-BR", version: 5 }) }));
+    getMock.mockImplementation(() => Promise.resolve({ preferences: basePreferences({ version: 5 }) }));
     switchOrg("org-2");
 
-    // The unsaved "en-US" edit for org-1 must be gone, replaced by org-2's own real value - never
+    // The unsaved "21:00" edit for org-1 must be gone, replaced by org-2's own real value - never
     // carried over and silently saved against the new organization.
-    await waitFor(() => expect(screen.getByLabelText(/^Idioma/)).toHaveValue("pt-BR"));
+    await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue(""));
   });
 
   // G5 closed (Marcelo, 2026-09-22, D-286): real WhatsApp opt-in tests.

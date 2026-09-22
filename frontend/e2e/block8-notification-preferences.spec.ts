@@ -18,6 +18,8 @@ function mockOrganizations(page: Page, role: "OWNER" | "ADMIN" | "MEMBER" | "VIE
 function preferences(overrides: Record<string, unknown> = {}) {
   return {
     emailEnabled: true,
+    // Fixed - the "Idioma dos lembretes" picker was removed (2026-09-22, Marcelo): no real
+    // localized content exists yet, so offering a choice with zero effect was misleading.
     locale: "pt-BR",
     quietHours: null,
     consentSource: "USER_SETTINGS",
@@ -53,13 +55,13 @@ test("E2E-B8-01: every role sees the nav entry and can reach the screen", async 
   await expect(page.getByRole("heading", { name: "Notificações" })).toBeVisible();
 });
 
-test("E2E-B8-02: e-mail is always locked checked; WhatsApp shows a real phone opt-in form (G5 closed, D-286)", async ({ page }) => {
+test("E2E-B8-02: e-mail is always locked checked (Switch); WhatsApp shows a real phone opt-in form (G5 closed, D-286)", async ({ page }) => {
   await mockOrganizations(page, "MEMBER");
   await mockA18(page);
 
   await page.goto("/settings/notifications");
-  await expect(page.getByLabel("Ativado")).toBeChecked();
-  await expect(page.getByLabel("Ativado")).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Ativado" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Ativado" })).toBeDisabled();
   await expect(page.getByLabel(/^Telefone/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Ativar WhatsApp" })).toBeVisible();
 });
@@ -101,13 +103,12 @@ test("E2E-B8-09: an invalid phone shape is rejected client-side, never reaching 
   expect(optInCalled).toBe(false);
 });
 
-test("E2E-B8-03: saving a new locale and quiet-hours window PUTs the real route with the built payload", async ({ page }) => {
+test("E2E-B8-03: saving a new quiet-hours window PUTs the real route with the built payload", async ({ page }) => {
   await mockOrganizations(page, "OWNER");
   let putBody: unknown;
   await mockA18(page, { onPut: (body) => (putBody = body) });
 
   await page.goto("/settings/notifications");
-  await page.getByLabel(/^Idioma/).selectOption("en-US");
   await page.getByLabel(/^Das/).fill("22:00");
   await page.getByLabel(/^Até/).fill("06:00");
   await expect(page.getByText("Este intervalo atravessa a meia-noite.")).toBeVisible();
@@ -115,7 +116,7 @@ test("E2E-B8-03: saving a new locale and quiet-hours window PUTs the real route 
 
   await expect.poll(() => putBody).toEqual({
     emailEnabled: true,
-    locale: "en-US",
+    locale: "pt-BR",
     quietHours: { enabled: true, startLocal: "22:00", endLocal: "06:00", timeZone: expect.any(String) },
   });
   await expect(page.getByRole("button", { name: "Salvo" })).toBeVisible();
@@ -139,7 +140,15 @@ test("E2E-B8-05: a version conflict on save shows the OCC notice, disables Save,
   await page.route("**/bff/api/notifications/preferences", (route) => {
     if (route.request().method() === "PUT") return route.fulfill({ status: 409, json: { code: "CONFLICT", category: "CONFLICT", message: "Version conflict.", retryable: false } });
     getCallCount += 1;
-    return route.fulfill({ json: { preferences: preferences(getCallCount === 1 ? { locale: "pt-BR", version: 1 } : { locale: "en-US", version: 2 }) } });
+    return route.fulfill({
+      json: {
+        preferences: preferences(
+          getCallCount === 1
+            ? { version: 1 }
+            : { version: 2, quietHours: { enabled: true, startLocal: "21:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" } },
+        ),
+      },
+    });
   });
 
   await page.goto("/settings/notifications");
@@ -149,7 +158,7 @@ test("E2E-B8-05: a version conflict on save shows the OCC notice, disables Save,
   await expect(page.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Recarregar" }).click();
-  await expect(page.getByLabel(/^Idioma/)).toHaveValue("en-US");
+  await expect(page.getByLabel(/^Das/)).toHaveValue("21:00");
   await expect(page.getByRole("button", { name: "Salvar preferências" })).toBeEnabled();
 });
 
@@ -177,16 +186,16 @@ test("E2E-B8-07: a failed 'Recarregar' keeps the conflict notice and Save disabl
   await expect(page.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
 });
 
-// Codex review round 1 (D-2xx) BLOQUEANTE finding, corrected: the checkbox used to be hard-coded
+// Codex review round 1 (D-2xx) BLOQUEANTE finding, corrected: the toggle used to be hard-coded
 // checked and the save payload hard-coded `emailEnabled: true` regardless of the real value - a
 // real risk of silently un-suppressing an SES-complaint-suppressed address on any unrelated save.
-test("E2E-B8-06: emailEnabled:false shows the checkbox unchecked and is preserved (never forced true) on save", async ({ page }) => {
+test("E2E-B8-06: emailEnabled:false shows the Switch off and is preserved (never forced true) on save", async ({ page }) => {
   await mockOrganizations(page, "OWNER");
   let putBody: unknown;
   await mockA18(page, { preferences: preferences({ emailEnabled: false }), onPut: (body) => (putBody = body) });
 
   await page.goto("/settings/notifications");
-  await expect(page.getByLabel("Ativado")).not.toBeChecked();
+  await expect(page.getByRole("switch", { name: "Ativado" })).not.toBeChecked();
   await expect(page.getByText("Desativado — contate o suporte para reativar")).toBeVisible();
   await page.getByRole("button", { name: "Salvar preferências" }).click();
 
@@ -222,12 +231,13 @@ const CONTRAST_PROBE = `(() => {
     const style = getComputedStyle(element);
     if (style.visibility === "hidden" || style.display === "none") continue;
     if (element.closest(":disabled")) continue;
-    // WCAG 1.4.3 exempts text that is part of an inactive UI component - real here for A18's
-    // locked e-mail checkbox, whose label text is a DOM SIBLING of the disabled <input> (Checkbox
-    // .tsx's own structure: <label><input disabled/><span/><span class="ui-checkbox__text"/></label>),
-    // never a descendant, so \`:closest(":disabled")\` above never matches it. This is a real,
-    // pre-existing gap in this probe (copy-pasted per E2E file, no shared module to fix once) -
-    // named here rather than silently worked around.
+    // WCAG 1.4.3 exempts text that is part of an inactive UI component - A18's locked e-mail
+    // control is now a Switch (Switch.tsx: <button role="switch" disabled><span/><span
+    // class="ui-switch__text"/></button>), whose label text is a DESCENDANT of the disabled
+    // <button>, so \`:closest(":disabled")\` above already exempts it directly. This extra
+    // label-based exemption is kept only because it's copy-pasted per E2E file (no shared module
+    // to fix once) and other screens on this same probe may still have a Checkbox-shaped control
+    // (label text as a SIBLING of a disabled <input>, not a descendant) that needs it.
     if (element.closest("label")?.querySelector(":disabled")) continue;
     const box = element.getBoundingClientRect();
     if (box.width < 2 || box.height < 2) continue;
