@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../../src/auth/AuthContext.js";
 import { SessionProbeError } from "../../src/api/session.js";
 
-const { fetchSessionInfoMock, startLoginMock, logoutMock, logoutAllMock } = vi.hoisted(() => ({
+const { fetchSessionInfoMock, logoutMock, logoutAllMock } = vi.hoisted(() => ({
   fetchSessionInfoMock: vi.fn(),
-  startLoginMock: vi.fn(),
   logoutMock: vi.fn(),
   logoutAllMock: vi.fn(),
 }));
@@ -16,7 +16,6 @@ vi.mock("../../src/api/session.js", async () => {
   return {
     ...actual,
     fetchSessionInfo: fetchSessionInfoMock,
-    startLogin: startLoginMock,
     logout: logoutMock,
     logoutAll: logoutAllMock,
   };
@@ -35,14 +34,23 @@ function Probe() {
  * so every render needs a real QueryClientProvider ancestor - a fresh, retry-disabled client
  * per test (mirrors `test/testUtils.tsx`'s `renderAtRoute` pattern) so no test's timing depends
  * on another's cache. */
+/** D-3xx: AuthProvider now calls `useNavigate()` internally (`reauthenticate()` navigates to
+ * the app's own `/login` screen instead of a full-page redirect) - needs a Router ancestor,
+ * same MemoryRouter convention every routed test already uses (test/testUtils.tsx). */
 function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return { ...render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>), queryClient };
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 beforeEach(() => {
   fetchSessionInfoMock.mockReset();
-  startLoginMock.mockReset();
   logoutMock.mockReset();
   logoutAllMock.mockReset();
 });

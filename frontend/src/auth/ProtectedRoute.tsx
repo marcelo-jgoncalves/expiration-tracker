@@ -1,9 +1,10 @@
 /**
  * Protected routing (mission §22): unauthenticated -> authentication, expired session ->
- * reauthentication, successful reauthentication -> return context. The actual redirect to
- * Cognito happens via full-page navigation (startLogin), never client-side routing - the
- * BFF's own LoginAttempt record is what remembers where to return to (server-side, mission
- * §23), this component only decides WHEN to trigger that navigation.
+ * reauthentication, successful reauthentication -> return context. D-3xx (reversal of D-320):
+ * the app's own `/login` screen is same-origin now, so `AuthContext.reauthenticate()` does a
+ * normal client-side `navigate()` (with `returnTo` as a query param) instead of the old
+ * full-page redirect to the Cognito Hosted UI - this component still only decides WHEN to
+ * trigger that navigation, not how.
  */
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "./AuthContext.js";

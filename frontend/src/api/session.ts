@@ -56,15 +56,6 @@ export async function fetchSessionInfo(options?: { signal?: AbortSignal }): Prom
   }
 }
 
-/** Redirects the whole page (not an XHR - this is a real navigation to the BFF, which
- * redirects again to Cognito's Hosted UI). `returnTo` is validated server-side
- * (BffAuthService.startLogin) - never trust a client-side check as the only guard against an
- * open redirect. */
-export function startLogin(returnTo: string): void {
-  const params = new URLSearchParams({ returnTo });
-  window.location.assign(`/bff/login?${params.toString()}`);
-}
-
 async function postSessionAction(path: string): Promise<void> {
   const csrfCookie = document.cookie.split("; ").find((row) => row.startsWith("__Host-et_csrf="));
   const headers: Record<string, string> = {};

@@ -17,10 +17,17 @@
  * sessão" report). `staleTime` on the shared query means a normal reload does not repeat the
  * request; a UI cache window this short has no bearing on server-side authorization, which the
  * BFF re-validates on every real operation regardless of what the client believes.
+ *
+ * D-3xx (reversal of D-320): `reauthenticate()` used to be a full-page `window.location.assign`
+ * to `/bff/login` (leaving the SPA to redirect through the Cognito Hosted UI and back). The
+ * app's own `/login` screen is now same-origin, so this is a normal client-side
+ * `navigate()` instead - `AuthProvider` already renders inside `BrowserRouter` (App.tsx), so
+ * `useNavigate()` is available here.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSessionInfo, logout as bffLogout, logoutAll as bffLogoutAll, startLogin, SessionProbeError } from "../api/session.js";
+import { fetchSessionInfo, logout as bffLogout, logoutAll as bffLogoutAll, SessionProbeError } from "../api/session.js";
 import { apiClient } from "../api/apiClient.js";
 import { sessionQueryKey } from "../api/queryKeys.js";
 
@@ -48,7 +55,7 @@ export type AuthState =
    * rather than silently treating "couldn't check" the same as "definitely logged out". */
   | { status: "REFRESH_FAILED"; returnTo: string }
   /** The user has acknowledged SESSION_EXPIRED/REFRESH_FAILED (or clicked a protected link
-   * while SESSION_MISSING) and is about to be sent to Cognito via startLogin(). */
+   * while SESSION_MISSING) and is about to be navigated to the app's own `/login` screen. */
   | { status: "REAUTH_REQUIRED"; returnTo: string };
 
 interface AuthContextValue {
@@ -70,6 +77,7 @@ function currentPath(): string {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const sessionQuery = useQuery({
     queryKey: sessionQueryKey,
@@ -124,8 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const reauthenticate = useCallback(() => {
     const returnTo = "returnTo" in state ? state.returnTo : currentPath();
-    startLogin(returnTo); // full-page navigation - nothing after this line runs
-  }, [state]);
+    navigate(`/login?${new URLSearchParams({ returnTo }).toString()}`, { replace: true });
+  }, [state, navigate]);
 
   const logout = useCallback(async () => {
     await bffLogout();

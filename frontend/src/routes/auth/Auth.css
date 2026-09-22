@@ -1,0 +1,10 @@
+/* D-3xx (reversal of D-320) - shared by every screen under routes/auth/ (Login, SignUp,
+   VerifyEmail, ForgotPassword, ResetPassword). Deliberately minimal: these screens reuse
+   Panel/TextField/Button/InlineNotice wholesale (design-system-v2 tokens), this file only
+   covers the one thing none of those primitives already own - the small secondary-link line
+   under the form (e.g. "Esqueceu sua senha?" / "Criar conta"). */
+.ui-auth-links {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-200);
+  margin: var(--space-3) 0 0;
+}
