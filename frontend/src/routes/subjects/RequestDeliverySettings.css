@@ -1,0 +1,20 @@
+/* Footer actions row (protótipo `entregaSolicitacao.html`, Marcelo 2026-09-22): a divider above
+   the primary action, with the scope note ("vale para toda a organização") to its left - scoped
+   to this screen only, not a shared `.ui-form__actions`-style pattern (that one has no left-side
+   copy slot). */
+.request-delivery__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
+}
+
+.request-delivery__actions-copy {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-200);
+}

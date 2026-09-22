@@ -34,6 +34,7 @@ import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Button } from "../../components/ui/Button.js";
 import { isConflict } from "../../api/errors.js";
 import type { DocumentRequestDeliveryMode } from "../../api/types.js";
+import "./RequestDeliverySettings.css";
 
 const DELIVERY_OPTIONS = [
   { value: "EMAIL", label: "E-mail automático", hint: "O link é enviado por e-mail no momento da criação da solicitação." },
@@ -108,9 +109,10 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
   }
 
   return (
-    <Panel>
+    <Panel padded>
       <RadioGroup
         legend="Modo de entrega padrão"
+        variant="cards"
         // Codex review round 1 (Block 7, D-267) MÉDIO finding, corrected: the radios stayed
         // interactive while a save was in flight - a user could flip the visible selection
         // mid-request and then see a success toast for a value the server never actually saved.
@@ -129,9 +131,12 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
           Não foi possível salvar. Tente novamente.
         </InlineNotice>
       ) : null}
-      <Button variant="primary" icon={Check} pending={mutation.isPending} onClick={() => void handleSave()}>
-        {mutation.isPending ? "Salvando…" : "Salvar padrão"}
-      </Button>
+      <div className="request-delivery__actions">
+        <p className="request-delivery__actions-copy">A configuração vale para toda a organização.</p>
+        <Button variant="primary" icon={Check} pending={mutation.isPending} onClick={() => void handleSave()}>
+          {mutation.isPending ? "Salvando…" : "Salvar padrão"}
+        </Button>
+      </div>
     </Panel>
   );
 }
