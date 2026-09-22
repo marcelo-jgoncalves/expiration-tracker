@@ -69,10 +69,14 @@ import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presenta
 import type { Requirement, RequirementApplicability, RequirementStatus } from "../api/types.js";
 import "./RequirementsCollection.css";
 
-const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical" | "warning" | "neutral" }[] = [
+/** "success" aqui é deliberadamente diferente do tom de `presentRequirementDocStatus` (mantido
+ * `neutral` para o `StatusBadge` de cada linha - "evidência vinculada" não é prova de
+ * conformidade). Pedido direto de Marcelo, 2026-09-22: os cartões-resumo (agregados, nunca a
+ * badge por linha) usam vermelho/amarelo/verde sempre visíveis, não só quando selecionados. */
+const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical" | "warning" | "success" | "neutral" }[] = [
   { value: "MISSING", label: "Em falta", tone: "critical" },
   { value: "PENDING", label: "Pendente", tone: "warning" },
-  { value: "SATISFIED", label: "Satisfeito", tone: "neutral" },
+  { value: "SATISFIED", label: "Satisfeito", tone: "success" },
   { value: "NOT_SATISFIED", label: "Não satisfeito", tone: "critical" },
   { value: "NOT_APPLICABLE", label: "Não se aplica", tone: "neutral" },
 ];
