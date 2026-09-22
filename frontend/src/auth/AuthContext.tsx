@@ -67,6 +67,10 @@ interface AuthContextValue {
   reauthenticate: () => void;
   logout: () => Promise<void>;
   logoutEverywhere: () => Promise<void>;
+  /** D-3xx (real bug, Marcelo 2026-09-22): a fresh, deliberate login must clear the
+   * `reportedUnauthorized` latch (see its own comment below) - `useLogin`'s `onSuccess` calls
+   * this before invalidating the session query. */
+  clearReauthLatch: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -92,10 +96,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   // Latches SESSION_EXPIRED once a real 401 arrives, so a subsequent stale-cache read of the
-  // now-removed query never renders a moment of "still AUTHENTICATED" — the only way out of
-  // this state is `reauthenticate()`'s full-page navigation, which remounts this provider
-  // fresh, so this never needs to be reset from within the same tree lifetime. Real React
-  // state (not a ref) — setting it must trigger the re-render that flips `state` below.
+  // now-removed query never renders a moment of "still AUTHENTICATED". Real React state (not a
+  // ref) — setting it must trigger the re-render that flips `state` below.
+  //
+  // REAL BUG, found and fixed 2026-09-22 (Marcelo: "entro com as credenciais e não acontece
+  // nada, fica na tela" — reproducible only after a session had already expired once in the
+  // same tab): this comment used to say "the only way out of this state is `reauthenticate()`'s
+  // full-page navigation, which remounts this provider fresh" — true before D-321, false since:
+  // `reauthenticate()` is now a same-origin client-side `navigate()` (AuthProvider never
+  // remounts), so this latch stayed `true` forever once a 401 ever happened in the tab — even
+  // through a fully successful NEW login. `state` checks `reportedUnauthorized` FIRST (below),
+  // so it stayed pinned at SESSION_EXPIRED regardless of what a fresh, valid session cookie said
+  // — Login.tsx's `state.status === "AUTHENTICATED"` redirect effect could never fire, no matter
+  // how long you waited. `clearReauthLatch()` (exposed below, called by `useLogin`'s `onSuccess`)
+  // is the missing reset: a deliberate, successful login is the one signal (besides an explicit
+  // `logout()`, which already reset it) that legitimately supersedes a stale "was unauthorized"
+  // memory.
   const [reportedUnauthorized, setReportedUnauthorized] = useState(false);
 
   const state: AuthState = useMemo(() => {
@@ -155,9 +171,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.setQueryData(sessionQueryKey, { authenticated: false });
   }, [queryClient]);
 
+  const clearReauthLatch = useCallback(() => {
+    setReportedUnauthorized(false);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ state, reportUnauthorized, reauthenticate, logout, logoutEverywhere }),
-    [state, reportUnauthorized, reauthenticate, logout, logoutEverywhere],
+    () => ({ state, reportUnauthorized, reauthenticate, logout, logoutEverywhere, clearReauthLatch }),
+    [state, reportUnauthorized, reauthenticate, logout, logoutEverywhere, clearReauthLatch],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,12 +16,20 @@ import {
   type SignUpResult,
 } from "../api/auth.js";
 import { sessionQueryKey } from "../api/queryKeys.js";
+import { useAuth } from "../auth/AuthContext.js";
 
 export function useLogin() {
   const queryClient = useQueryClient();
+  const { clearReauthLatch } = useAuth();
   return useMutation<void, unknown, { email: string; password: string }>({
     mutationFn: (input) => login(input),
     onSuccess: () => {
+      // Real bug (Marcelo, 2026-09-22, see AuthContext.tsx's own comment on
+      // `reportedUnauthorized`): a login that follows an earlier 401 in the same tab must clear
+      // that latch BEFORE the session query re-resolves, or `state` stays pinned at
+      // SESSION_EXPIRED forever (client-side `reauthenticate()` never remounts AuthProvider
+      // anymore, D-321) and Login.tsx's redirect effect never fires no matter how long you wait.
+      clearReauthLatch();
       void queryClient.invalidateQueries({ queryKey: sessionQueryKey });
     },
   });

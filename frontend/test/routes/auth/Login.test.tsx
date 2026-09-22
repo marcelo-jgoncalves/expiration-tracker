@@ -4,10 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Login } from "../../../src/routes/auth/Login.js";
 
-const { loginMock, navigateMock, useAuthMock } = vi.hoisted(() => ({
+const { loginMock, navigateMock, useAuthMock, clearReauthLatchMock } = vi.hoisted(() => ({
   loginMock: vi.fn(),
   navigateMock: vi.fn(),
   useAuthMock: vi.fn(),
+  clearReauthLatchMock: vi.fn(),
 }));
 
 vi.mock("../../../src/api/auth.js", () => ({
@@ -41,18 +42,19 @@ beforeEach(() => {
   loginMock.mockReset();
   navigateMock.mockReset();
   useAuthMock.mockReset();
-  useAuthMock.mockReturnValue({ state: { status: "SESSION_MISSING" } });
+  clearReauthLatchMock.mockReset();
+  useAuthMock.mockReturnValue({ state: { status: "SESSION_MISSING" }, clearReauthLatch: clearReauthLatchMock });
 });
 
 describe("Login", () => {
   it("redirects an already-AUTHENTICATED visitor to returnTo instead of showing the form", () => {
-    useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" } });
+    useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" }, clearReauthLatch: clearReauthLatchMock });
     renderLogin("/login?returnTo=%2Fitems%2F42");
     expect(navigateMock).toHaveBeenCalledWith("/items/42", { replace: true });
   });
 
   it("falls back to /overview when returnTo is missing or unsafe (never an open redirect)", () => {
-    useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" } });
+    useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" }, clearReauthLatch: clearReauthLatchMock });
     renderLogin("/login?returnTo=https%3A%2F%2Fevil.example.com");
     expect(navigateMock).toHaveBeenCalledWith("/overview", { replace: true });
   });
@@ -66,7 +68,7 @@ describe("Login", () => {
   // resolves (mirroring the session invalidation), never before.
   it("navigates to returnTo only once the session state itself confirms AUTHENTICATED, never on login.isSuccess alone", async () => {
     loginMock.mockImplementation(async () => {
-      useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" } });
+      useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" }, clearReauthLatch: clearReauthLatchMock });
     });
     renderLogin("/login?returnTo=%2Fitems%2F42");
 
@@ -76,6 +78,23 @@ describe("Login", () => {
 
     await waitFor(() => expect(loginMock).toHaveBeenCalledWith({ email: "user@example.com", password: "correct-horse-battery-1" }));
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/42", { replace: true }));
+  });
+
+  // Marcelo, 2026-09-22 (real bug, deeper root cause): a session that expired once in this tab
+  // sets AuthContext's `reportedUnauthorized` latch, which - since `reauthenticate()` became a
+  // client-side navigate() in D-321 (never remounts AuthProvider) - used to stay `true` forever,
+  // pinning `state` at SESSION_EXPIRED even after a fully successful NEW login. Would fail if
+  // `useLogin`'s `onSuccess` stopped calling `clearReauthLatch()` before invalidating the session
+  // query.
+  it("clears the reauth latch on a successful login, before invalidating the session query", async () => {
+    loginMock.mockResolvedValue(undefined);
+    renderLogin();
+
+    fireEvent.change(screen.getByLabelText(/E-mail/), { target: { value: "user@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Senha/), { target: { value: "correct-horse-battery-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+
+    await waitFor(() => expect(clearReauthLatchMock).toHaveBeenCalled());
   });
 
   // Would fail if the old `login.isSuccess`-driven effect were still present: navigateMock would
