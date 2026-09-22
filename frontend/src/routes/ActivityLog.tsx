@@ -32,18 +32,20 @@
  *      missing `userId` only ever happens for malformed/legacy data, never a real removed
  *      account. Reworded to the honest "Usuário não identificado".
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Filter, RefreshCw, Search, RotateCcw, User, Cog, FileText } from "lucide-react";
 import { useActivity } from "../hooks/useActivity.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { ApiError } from "../api/errors.js";
 import type { ActivityEntry, MembershipRole } from "../api/types.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
-import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
-import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
+import { PageHeader, Panel, Section, Toolbar, ToolbarSpacer } from "../components/ui/Layout.js";
+import { DataTable, CellSecondary, type DataTableColumn } from "../components/ui/DataTable.js";
 import { Button } from "../components/ui/Button.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { TextField } from "../components/forms/TextField.js";
+import "./ActivityLog.css";
 
 /** ADMIN/OWNER only - mirrors the backend's ADMIN_ROLES tier for `activity:read`
  * (authorization.ts). */
@@ -60,23 +62,94 @@ function actorLabel(entry: ActivityEntry): string {
   return entry.actor.userId ?? "Usuário não identificado";
 }
 
-function resourceLabel(entry: ActivityEntry): string {
-  return entry.resourceId ? `${entry.resourceType} — ${entry.resourceId}` : entry.resourceType;
+/** `entry.action` is a free-form verb (`CREATE_ITEM`, `ROLE_CHANGED`, `SEND`, `RECONCILE_
+ * UNKNOWN`…, confirmed against every real `action:` literal in `src/modules/**`) - there is no
+ * closed CREATE/UPDATE/DELETE enum this domain actually emits, so a tone is only ever assigned
+ * from a prefix/substring match that genuinely signals create/update/delete-like semantics;
+ * everything else stays neutral rather than guessing a color the verb doesn't support (same
+ * "never a stronger claim than the data proves" discipline as `StatusBadge.tsx`'s own header
+ * comment - this is a local, scoped-to-this-screen heuristic, deliberately not routed through
+ * `StatusBadge`/`presentation.ts`'s domain-state tone system, which is a different claim
+ * entirely). */
+function actionTone(action: string): "success" | "info" | "critical" | "neutral" {
+  if (action.startsWith("CREATE") || action === "SEND" || action === "PROMOTE") return "success";
+  if (action.startsWith("DELETE") || action.includes("REMOVE") || action.includes("REVOKE") || action.includes("REJECT")) return "critical";
+  if (action.startsWith("UPDATE") || action.includes("CHANGE") || action.includes("ROLE_CHANGED") || action.startsWith("RENEW") || action.startsWith("ASSIGN") || action.startsWith("LINK") || action.startsWith("UNLINK")) return "info";
+  return "neutral";
+}
+
+function ActionBadge({ action }: { action: string }) {
+  return (
+    <code className={`activity-action activity-action--${actionTone(action)}`} title={action}>
+      {action}
+    </code>
+  );
+}
+
+function ActorCell({ entry }: { entry: ActivityEntry }) {
+  const Icon = entry.actor.type === "SYSTEM" ? Cog : User;
+  return (
+    <div className="activity-actor">
+      <span className={`activity-actor__avatar activity-actor__avatar--${entry.actor.type === "SYSTEM" ? "system" : "user"}`} aria-hidden="true">
+        <Icon size={16} strokeWidth={2} />
+      </span>
+      {actorLabel(entry)}
+    </div>
+  );
+}
+
+function ResourceCell({ entry }: { entry: ActivityEntry }) {
+  return (
+    <div className="activity-resource">
+      <span className="activity-resource__icon" aria-hidden="true">
+        <FileText size={15} strokeWidth={2} />
+      </span>
+      <div>
+        <div>{entry.resourceType}</div>
+        {entry.resourceId ? <CellSecondary>{entry.resourceId}</CellSecondary> : null}
+      </div>
+    </div>
+  );
 }
 
 export function ActivityLog() {
   const role = useCurrentMembershipRole();
   const [searchParams] = useSearchParams();
-  const [month, setMonth] = useState("");
-  const [resourceType, setResourceType] = useState("");
   // #16 finding (2026-09-20): entry points like ItemDetail's "Histórico de auditoria" card link
   // here with ?resourceId=<itemId> so the log opens pre-filtered to that one record - seeded
-  // once from the URL, editable afterward like the other two filters.
-  const [resourceId, setResourceId] = useState(() => searchParams.get("resourceId") ?? "");
+  // once from the URL into both the draft inputs and the applied filter, editable afterward like
+  // the other two filters.
+  const seededResourceId = searchParams.get("resourceId") ?? "";
+  // Draft (what the inputs show) vs applied (what actually drives the query, protótipo
+  // `expiration-tracker-log-atividade(1).html`, Marcelo 2026-09-22): every keystroke used to
+  // re-fire GET /activity immediately (no debounce) - an explicit "Aplicar filtros" avoids a
+  // network round-trip per character typed into "Recurso (ID)".
+  const [draftMonth, setDraftMonth] = useState("");
+  const [draftResourceType, setDraftResourceType] = useState("");
+  const [draftResourceId, setDraftResourceId] = useState(seededResourceId);
+  const [month, setMonth] = useState("");
+  const [resourceType, setResourceType] = useState("");
+  const [resourceId, setResourceId] = useState(seededResourceId);
   const [announcement, setAnnouncement] = useState("");
   const previousPageCount = useRef(0);
   const exhaustedTextRef = useRef<HTMLParagraphElement>(null);
   const wasExhausted = useRef(false);
+
+  function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMonth(draftMonth);
+    setResourceType(draftResourceType);
+    setResourceId(draftResourceId);
+  }
+
+  function clearFilters() {
+    setDraftMonth("");
+    setDraftResourceType("");
+    setDraftResourceId("");
+    setMonth("");
+    setResourceType("");
+    setResourceId("");
+  }
 
   const monthFilter = /^\d{6}$/.test(month) ? month : undefined;
   const resourceTypeFilter = resourceType.trim() || undefined;
@@ -141,24 +214,50 @@ export function ActivityLog() {
   const entries = query.data.pages.flatMap((page) => page.entries);
 
   const columns: DataTableColumn<ActivityEntry>[] = [
-    { key: "actor", header: "Ator", primary: true, render: (e) => actorLabel(e) },
-    { key: "action", header: "Ação", render: (e) => <code title={e.action}>{e.action}</code> },
-    { key: "resource", header: "Recurso", render: (e) => <span title={resourceLabel(e)}>{resourceLabel(e)}</span> },
+    { key: "actor", header: "Ator", primary: true, render: (e) => <ActorCell entry={e} /> },
+    { key: "action", header: "Ação", render: (e) => <ActionBadge action={e.action} /> },
+    { key: "resource", header: "Recurso", render: (e) => <ResourceCell entry={e} /> },
     { key: "occurredAt", header: "Quando", numeric: true, render: (e) => new Date(e.occurredAt).toLocaleString("pt-BR") },
   ];
 
   return (
     <>
       {header}
-      <Section heading="Filtros" headingId="activity-filters">
-        <Panel>
-          <TextField label="Mês (AAAAMM)" value={month} onChange={setMonth} hint="Ex.: 202609. Vazio usa o mês atual." />
-          <TextField label="Tipo de recurso" value={resourceType} onChange={setResourceType} hint="Ex.: ExpirationItem. Vazio mostra todos." />
-          <TextField label="Recurso (ID)" value={resourceId} onChange={setResourceId} hint="Ex.: o ID de um vencimento específico. Vazio mostra todos." />
+      <Section heading="Filtros" headingId="activity-filters" icon={Filter}>
+        <Panel padded>
+          <form className="ui-form" onSubmit={applyFilters}>
+            <div className="activity-filters__grid">
+              <TextField id="activity-filter-month" label="Mês (AAAAMM)" value={draftMonth} onChange={setDraftMonth} hint="Ex.: 202609. Vazio usa o mês atual." />
+              <TextField id="activity-filter-resource-type" label="Tipo de recurso" value={draftResourceType} onChange={setDraftResourceType} hint="Ex.: ExpirationItem. Vazio mostra todos." />
+              <div className="activity-filters__grid-full">
+                <TextField
+                  id="activity-filter-resource-id"
+                  label="Recurso (ID)"
+                  value={draftResourceId}
+                  onChange={setDraftResourceId}
+                  hint="Ex.: o ID de um vencimento específico. Vazio mostra todos."
+                />
+              </div>
+            </div>
+            <div className="ui-form__actions">
+              <Button type="submit" variant="primary" icon={Search}>
+                Aplicar filtros
+              </Button>
+              <Button type="button" variant="secondary" icon={RotateCcw} onClick={clearFilters}>
+                Limpar
+              </Button>
+            </div>
+          </form>
         </Panel>
       </Section>
       <Section heading="Eventos" headingId="activity-events" annotation={`(${entries.length})`}>
         <Panel>
+          <Toolbar>
+            <ToolbarSpacer />
+            <Button variant="tertiary" size="sm" icon={RefreshCw} onClick={() => void query.refetch()} pending={query.isRefetching}>
+              {query.isRefetching ? "Atualizando…" : "Atualizar"}
+            </Button>
+          </Toolbar>
           {entries.length === 0 ? (
             <EmptyState kind="true-empty" message="Nenhum evento registrado ainda." />
           ) : (

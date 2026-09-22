@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../testUtils.js";
 import { ActivityLog } from "../../src/routes/ActivityLog.js";
 import type { ActivityEntry } from "../../src/api/types.js";
@@ -55,7 +55,11 @@ describe("ActivityLog (D-149)", () => {
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
     await waitFor(() => expect(screen.getByText("CREATE").tagName).toBe("CODE"));
-    expect(screen.getByText("ExpirationItem — item-1")).toBeInTheDocument();
+    // Resource renders as two lines (type + id), not one combined string (Marcelo 2026-09-22,
+    // protótipo `expiration-tracker-log-atividade(1).html` restructure) - would fail if the
+    // resource cell collapsed back to a single "ExpirationItem — item-1" text node.
+    expect(screen.getByText("ExpirationItem")).toBeInTheDocument();
+    expect(screen.getByText("item-1")).toBeInTheDocument();
     expect(screen.queryByText(/{.*}/)).not.toBeInTheDocument();
   });
 
@@ -115,6 +119,50 @@ describe("ActivityLog (D-149)", () => {
     screen.getByRole("button", { name: "Carregar mais" }).click();
 
     await waitFor(() => expect(getMock).toHaveBeenCalledWith(expect.stringContaining("cursor=next-1"), expect.anything()));
+  });
+
+  // Marcelo 2026-09-22 (protótipo `expiration-tracker-log-atividade(1).html`): filters used to
+  // re-fetch on every keystroke (no debounce) - now deferred to an explicit "Aplicar filtros".
+  // Would fail if a filter input still fired GET /activity on every change.
+  it("does not re-fetch while typing a filter, only on 'Aplicar filtros'", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+    getMock.mockResolvedValue({ entries: [entry({})], cursor: null, hasMore: false });
+
+    renderAtRoute("/activity", <ActivityLog />, "/activity");
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
+    expect(getMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar filtros" }));
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+    expect(getMock.mock.calls[1]?.[0]).toContain("resourceType=ExpirationItem");
+  });
+
+  // Would fail if "Limpar" only reset the visible inputs without also re-applying the query
+  // (a stale filter would keep silently narrowing the feed after the user asked to clear it).
+  it("'Limpar' resets both the inputs and the applied filter", async () => {
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve({
+        entries: [entry({ resourceId: path.includes("resourceType=") ? "item-filtered" : "item-unfiltered" })],
+        cursor: null,
+        hasMore: false,
+      }),
+    );
+
+    renderAtRoute("/activity", <ActivityLog />, "/activity");
+    await waitFor(() => expect(screen.getByText("item-unfiltered")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar filtros" }));
+    await waitFor(() => expect(screen.getByText("item-filtered")).toBeInTheDocument());
+
+    // The new query key re-enters `isPending` until it resolves, swapping the whole page for a
+    // skeleton (same branch as the initial load) - `findByRole` waits that out before clicking.
+    fireEvent.click(await screen.findByRole("button", { name: "Limpar" }));
+    expect(screen.getByLabelText(/Tipo de recurso/)).toHaveValue("");
+    await waitFor(() => expect(screen.getByText("item-unfiltered")).toBeInTheDocument());
   });
 
   it("shows an empty state when there are no events", async () => {
