@@ -34,19 +34,28 @@
 }
 
 /* Observações ao lado de Tipo/CNPJ, esticada pra mesma altura da pilha (Marcelo, 2026-09-22) -
-   `align-items: stretch` já é o default de grid, então `.subject-form__notes-tall` recebe a
-   altura da linha automaticamente; só precisa repassar essa altura pro `.ui-field`/textarea
-   internos, que por padrão só ocupam o próprio conteúdo. */
+   `align-items: stretch` (default de grid) já entrega uma altura REAL e definida pro item da
+   grade quando ele não tem `height` própria — setar `height: 100%` aqui por cima quebra isso
+   (resolve contra a altura "auto" da linha ANTES do stretch, não contra a altura esticada final,
+   achado real: fundo da caixa de Observações ficava mais baixo que o fundo do campo CNPJ).
+   Deixar sem `height` deixa o stretch do grid fazer o trabalho corretamente. */
 .subject-form__stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
 }
 
+/* Achado real (Marcelo, 2026-09-22): o último campo da pilha (CNPJ) ainda carregava a própria
+   `margin-bottom` (Form.css, `.ui-field`) por baixo do gap do flex - essa margem "invisível" de
+   24px inflava a altura total da pilha, e o grid esticava Observações até incluí-la, deixando o
+   fundo da textarea 24px mais baixo que o fundo real do campo CNPJ. */
+.subject-form__stack > .ui-field:last-child {
+  margin-bottom: 0;
+}
+
 .subject-form__notes-tall {
   display: flex;
   flex-direction: column;
-  height: 100%;
 }
 
 .subject-form__notes-tall > .ui-field {
@@ -64,10 +73,6 @@
 @media (max-width: 700px) {
   .subject-form__grid {
     grid-template-columns: 1fr;
-  }
-
-  .subject-form__notes-tall {
-    height: auto;
   }
 
   .subject-form__notes-tall .ui-field__control {
