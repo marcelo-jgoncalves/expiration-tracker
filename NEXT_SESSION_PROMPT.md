@@ -165,26 +165,26 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
 histórico já fechado, não a próxima ação — ver seções acima.** Degrau de 100k do Programa de
 Performance encerrado (achado real confirmado, ver seção própria acima — não é mais pendência).
 
-**MANDATO AUTÔNOMO EXPLÍCITO (Marcelo, 2026-09-21) — trabalhar sem parar para pedir permissão nos
-4 itens abaixo (numeração da lista consolidada de pendências acima), na ordem que fizer mais
-sentido tecnicamente. Só parar/perguntar se uma decisão genuinamente exigir informação que só ele
-tem (não uma escolha técnica razoável que já cabe a esta sessão decidir sozinha):**
+**MANDATO AUTÔNOMO de Marcelo 2026-09-21 (itens #3/#9/#13/#21) — 100% CONCLUÍDO 2026-09-22**: os 4
+itens resolvidos (D-317/D-319/D-318/D-321, ver lista consolidada de pendências acima), mais o
+achado incidental de CI vermelho pós-D-321 corrigido (D-322/D-323). **PR #384 (`develop`→`main`)
+aberto e MERGEADO 2026-09-22** (`main` em `01cb15d4`), CI verde em todos os jobs antes do merge.
 
-1. ~~Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)~~ — **RESOLVIDO 2026-09-21
-   (D-317)**, ver item 3 da lista consolidada de pendências acima.
-2. ~~Item #9 — Import CSV em massa para Items~~ — **RESOLVIDO 2026-09-21 (D-319,
-   `PENDING_PROTOCOL_REVIEW`)**, ver item 9 da lista consolidada de pendências acima.
-3. ~~Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)~~ — **RESOLVIDO 2026-09-21
-   (D-318)**, ver item 13 da lista consolidada de pendências acima.
-4. ~~Item #21 — Página de login customizada~~ — **REVISTO 2026-09-22 (D-321,
-   `PENDING_PROTOCOL_REVIEW`)**: D-320 foi revertido a pedido direto de Marcelo, UI própria
-   implementada. Ver item 21/23 da lista consolidada de pendências acima.
-
-Cada item, ao terminar, passa pelo checklist completo (`docs/engineering/task-completion-checklist.md`)
-antes de ser marcado concluído — mesmo padrão desta sessão. Commit + push a cada item fechado, sem
-esperar os 4 para começar a commitar.
+**Continuação 2026-09-22 (mesma sessão, depois do mandato): reestruturação visual de telas por
+protótipo real enviado por Marcelo, uma de cada vez, sempre confirmada por screenshot real antes
+do commit** — Criar Vencimento (grade 2 colunas, `7ad0d049`), busca de Fornecedores (largura do
+placeholder, `b247032f`), Novo/Editar Fornecedor (Panel/Section + grade, `83596ff6`), Entrega de
+Solicitação (cartões selecionáveis, `5bc96372`), Log de Atividade (filtros em grade + cartões
+reais, apply/clear em vez de live-filter, `e47eb837`). Todas pushadas em `develop` e já incluídas
+no PR #384/merge para `main`. **Próxima ação real**: aguardar Marcelo enviar o próximo protótipo
+de tela a ajustar (padrão já estabelecido: ler o HTML de referência, localizar a tela real
+correspondente, replicar estrutura/agrupamento com os componentes reais do design system v2 —
+nunca HTML bruto —, escopar CSS novo por tela quando diverge do padrão coluna-única do resto do
+produto, rodar checklist completo + screenshot real, só então commit/push).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
+
+**Lição de processo (reforçada 2026-09-22, D-322)**: antes de abrir PR `develop`→`main`, SEMPRE rodar a suíte e2e completa sem filtro (`npx playwright test --project=chromium`) e conferir o CI real do próprio PR (não só de pushes individuais para `develop`) — specs desatualizadas por uma mudança de comportamento anterior (ex. D-321) podem ficar vermelhas por múltiplos commits sem ninguém perceber se cada sessão só roda specs específicas.
 
 **Lição de processo**: default é fork serial (não orquestração paralela via Workflow) — mais barato em token, evita o "imposto" de recontextualização de agente fresco. Paralelizar só se Marcelo pedir velocidade explicitamente.
 
