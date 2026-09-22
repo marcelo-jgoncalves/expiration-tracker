@@ -1,0 +1,86 @@
+/* Status metric tiles (protótipo `expiration-tracker-requisitos-documentais.html`, Marcelo
+   2026-09-22): substituem a antiga fileira de pill-buttons por cartões maiores com a contagem
+   real de cada status - também são o próprio controle de filtro (um clique troca a aba ativa),
+   evitando duplicar a mesma escolha em duas fileiras separadas como o protótipo estático faz.
+   Tons reaproveitam os mesmos tokens de `StatusBadge`/`presentRequirementDocStatus` - "Satisfeito"
+   fica neutro (nunca verde), mesma disciplina epistêmica documentada em `StatusBadge.tsx`. */
+.requirements-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.requirements-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-default);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.requirements-metric:hover {
+  border-color: var(--color-border-strong);
+}
+
+.requirements-metric__label {
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.requirements-metric__value {
+  font-size: var(--font-size-600);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
+.requirements-metric--accent.requirements-metric--active {
+  background: var(--color-accent-50);
+  border-color: var(--color-accent-600);
+}
+.requirements-metric--accent.requirements-metric--active .requirements-metric__value {
+  color: var(--color-accent-700);
+}
+
+.requirements-metric--critical.requirements-metric--active {
+  background: var(--color-status-critical-bg);
+  border-color: var(--color-status-critical-fg);
+}
+.requirements-metric--critical.requirements-metric--active .requirements-metric__value {
+  color: var(--color-status-critical-fg);
+}
+
+.requirements-metric--warning.requirements-metric--active {
+  background: var(--color-status-warning-bg);
+  border-color: var(--color-status-warning-fg);
+}
+.requirements-metric--warning.requirements-metric--active .requirements-metric__value {
+  color: var(--color-status-warning-fg);
+}
+
+.requirements-metric--neutral.requirements-metric--active {
+  background: var(--color-surface-selected);
+  border-color: var(--color-border-strong);
+}
+
+@media (max-width: 1050px) {
+  .requirements-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .requirements-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

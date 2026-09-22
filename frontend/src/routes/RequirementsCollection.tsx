@@ -28,10 +28,26 @@
  *    dedicated backend endpoint or client-side multi-page fetching per status, out of this
  *    block's time-box. `scanLimitReached`/a partial per-status failure is surfaced explicitly
  *    (never silently dropped) rather than pretending the merged list is exhaustive (Codex Block
- *    3 review round 1, findings 2/3).
+ *    3 review round 1, findings 2/3) - the same discipline now applies to the metric tiles below
+ *    (a "+" suffix, never a bare number claiming to be exhaustive).
+ *
+ * Metric tiles (Marcelo, protótipo `expiration-tracker-requisitos-documentais.html`, 2026-09-22):
+ * the 5 status queries below now run UNCONDITIONALLY (not just while "Todos" is active, reverting
+ * the Codex Block 3 finding-14 optimization on purpose) so the tile row always has real counts to
+ * show, whichever tab is selected - the previously-separate single-status `query` was folded into
+ * this same set (picking the matching one for the list), so this is not simply "5 always + 1
+ * sometimes", it stays 5 total. Two elements from the prototype are deliberately NOT built:
+ * "Tipo de documento" filter (the `Requirement` domain type has no document-type field anywhere -
+ * `src/api/types.ts` - it would be a fabricated filter over data that doesn't exist) and
+ * "Fornecedor" filter dropdown (the real search contract, `searchRequirements`, has no subjectId
+ * parameter - only `status`/`namePrefix`/`assigneeUserId`). "Satisfeito" keeps the neutral (not
+ * green) tone `presentRequirementDocStatus` already assigns it deliberately - `StatusBadge.tsx`'s
+ * own header comment: a recorded evidence link is not a proof of compliance, never a stronger
+ * visual claim than the data supports.
  */
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
 import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
@@ -43,7 +59,7 @@ import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncState
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
-import { PageHeader, Toolbar } from "../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button, ButtonLink } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
@@ -51,14 +67,14 @@ import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presentation.js";
 import type { Requirement, RequirementApplicability, RequirementStatus } from "../api/types.js";
+import "./RequirementsCollection.css";
 
-const STATUS_TABS: { value: "ALL" | RequirementStatus; label: string }[] = [
-  { value: "ALL", label: "Todos" },
-  { value: "MISSING", label: "Em falta" },
-  { value: "PENDING", label: "Pendente" },
-  { value: "SATISFIED", label: "Satisfeito" },
-  { value: "NOT_SATISFIED", label: "Não satisfeito" },
-  { value: "NOT_APPLICABLE", label: "Não se aplica" },
+const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical" | "warning" | "neutral" }[] = [
+  { value: "MISSING", label: "Em falta", tone: "critical" },
+  { value: "PENDING", label: "Pendente", tone: "warning" },
+  { value: "SATISFIED", label: "Satisfeito", tone: "neutral" },
+  { value: "NOT_SATISFIED", label: "Não satisfeito", tone: "critical" },
+  { value: "NOT_APPLICABLE", label: "Não se aplica", tone: "neutral" },
 ];
 
 export function RequirementsCollection() {
@@ -73,24 +89,29 @@ export function RequirementsCollection() {
 
   const subjectQuery = useRequirementsForSubject(filterSubjectId ?? "");
 
-  const singleStatus = statusTab === "ALL" ? "MISSING" : statusTab;
   const isAll = statusTab === "ALL";
-  // Each status is its own independent query, fetched only while the "Todos" tab is active -
-  // one status's failure never blanks the others, and the other 4 requests are skipped entirely
-  // outside "Todos" (Codex Block 3 review round 1 finding 14).
-  const query = useRequirementsSearch(singleStatus, searchTerm || undefined, undefined, !filterSubjectId && !isAll);
-  const missing = useRequirementsSearch("MISSING", searchTerm || undefined, undefined, !filterSubjectId && isAll);
-  const pending = useRequirementsSearch("PENDING", searchTerm || undefined, undefined, !filterSubjectId && isAll);
-  const satisfied = useRequirementsSearch("SATISFIED", searchTerm || undefined, undefined, !filterSubjectId && isAll);
-  const notSatisfied = useRequirementsSearch("NOT_SATISFIED", searchTerm || undefined, undefined, !filterSubjectId && isAll);
-  const notApplicable = useRequirementsSearch("NOT_APPLICABLE", searchTerm || undefined, undefined, !filterSubjectId && isAll);
+  // All 5 run unconditionally now (see this file's header comment) - the metric tiles need real
+  // counts for every status regardless of which tab is active.
+  const missing = useRequirementsSearch("MISSING", searchTerm || undefined, undefined, !filterSubjectId);
+  const pending = useRequirementsSearch("PENDING", searchTerm || undefined, undefined, !filterSubjectId);
+  const satisfied = useRequirementsSearch("SATISFIED", searchTerm || undefined, undefined, !filterSubjectId);
+  const notSatisfied = useRequirementsSearch("NOT_SATISFIED", searchTerm || undefined, undefined, !filterSubjectId);
+  const notApplicable = useRequirementsSearch("NOT_APPLICABLE", searchTerm || undefined, undefined, !filterSubjectId);
+  const statusQueries: Record<RequirementStatus, ReturnType<typeof useRequirementsSearch>> = {
+    MISSING: missing,
+    PENDING: pending,
+    SATISFIED: satisfied,
+    NOT_SATISFIED: notSatisfied,
+    NOT_APPLICABLE: notApplicable,
+  };
+  const queriesList = [missing, pending, satisfied, notSatisfied, notApplicable];
 
-  const statusQueries = isAll ? [missing, pending, satisfied, notSatisfied, notApplicable] : [query];
-  const allQueries = filterSubjectId ? [subjectQuery] : statusQueries;
+  const allQueries = filterSubjectId ? [subjectQuery] : queriesList;
   const isPending = allQueries.some((q) => q.isPending);
   const isFullyError = allQueries.every((q) => q.isError);
   const failedCount = allQueries.filter((q) => q.isError).length;
-  const anyScanLimitReached = !filterSubjectId && statusQueries.some((q) => (q.data as { scanLimitReached?: boolean } | undefined)?.scanLimitReached);
+  const anyScanLimitReached = !filterSubjectId && queriesList.some((q) => q.data?.scanLimitReached);
+  const totalCount = queriesList.reduce((sum, q) => sum + (q.data?.items.length ?? 0), 0);
 
   if (isPending) {
     return <InitialLoading label="Carregando requisitos…" />;
@@ -110,7 +131,7 @@ export function RequirementsCollection() {
       requirements = requirements.filter((r) => r.name.toLowerCase().includes(needle));
     }
   } else {
-    requirements = isAll ? statusQueries.flatMap((q) => q.data?.items ?? []) : (query.data?.items ?? []);
+    requirements = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
   }
 
   return (
@@ -118,7 +139,7 @@ export function RequirementsCollection() {
       <PageHeader
         title="Requisitos documentais"
         description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
-        actions={canWrite ? <Button variant="secondary" onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
+        actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
       />
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
@@ -131,28 +152,58 @@ export function RequirementsCollection() {
         </InlineNotice>
       ) : null}
       {showCreate ? <CreateRequirementForm defaultSubjectId={filterSubjectId} onClose={() => setShowCreate(false)} /> : null}
-      <Toolbar>
-        <nav aria-label="Filtrar por status">
-          {STATUS_TABS.map((tab) => (
-            <Button key={tab.value} variant={tab.value === statusTab ? "primary" : "secondary"} size="sm" aria-current={tab.value === statusTab ? "page" : undefined} onClick={() => setStatusTab(tab.value)}>
-              {tab.label}
-            </Button>
-          ))}
-        </nav>
-        <TextField id="requirements-search" label="Buscar requisitos" hint="Nome do requisito" value={searchTerm} onChange={setSearchTerm} />
-      </Toolbar>
-      {requirements.length === 0 ? (
-        <EmptyState
-          kind={searchTerm ? "filtered-empty" : "true-empty"}
-          message={searchTerm ? "Nenhum requisito encontrado para estes filtros." : "Nenhum requisito cadastrado ainda."}
-          action={searchTerm ? <Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar filtros</Button> : undefined}
-        />
-      ) : (
-        <DataTable
-          caption="Requisitos documentais"
-          rowKey={(r: Requirement) => r.requirementId}
-          rows={requirements}
-          columns={[
+      {filterSubjectId ? null : (
+        <div className="requirements-metrics" role="group" aria-label="Filtrar por status">
+          <button
+            type="button"
+            className={`requirements-metric requirements-metric--accent${isAll ? " requirements-metric--active" : ""}`}
+            aria-pressed={isAll}
+            onClick={() => setStatusTab("ALL")}
+          >
+            <span className="requirements-metric__label">Todos</span>
+            <span className="requirements-metric__value">
+              {totalCount}
+              {anyScanLimitReached ? "+" : ""}
+            </span>
+          </button>
+          {STATUS_METRICS.map((metric) => {
+            const q = statusQueries[metric.value];
+            const count = q.data?.items.length ?? 0;
+            return (
+              <button
+                key={metric.value}
+                type="button"
+                className={`requirements-metric requirements-metric--${metric.tone}${statusTab === metric.value ? " requirements-metric--active" : ""}`}
+                aria-pressed={statusTab === metric.value}
+                onClick={() => setStatusTab(metric.value)}
+              >
+                <span className="requirements-metric__label">{metric.label}</span>
+                <span className="requirements-metric__value">
+                  {count}
+                  {q.data?.scanLimitReached ? "+" : ""}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <Panel padded>
+        <TextField id="requirements-search" label="Buscar por nome" value={searchTerm} onChange={setSearchTerm} hint="Ex.: Certidão Negativa de Débitos." />
+      </Panel>
+      <Section heading="Requisitos" headingId="requirements-list" annotation={`(${requirements.length})`}>
+        <Panel>
+          {requirements.length === 0 ? (
+            <EmptyState
+              kind={searchTerm ? "filtered-empty" : "true-empty"}
+              message={searchTerm ? "Nenhum requisito encontrado para estes filtros." : "Nenhum requisito cadastrado ainda."}
+              action={searchTerm ? <Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar filtros</Button> : undefined}
+            />
+          ) : (
+            <DataTable
+              caption="Requisitos documentais"
+              rowKey={(r: Requirement) => r.requirementId}
+              rows={requirements}
+              columns={[
             {
               key: "name",
               header: "Requisito",
@@ -184,8 +235,10 @@ export function RequirementsCollection() {
               render: (r) => (canWrite ? <RowActions requirement={r} /> : null),
             },
           ]}
-        />
-      )}
+            />
+          )}
+        </Panel>
+      </Section>
     </div>
   );
 }

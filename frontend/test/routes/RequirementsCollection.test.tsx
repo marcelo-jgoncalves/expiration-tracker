@@ -45,13 +45,32 @@ describe("RequirementsCollection (A11)", () => {
       return Promise.resolve({ items: [], cursor: null });
     });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Não se aplica" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Não se aplica" }));
+    // Marcelo 2026-09-22 (protótipo `expiration-tracker-requisitos-documentais.html`): the status
+    // filter is now a metric tile whose accessible name is "label + count" ("Não se aplica 0"),
+    // not the bare label - a regex match survives that without asserting the exact count.
+    await waitFor(() => expect(screen.getByRole("button", { name: /Não se aplica/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Não se aplica/ }));
 
     await waitFor(() => expect(screen.getByRole("link", { name: "Comprovante" })).toBeInTheDocument());
     // NOT_APPLICABLE renders as a distinct badge label from MISSING's ("Em falta") - never
     // collapsed into the same text, per the audit fix this screen implements.
     expect(screen.getAllByText("Não se aplica").length).toBeGreaterThanOrEqual(2); // filter tab + status badge
+  });
+
+  // Marcelo 2026-09-22: metric tiles show a REAL per-status count, always (not only while
+  // "Todos" is active) - would fail if a tile fell back to "0" for a status that actually has
+  // items, or if the count only appeared once its own tab were selected.
+  it("shows a real count on each metric tile, independent of which tab is active", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirement(), requirement({ requirementId: "req-2" })], cursor: null });
+      if (path.includes("status=PENDING")) return Promise.resolve({ items: [requirement({ requirementId: "req-3", status: "PENDING" })], cursor: null });
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /Em falta/ })).toHaveTextContent("2"));
+    expect(screen.getByRole("button", { name: /Pendente/ })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: /^Todos/ })).toHaveTextContent("3");
   });
 
   it("shows the EMPTY_TRUE state when the organization has no requirements at all", async () => {
