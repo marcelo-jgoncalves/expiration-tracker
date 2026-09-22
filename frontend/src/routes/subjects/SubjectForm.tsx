@@ -136,22 +136,34 @@ export function SubjectForm() {
               <div className="subject-form__grid-full">
                 <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
               </div>
-              {isEdit ? null : (
+              {isEdit ? (
+                <div className="subject-form__grid-full">
+                  <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
+                </div>
+              ) : (
                 <>
-                  <SelectField
-                    id="subject-type"
-                    label="Tipo"
-                    value={type}
-                    onChange={(v) => setType(v as TrackedSubjectType)}
-                    required
-                    options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
-                  />
-                  <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} hint="Não pode ser alterado depois de criado." />
+                  {/* Marcelo, 2026-09-22: Observações vira uma segunda coluna ao lado de Tipo/CNPJ,
+                      esticada para a mesma altura da pilha (grid stretch é o default, nenhum
+                      cálculo manual de altura necessário) - preenche a largura toda em vez de
+                      sobrar espaço vazio. O hint de CNPJ virou placeholder (dentro do campo, não
+                      uma linha acima) para os dois inputs da coluna da esquerda alinharem no
+                      topo com o rótulo de "Observações" à direita. */}
+                  <div className="subject-form__stack">
+                    <SelectField
+                      id="subject-type"
+                      label="Tipo"
+                      value={type}
+                      onChange={(v) => setType(v as TrackedSubjectType)}
+                      required
+                      options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
+                    />
+                    <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} placeholder="Não pode ser alterado depois de criado." />
+                  </div>
+                  <div className="subject-form__notes-tall">
+                    <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
+                  </div>
                 </>
               )}
-              <div className="subject-form__grid-full">
-                <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
-              </div>
             </div>
           </Section>
         </Panel>
