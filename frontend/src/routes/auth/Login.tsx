@@ -36,19 +36,21 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Real achado de Marcelo, 2026-09-22 ("entro com as credenciais e não acontece nada, fica na
+  // tela"): esse efeito costumava navegar assim que `login.isSuccess` virava true, mas
+  // `useLogin`'s `onSuccess` só DISPARA `invalidateQueries(sessionQueryKey)` - não espera o
+  // refetch resolver. `login.isSuccess` liga bem antes de `AuthContext`'s `sessionQuery` refletir
+  // a sessão nova, então a navegação para `returnTo` acontecia com `state.status` ainda
+  // SESSION_MISSING (dado velho em cache) - `ProtectedRoute` via isso, achava que não estava
+  // autenticado, e chamava `reauthenticate()` de volta para `/login` (um mount novo, sem as
+  // credenciais digitadas, parecendo "travado"). Único gatilho de navegação agora é `state.status
+  // === AUTHENTICATED` (abaixo) - a fonte de verdade real, nunca o retorno otimista da mutation.
   useEffect(() => {
     if (state.status === "AUTHENTICATED") {
       navigate(returnTo, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- returnTo read fresh only at the moment of the check, not tracked as a reactive dependency.
   }, [state.status, navigate]);
-
-  useEffect(() => {
-    if (login.isSuccess) {
-      navigate(returnTo, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [login.isSuccess, navigate]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();

@@ -57,8 +57,17 @@ describe("Login", () => {
     expect(navigateMock).toHaveBeenCalledWith("/overview", { replace: true });
   });
 
-  it("submits email/password and navigates to returnTo on success", async () => {
-    loginMock.mockResolvedValue(undefined);
+  // Marcelo, 2026-09-22 ("entro com as credenciais e não acontece nada"): navigation must be
+  // driven ONLY by `state.status === "AUTHENTICATED"` (the real session query), never by
+  // `login.isSuccess` alone - that flag turns true the instant the mutation resolves, before
+  // `AuthContext`'s invalidated session query has actually refetched, which used to race
+  // `ProtectedRoute` into bouncing back to /login on stale SESSION_MISSING data. This test
+  // simulates that real timing: `useAuth()` only flips to AUTHENTICATED once the login mutation
+  // resolves (mirroring the session invalidation), never before.
+  it("navigates to returnTo only once the session state itself confirms AUTHENTICATED, never on login.isSuccess alone", async () => {
+    loginMock.mockImplementation(async () => {
+      useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" } });
+    });
     renderLogin("/login?returnTo=%2Fitems%2F42");
 
     fireEvent.change(screen.getByLabelText(/E-mail/), { target: { value: "user@example.com" } });
@@ -67,6 +76,21 @@ describe("Login", () => {
 
     await waitFor(() => expect(loginMock).toHaveBeenCalledWith({ email: "user@example.com", password: "correct-horse-battery-1" }));
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/items/42", { replace: true }));
+  });
+
+  // Would fail if the old `login.isSuccess`-driven effect were still present: navigateMock would
+  // fire immediately on mutation success even while `state.status` stays SESSION_MISSING (the
+  // exact race that caused the real bug).
+  it("does NOT navigate while login succeeded but the session state hasn't caught up yet", async () => {
+    loginMock.mockResolvedValue(undefined); // useAuthMock stays SESSION_MISSING (beforeEach default)
+    renderLogin("/login?returnTo=%2Fitems%2F42");
+
+    fireEvent.change(screen.getByLabelText(/E-mail/), { target: { value: "user@example.com" } });
+    fireEvent.change(screen.getByLabelText(/Senha/), { target: { value: "correct-horse-battery-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+
+    await waitFor(() => expect(loginMock).toHaveBeenCalled());
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   // Marcelo, 2026-09-22: every password field gets a reveal toggle (TextField.tsx). Would fail
