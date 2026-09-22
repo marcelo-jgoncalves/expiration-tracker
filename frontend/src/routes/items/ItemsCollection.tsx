@@ -127,7 +127,7 @@ export function ItemsCollection() {
   const header = (
     <PageHeader
       title="Vencimentos"
-      description="Tudo o que está sendo acompanhado, do mais urgente para o menos urgente."
+      description="Tudo o que está sendo acompanhado, do mais para o menos urgente."
       actions={
         <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
           Novo vencimento

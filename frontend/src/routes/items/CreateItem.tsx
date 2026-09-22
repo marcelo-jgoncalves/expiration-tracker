@@ -29,6 +29,7 @@ import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
 import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
+import "./CreateItem.css";
 
 const DRAFT_STORAGE_KEY = "expiration-tracker:create-item:draft";
 
@@ -117,66 +118,81 @@ export function CreateItem() {
         <FormErrorSummary errors={generalErrors} fieldErrors={toSummaryFieldErrors(fieldErrors)} />
         <Panel padded>
           <Section heading="O essencial" headingId="create-item-essential" description="O que é, de que tipo é, e quando vence." icon={Plus}>
-            <TextField id={fieldId("name")} label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
-            <TextField
-              id={fieldId("category")}
-              label="Categoria"
-              value={draft.category}
-              onChange={(value) => setField("category", value)}
-              error={fieldErrors["category"]}
-              required
-              maxLength={100}
-            />
-            <TextField
-              id={fieldId("dueDate")}
-              label="Data de vencimento"
-              type="date"
-              value={draft.dueDate}
-              onChange={(value) => setField("dueDate", value)}
-              error={fieldErrors["dueDate"]}
-              required
-            />
+            <div className="create-item__grid">
+              <TextField id={fieldId("name")} label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
+              <TextField
+                id={fieldId("category")}
+                label="Categoria"
+                value={draft.category}
+                onChange={(value) => setField("category", value)}
+                error={fieldErrors["category"]}
+                required
+                maxLength={100}
+              />
+              <TextField
+                id={fieldId("dueDate")}
+                label="Data de vencimento"
+                type="date"
+                value={draft.dueDate}
+                onChange={(value) => setField("dueDate", value)}
+                error={fieldErrors["dueDate"]}
+                required
+              />
+            </div>
           </Section>
         </Panel>
         <Panel padded>
           <Section heading="Complementos" headingId="create-item-complement" description="Tudo aqui é opcional e pode ser preenchido depois." icon={List}>
-            <TextField
-              id={fieldId("description")}
-              label="Descrição"
-              value={draft.description}
-              onChange={(value) => setField("description", value)}
-              error={fieldErrors["description"]}
-              maxLength={2000}
-              multiline
-            />
-            <TextField id={fieldId("issuer")} label="Emissor" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
-            <TextField id={fieldId("number")} label="Número" value={draft.number} onChange={(value) => setField("number", value)} error={fieldErrors["number"]} maxLength={100} />
-            <TextField
-              id={fieldId("periodicity")}
-              label="Periodicidade"
-              value={draft.periodicity}
-              onChange={(value) => setField("periodicity", value)}
-              error={fieldErrors["periodicity"]}
-              maxLength={50}
-            />
-            <TextField id={fieldId("issueDate")} label="Data de emissão" type="date" value={draft.issueDate} onChange={(value) => setField("issueDate", value)} error={fieldErrors["issueDate"]} />
-            <TextField
-              id={fieldId("assigneeUserId")}
-              label="Responsável"
-              value={draft.assigneeUserId}
-              onChange={(value) => setField("assigneeUserId", value)}
-              error={fieldErrors["assigneeUserId"]}
-              maxLength={100}
-            />
-            <TextField id={fieldId("priority")} label="Prioridade" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />
-            <TextField
-              id={fieldId("tags")}
-              label="Tags"
-              value={draft.tags}
-              onChange={(value) => setField("tags", value)}
-              error={fieldErrors["tags"]}
-              hint="Separadas por vírgula. Ex.: financeiro, contrato"
-            />
+            <div className="create-item__grid">
+              <div className="create-item__grid-full">
+                <TextField
+                  id={fieldId("description")}
+                  label="Descrição"
+                  value={draft.description}
+                  onChange={(value) => setField("description", value)}
+                  error={fieldErrors["description"]}
+                  maxLength={2000}
+                  multiline
+                />
+              </div>
+              <TextField id={fieldId("issuer")} label="Emissor" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
+              <TextField id={fieldId("number")} label="Número" value={draft.number} onChange={(value) => setField("number", value)} error={fieldErrors["number"]} maxLength={100} />
+              <TextField
+                id={fieldId("periodicity")}
+                label="Periodicidade"
+                value={draft.periodicity}
+                onChange={(value) => setField("periodicity", value)}
+                error={fieldErrors["periodicity"]}
+                maxLength={50}
+              />
+              <TextField
+                id={fieldId("issueDate")}
+                label="Data de emissão"
+                type="date"
+                value={draft.issueDate}
+                onChange={(value) => setField("issueDate", value)}
+                error={fieldErrors["issueDate"]}
+              />
+              <TextField
+                id={fieldId("assigneeUserId")}
+                label="Responsável"
+                value={draft.assigneeUserId}
+                onChange={(value) => setField("assigneeUserId", value)}
+                error={fieldErrors["assigneeUserId"]}
+                maxLength={100}
+              />
+              <TextField id={fieldId("priority")} label="Prioridade" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />
+              <div className="create-item__grid-full">
+                <TextField
+                  id={fieldId("tags")}
+                  label="Tags"
+                  value={draft.tags}
+                  onChange={(value) => setField("tags", value)}
+                  error={fieldErrors["tags"]}
+                  hint="Separadas por vírgula. Ex.: financeiro, contrato"
+                />
+              </div>
+            </div>
           </Section>
         </Panel>
         <div className="ui-form__actions">
