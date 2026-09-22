@@ -18,3 +18,11 @@ export function fetchNotificationPreferences(options?: { signal?: AbortSignal })
 export function updateNotificationPreferences(input: UpdateNotificationPreferencesInput, expectedVersion: number): Promise<{ preferences: NotificationPreferences }> {
   return apiClient.put<{ preferences: NotificationPreferences }>("/notifications/preferences", input, { expectedVersion });
 }
+
+/** `POST /notifications/whatsapp-opt-in` (D-286) - create-once, always 201 whether this call
+ * created the row or found an existing one for the exact same phone (`preferences-handlers.ts`'s
+ * own doc comment). No GET counterpart exists yet - there is no way to ask "is this user already
+ * opted in" ahead of a submit, a real, named gap (see NotificationPreferences.tsx). */
+export function recordWhatsAppOptIn(phoneE164: string): Promise<{ optIn: { phoneE164: string; optedInAt: string } }> {
+  return apiClient.post<{ optIn: { phoneE164: string; optedInAt: string } }>("/notifications/whatsapp-opt-in", { phoneE164, source: "USER_SETTINGS" });
+}

@@ -44,10 +44,17 @@
  *     the value for whenever real localization ships) but this screen never implies it already
  *     changes what a user receives.
  *
- * **G5 (backend gap, non-blocking, named in the spec itself)**: `WhatsAppOptInService.recordOptIn()`
- * has no HTTP route yet (D-246) — WhatsApp is therefore never a working toggle here, only a
- * neutral `StatusBadge`. Reopen only once that route exists AND the legal prerequisites (E-019)
- * are resolved.
+ * **G5 CLOSED (2026-09-22, Marcelo)**: `POST /notifications/whatsapp-opt-in` shipped in D-286
+ * (`preferences-handlers.ts`'s own doc comment confirms the route, allowlisted in
+ * `proxy-allowlist.ts`) — this comment previously said "no HTTP route yet", which had gone stale.
+ * The real remaining gap was purely this screen never calling it. Now wired: a phone field
+ * (E.164, same pattern the backend schema validates) + "Ativar WhatsApp" button. Safe to expose
+ * ahead of the legal prerequisite (E-019) — a separate kill-switch (`whatsappChannelEnabled`,
+ * `notification-router.ts`) keeps every WhatsApp send inert regardless of opt-in state until that
+ * flag flips, so recording consent now creates no real delivery risk. **Named, accepted gap**: no
+ * GET endpoint exists for opt-in status (create-once POST only) — this screen cannot show
+ * "already opted in" on load/reload, only an ephemeral confirmation right after a successful
+ * submit in the same session. Never claims a persisted "ativado" state it cannot actually read.
  *
  * **Real backend gap, not implemented**: tenant-level channel entitlements
  * (`notification/domain/notification-entitlements.ts`) are never exposed via any HTTP route — the
@@ -77,16 +84,16 @@ import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { useNotificationPreferences } from "../hooks/useNotificationPreferences.js";
 import { useUpdateNotificationPreferences } from "../hooks/useUpdateNotificationPreferences.js";
+import { useWhatsAppOptIn } from "../hooks/useWhatsAppOptIn.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { InitialLoading, ErrorState } from "../components/AsyncStates.js";
 import { PageHeader, Panel } from "../components/ui/Layout.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { Checkbox } from "../components/ui/Checkbox.js";
-import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { Button } from "../components/ui/Button.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { TextField } from "../components/forms/TextField.js";
-import { isConflict, isAuthError, isUnknownOutcome } from "../api/errors.js";
+import { ApiError, isConflict, isAuthError, isUnknownOutcome } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import type { NotificationConsentSource, NotificationQuietHours } from "../api/types.js";
 import "./NotificationPreferences.css";
@@ -144,9 +151,37 @@ interface Snapshot {
   quietEnd: string;
 }
 
+/** `+5511999999999` shape - mirrors `whatsapp-opt-in-request.v1.json`'s own pattern exactly
+ * (`^\+[1-9]\d{1,14}$`), so a client-side rejection and the backend's real validation never
+ * disagree about what counts as a valid number. */
+const WHATSAPP_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
+
 function PreferencesPanel() {
   const query = useNotificationPreferences();
   const mutation = useUpdateNotificationPreferences();
+  const whatsAppOptIn = useWhatsAppOptIn();
+
+  const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [whatsAppError, setWhatsAppError] = useState<string | undefined>();
+  const [whatsAppConfirmedPhone, setWhatsAppConfirmedPhone] = useState<string | undefined>();
+
+  function handleWhatsAppOptIn() {
+    const trimmed = whatsAppPhone.trim();
+    if (!WHATSAPP_PHONE_PATTERN.test(trimmed)) {
+      setWhatsAppError("Informe o telefone no formato internacional, ex.: +5511999999999.");
+      return;
+    }
+    setWhatsAppError(undefined);
+    whatsAppOptIn.mutate(trimmed, {
+      onSuccess: () => {
+        setWhatsAppConfirmedPhone(trimmed);
+        setWhatsAppPhone("");
+      },
+      onError: (err) => {
+        setWhatsAppError(err instanceof ApiError ? err.message : "Não foi possível ativar o WhatsApp com este número.");
+      },
+    });
+  }
 
   const [initialized, setInitialized] = useState(false);
   const [locale, setLocale] = useState("pt-BR");
@@ -331,10 +366,33 @@ function PreferencesPanel() {
       <div className="notif-prefs__row">
         <div className="notif-prefs__row-label">
           <h3>WhatsApp</h3>
-          <p className="u-text-secondary">Indisponível no momento — sem rota de consentimento ainda</p>
+          <p className="u-text-secondary">Ainda não envia mensagens de verdade — o telefone fica registrado para quando o canal for liberado.</p>
         </div>
         <div className="notif-prefs__row-control">
-          <StatusBadge presentation={{ label: "Indisponível", tone: "neutral" }} />
+          {whatsAppConfirmedPhone ? (
+            <div className="notif-prefs__whatsapp-confirmed">
+              <InlineNotice tone="success" announce="status">
+                Número {whatsAppConfirmedPhone} registrado. Você será avisado quando o WhatsApp estiver disponível.
+              </InlineNotice>
+            </div>
+          ) : (
+            <>
+              <div className="notif-prefs__whatsapp-phone">
+                <TextField
+                  id="whatsapp-phone"
+                  label="Telefone"
+                  hideLabel
+                  value={whatsAppPhone}
+                  onChange={setWhatsAppPhone}
+                  error={whatsAppError}
+                  placeholder="+5511999999999"
+                />
+              </div>
+              <Button variant="secondary" size="sm" pending={whatsAppOptIn.isPending} onClick={handleWhatsAppOptIn}>
+                {whatsAppOptIn.isPending ? "Ativando…" : "Ativar WhatsApp"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

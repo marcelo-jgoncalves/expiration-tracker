@@ -53,14 +53,52 @@ test("E2E-B8-01: every role sees the nav entry and can reach the screen", async 
   await expect(page.getByRole("heading", { name: "Notificações" })).toBeVisible();
 });
 
-test("E2E-B8-02: e-mail is always locked checked, WhatsApp shows an unavailable badge, never an editable control", async ({ page }) => {
+test("E2E-B8-02: e-mail is always locked checked; WhatsApp shows a real phone opt-in form (G5 closed, D-286)", async ({ page }) => {
   await mockOrganizations(page, "MEMBER");
   await mockA18(page);
 
   await page.goto("/settings/notifications");
   await expect(page.getByLabel("Ativado")).toBeChecked();
   await expect(page.getByLabel("Ativado")).toBeDisabled();
-  await expect(page.getByText("Indisponível", { exact: true })).toBeVisible();
+  await expect(page.getByLabel(/^Telefone/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ativar WhatsApp" })).toBeVisible();
+});
+
+test("E2E-B8-08: activating WhatsApp POSTs the real opt-in route and shows a real confirmation", async ({ page }) => {
+  await mockOrganizations(page, "MEMBER");
+  await mockA18(page);
+  let optInBody: unknown;
+  await page.route("**/bff/api/notifications/whatsapp-opt-in", (route) => {
+    optInBody = route.request().postDataJSON();
+    return route.fulfill({ status: 201, json: { optIn: { phoneE164: "+5511999999999", optedInAt: "2026-09-22T12:00:00.000Z" } } });
+  });
+
+  await page.goto("/settings/notifications");
+  await page.getByLabel(/^Telefone/).fill("+5511999999999");
+  await page.getByRole("button", { name: "Ativar WhatsApp" }).click();
+
+  await expect(page.getByText(/\+5511999999999 registrado/)).toBeVisible();
+  expect(optInBody).toEqual({ phoneE164: "+5511999999999", source: "USER_SETTINGS" });
+  // The confirmation replaces the form - never left alongside it, which would look like the
+  // opt-in silently failed.
+  await expect(page.getByLabel(/^Telefone/)).toHaveCount(0);
+});
+
+test("E2E-B8-09: an invalid phone shape is rejected client-side, never reaching the API", async ({ page }) => {
+  await mockOrganizations(page, "MEMBER");
+  await mockA18(page);
+  let optInCalled = false;
+  await page.route("**/bff/api/notifications/whatsapp-opt-in", (route) => {
+    optInCalled = true;
+    return route.fulfill({ status: 201, json: { optIn: {} } });
+  });
+
+  await page.goto("/settings/notifications");
+  await page.getByLabel(/^Telefone/).fill("011999999999");
+  await page.getByRole("button", { name: "Ativar WhatsApp" }).click();
+
+  await expect(page.getByText(/formato internacional/)).toBeVisible();
+  expect(optInCalled).toBe(false);
 });
 
 test("E2E-B8-03: saving a new locale and quiet-hours window PUTs the real route with the built payload", async ({ page }) => {

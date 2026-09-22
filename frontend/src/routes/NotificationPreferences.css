@@ -37,6 +37,20 @@
   gap: 0.25rem;
 }
 
+/* Sem isso o campo encolhe pro tamanho mínimo de conteúdo dentro do flex-column de
+   `.notif-prefs__row-control` (mesmo achado real já corrigido em SubjectsCollection.css). */
+.notif-prefs__whatsapp-phone {
+  width: 15rem;
+  max-width: 100%;
+}
+
+/* Achado real (Marcelo, 2026-09-22, screenshot): sem largura máxima, a mensagem de confirmação
+   (uma linha longa) força `.notif-prefs__row-control` (flex: 0 0 auto) a crescer até estourar
+   sobre a coluna do rótulo à esquerda, espremendo o texto em uma palavra por linha. */
+.notif-prefs__whatsapp-confirmed {
+  max-width: 20rem;
+}
+
 .notif-prefs__quiet-hours-fields {
   display: flex;
   gap: var(--space-3, 0.75rem);
