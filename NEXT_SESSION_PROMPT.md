@@ -149,14 +149,14 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
     não por nenhuma mudança de código nesta sessão. Nenhuma ação necessária.
 19. **Versionamento completo de `Document` (item-level) — `PENDING_PROTOCOL_REVIEW` (D-314, 2026-09-21)**: pedido de Marcelo após comparar a tela "Documento" real com o protótipo, que assume um modelo de "substituir arquivo" inexistente hoje (`Document` é 1 linha = 1 arquivo, sem histórico/versão). Investigação confirmou que é mudança nível 5-6, estruturalmente equivalente ao D-143 (Domínio Documental, 6 rodadas de protocolo) — não implementado, nenhum código escrito. Assim que o protocolo Claude↔Codex voltar (Codex 2026-09-23), rodar a revisão adversarial completa, incluindo a alternativa de menor risco identificada (reaproveitar a máquina de versionamento já existente em `document-archive`/D-143 em vez de duplicá-la). "Baixar documento" (a outra metade do mesmo pedido) já foi implementado nesta sessão sem precisar de protocolo (D-313, nível 1-3, aditivo puro).
 20. **`NotificationEntitlements` seedado no onboarding e endpoint agregado de urgência da Visão Geral — ambos `PENDING_PROTOCOL_REVIEW` (D-315/D-316, 2026-09-21)**: implementados a pedido explícito de Marcelo (nível 3-4 cada, código real escrito e testado — ver itens #10/#14 acima e `decisions-log.md` para detalhe), mas envolveram decisão de produto (política de entitlement do plano free; quais 3 números mapeiam para os cards) tomada sem o protocolo Claude↔Codex formal. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23).
-21. ~~Página de login customizada~~ — **RESOLVIDO 2026-09-21 (D-320)**: doc oficial AWS confirma
-    que o Managed Login (branding editor) não tem chave de fonte/tipografia nem ícone
-    substituível no schema — só cor/radius/spacing. Implementado assim mesmo (violeta + radius
-    do design system v2, `infra/modules/cognito/main.tf`), atingindo 2 dos 3 pilares da
-    ADR-0015. UI própria atingiria os 3 mas reimplementaria SRP/MFA/reset de senha hoje
-    gratuitos via Hosted UI — nível 5-6, rejeitada por ora, registrada como iniciativa futura
-    separada em `decisions-log.md` D-320, não decidida a favor nem contra.
+21. ~~Página de login customizada~~ — **REVISTO 2026-09-22 (D-321, `PENDING_PROTOCOL_REVIEW`)**:
+    D-320 (Managed Login) revertido a pedido direto de Marcelo (fidelidade visual/consistência
+    com o design system v2); UI própria implementada (`frontend/src/routes/auth/*`) com login
+    direto via `InitiateAuth`/`USER_PASSWORD_AUTH` no BFF, signup/verificação de e-mail,
+    esqueci-senha/redefinição. Hosted UI/rotas OIDC originais mantidas como fallback dormente,
+    nunca removidas. Detalhe completo das 4 decisões técnicas: `decisions-log.md` D-321.
 22. **Import CSV em massa para Items — `PENDING_PROTOCOL_REVIEW` (D-319, 2026-09-21)**: implementado a pedido explícito de Marcelo (nível 5-6, código real escrito e testado — ver item #9 acima e `decisions-log.md` D-319 para as 4 decisões de produto), mas decidido/implementado sem o protocolo Claude↔Codex formal (suspenso). Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial ao trade-off de dedupe (decisão 3: sem proteção contra colisão com Item criado fora de import) e à generalização de `reserveImport()`'s `targetEntityType` (efeito colateral sobre Document/Requirement).
+23. **Login/signup/reset de senha via UI própria (reversão de D-320) — `PENDING_PROTOCOL_REVIEW` (D-321, 2026-09-22)**: ver item #21 acima e `decisions-log.md` D-321. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial à escolha `USER_PASSWORD_AUTH` (vs. SRP) e ao SECRET_HASH server-side no BFF (nova superfície de autenticação).
 
 ## Próxima ação recomendada
 
@@ -175,8 +175,9 @@ tem (não uma escolha técnica razoável que já cabe a esta sessão decidir soz
    `PENDING_PROTOCOL_REVIEW`)**, ver item 9 da lista consolidada de pendências acima.
 3. ~~Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)~~ — **RESOLVIDO 2026-09-21
    (D-318)**, ver item 13 da lista consolidada de pendências acima.
-4. ~~Item #21 — Página de login customizada~~ — **RESOLVIDO 2026-09-21 (D-320)**, ver item 21 da
-   lista consolidada de pendências acima.
+4. ~~Item #21 — Página de login customizada~~ — **REVISTO 2026-09-22 (D-321,
+   `PENDING_PROTOCOL_REVIEW`)**: D-320 foi revertido a pedido direto de Marcelo, UI própria
+   implementada. Ver item 21/23 da lista consolidada de pendências acima.
 
 Cada item, ao terminar, passa pelo checklist completo (`docs/engineering/task-completion-checklist.md`)
 antes de ser marcado concluído — mesmo padrão desta sessão. Commit + push a cada item fechado, sem
