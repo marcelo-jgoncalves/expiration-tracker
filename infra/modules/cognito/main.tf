@@ -57,12 +57,13 @@ resource "aws_cognito_user_pool" "this" {
 
   deletion_protection = var.deletion_protection
 
-  # Required for Managed Login branding below (item #21, D-320) - AWS's Essentials/Plus feature
-  # plans unlock the branding-designer login pages; Lite (the implicit default before this
-  # change) only serves the classic, unbrandable hosted UI. Essentials is the minimum plan that
-  # includes it - no need for Plus's extra advanced-security features here.
-  user_pool_tier = "ESSENTIALS"
-
+  # D-3xx: D-320's ESSENTIALS bump is reverted here - it existed only to unlock the Managed
+  # Login branding designer (aws_cognito_managed_login_branding, removed below). The direct-auth
+  # APIs this app now uses instead (InitiateAuth/SignUp/ForgotPassword/ConfirmForgotPassword -
+  # src/modules/bff/persistence/cognito-idp-auth-client.ts) are core Cognito Identity Provider
+  # APIs available on every tier, including the default (LITE) this omission now falls back to -
+  # nothing here depends on Essentials/Plus. Leaving `user_pool_tier` unset (rather than pinning
+  # `"LITE"` explicitly) matches how the module looked before D-320 ever touched it.
   tags = var.tags
 }
 
@@ -70,13 +71,22 @@ resource "aws_cognito_user_pool_client" "web_client" {
   name         = "WebClient"
   user_pool_id = aws_cognito_user_pool.this.id
 
-  # authFlows: { userSrp: true } - D-054 (Full BFF hardening amendment) removed
-  # ALLOW_REFRESH_TOKEN_AUTH: it is mutually exclusive with refresh_token_rotation below (a
-  # client that can call /oauth2/token's refresh_token grant AND has native rotation enabled
-  # would let a caller bypass rotation via InitiateAuth directly) - the only supported way to
-  # refresh a token for this client is now the Hosted UI's /oauth2/token endpoint, which the
-  # BFF alone calls server-side (src/modules/bff/persistence/fetch-cognito-oidc-client.ts).
-  explicit_auth_flows = ["ALLOW_USER_SRP_AUTH"]
+  # D-054 (Full BFF hardening amendment) removed ALLOW_REFRESH_TOKEN_AUTH: it is mutually
+  # exclusive with refresh_token_rotation below (a client that can call /oauth2/token's
+  # refresh_token grant AND has native rotation enabled would let a caller bypass rotation via
+  # InitiateAuth directly) - the only supported way to refresh a token for this client is the
+  # /oauth2/token endpoint, which the BFF alone calls server-side
+  # (src/modules/bff/persistence/fetch-cognito-oidc-client.ts). Unchanged by D-3xx.
+  #
+  # D-3xx (reversal of D-320): ALLOW_USER_SRP_AUTH -> ALLOW_USER_PASSWORD_AUTH. SRP was never
+  # actually used by any real code path (no src/ call site ever issued a USER_SRP_AUTH
+  # InitiateAuth - this flag predates any direct-auth implementation entirely); the app's own
+  # login screen now calls InitiateAuth with AuthFlow=USER_PASSWORD_AUTH server-side from the
+  # BFF (src/modules/bff/persistence/cognito-idp-auth-client.ts) - the credential still travels
+  # over TLS to Cognito directly, same trust boundary the Hosted UI's own login form had, without
+  # reimplementing SRP's client-side math (explicitly out of scope - "não reinventar
+  # criptografia"). Only the flow this app actually uses is enabled - least privilege.
+  explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH"]
 
   # BFF session pattern (blueprint §4.2): client secret held server-side only, never in the
   # browser.
@@ -118,130 +128,20 @@ resource "aws_cognito_user_pool_client" "web_client" {
 
 # Full BFF (D-053/D-054): the OAuth2 endpoints (/oauth2/authorize, /oauth2/token,
 # /oauth2/revoke) the BFF calls server-side are served by this domain, not by the User Pool
-# API directly - `allowed_oauth_flows = ["code"]` above is inert without one.
+# API directly - `allowed_oauth_flows = ["code"]` above is inert without one. This domain stays
+# even after D-3xx (reversal of D-320): /oauth2/token (refresh_token grant) and /oauth2/revoke
+# are still called by fetch-cognito-oidc-client.ts on every session refresh/logout, and the
+# rendered login PAGE this domain also serves (now unbranded classic Hosted UI, D-320's
+# `managed_login_version = 2` removed below) stays reachable as GET /bff/login's dormant
+# fallback (bff-handlers.ts's handleLogin/handleCallback, kept but no longer linked from the
+# frontend).
 resource "aws_cognito_user_pool_domain" "this" {
   domain       = var.domain_prefix
   user_pool_id = aws_cognito_user_pool.this.id
-
-  # managed_login_version=2 (item #21, D-320): switches this domain's login pages from the
-  # classic, effectively-unbrandable hosted UI (version 1, the implicit default) to Managed
-  # Login, the branding-designer experience the aws_cognito_managed_login_branding resource
-  # below configures. Doesn't change the OAuth2/OIDC endpoints the BFF calls
-  # (fetch-cognito-oidc-client.ts) or the authorization-code+PKCE flow
-  # (bff-auth-service.ts's startLogin) - only the rendered login form itself.
-  managed_login_version = 2
 }
 
-# Item #21 (D-320): applies the v2 design system's violet accent, radius scale and status
-# colors (docs/frontend/design-system-v2/tokens/{colors,shape}.css) to the Managed Login pages
-# via the branding-designer Settings schema (confirmed against the real AWS API reference,
-# CreateManagedLoginBranding - no "font"/typography key exists anywhere in that schema, so
-# Plus Jakarta Sans and the Lucide icon set - the other two pillars of ADR-0015 - are NOT
-# reachable this way; documented as an accepted gap in decisions-log.md D-320, not a bug here).
-resource "aws_cognito_managed_login_branding" "web_client" {
-  client_id    = aws_cognito_user_pool_client.web_client.id
-  user_pool_id = aws_cognito_user_pool.this.id
-
-  settings = jsonencode({
-    categories = {
-      auth = {
-        # Single COGNITO IdP only (supported_identity_providers above) - no FEDERATED entry.
-        authMethodOrder = [
-          [{ display = "INPUT", type = "USERNAME_PASSWORD" }]
-        ]
-        federation = { interfaceStyle = "BUTTON_LIST", order = [] }
-      }
-      form = {
-        displayGraphics     = true
-        instructions        = { enabled = false }
-        languageSelector    = { enabled = false }
-        location            = { horizontal = "CENTER", vertical = "CENTER" }
-        sessionTimerDisplay = "NONE"
-      }
-      global = {
-        colorSchemeMode = "LIGHT" # design-system-v2/tokens/colors.css: only light mode implemented
-        pageFooter      = { enabled = false }
-        pageHeader      = { enabled = false }
-        spacingDensity  = "REGULAR"
-      }
-    }
-    componentClasses = {
-      buttons = { borderRadius = 12.0 }                      # --radius-md
-      divider = { lightMode = { borderColor = "e7eaf0ff" } } # --color-neutral-200
-      dropDown = {
-        borderRadius = 12.0
-        lightMode = {
-          defaults = { itemBackgroundColor = "ffffffff" }
-          hover    = { itemBackgroundColor = "f7f8faff", itemBorderColor = "858d9dff", itemTextColor = "1b2333ff" }
-          match    = { itemBackgroundColor = "ede9feff", itemTextColor = "6d28d9ff" }
-        }
-      }
-      focusState = { lightMode = { borderColor = "7c3aedff" } } # --color-focus-ring
-      input = {
-        borderRadius = 12.0
-        lightMode = {
-          defaults         = { backgroundColor = "ffffffff", borderColor = "858d9dff" } # --color-border-interactive
-          placeholderColor = "5a6478ff"
-        }
-      }
-      inputDescription = { lightMode = { textColor = "5a6478ff" } } # --color-text-secondary
-      inputLabel       = { lightMode = { textColor = "1b2333ff" } } # --color-text-primary
-      link = {
-        lightMode = {
-          defaults = { textColor = "6d28d9ff" } # --color-text-link (accent-700)
-          hover    = { textColor = "5b21b6ff" } # accent-800
-        }
-      }
-      optionControls = {
-        lightMode = {
-          defaults = { backgroundColor = "ffffffff", borderColor = "858d9dff" }
-          selected = { backgroundColor = "7c3aedff", foregroundColor = "ffffffff" }
-        }
-      }
-      statusIndicator = {
-        lightMode = {
-          error   = { backgroundColor = "fef3f2ff", borderColor = "fbd5d1ff", indicatorColor = "b42318ff" }
-          success = { backgroundColor = "ecfdf3ff", borderColor = "c9ecd7ff", indicatorColor = "067647ff" }
-          warning = { backgroundColor = "fffaebff", borderColor = "fce7b6ff", indicatorColor = "b54708ff" }
-        }
-      }
-    }
-    components = {
-      alert = {
-        borderRadius = 12.0
-        lightMode    = { error = { backgroundColor = "fef3f2ff", borderColor = "fbd5d1ff" } }
-      }
-      favicon = { enabledTypes = ["ICO", "SVG"] }
-      form = {
-        backgroundImage = { enabled = false }
-        borderRadius    = 18.0 # --radius-lg, matches Panel/Card
-        lightMode       = { backgroundColor = "ffffffff", borderColor = "e7eaf0ff" }
-        logo            = { enabled = false, formInclusion = "IN", location = "CENTER", position = "TOP" }
-      }
-      pageBackground = {
-        # --color-surface-page is a lilac gradient (unsupported here, solid color only) -
-        # accent-50 approximates its hue without a background image asset.
-        lightMode = { color = "f5f3ffff" }
-        image     = { enabled = false }
-      }
-      pageText = {
-        lightMode = { bodyColor = "5a6478ff", descriptionColor = "5a6478ff", headingColor = "1b2333ff" }
-      }
-      primaryButton = {
-        lightMode = {
-          defaults = { backgroundColor = "7c3aedff", textColor = "ffffffff" } # accent-600
-          hover    = { backgroundColor = "6d28d9ff", textColor = "ffffffff" } # accent-700
-          active   = { backgroundColor = "5b21b6ff", textColor = "ffffffff" } # accent-800
-          disabled = { backgroundColor = "d6dbe4ff", borderColor = "d6dbe4ff" }
-        }
-      }
-      secondaryButton = {
-        lightMode = {
-          defaults = { backgroundColor = "ffffffff", borderColor = "7c3aedff", textColor = "6d28d9ff" }
-          hover    = { backgroundColor = "f5f3ffff", borderColor = "6d28d9ff", textColor = "5b21b6ff" }
-          active   = { backgroundColor = "ede9feff", borderColor = "5b21b6ff", textColor = "5b21b6ff" }
-        }
-      }
-    }
-  })
-}
+# D-3xx: aws_cognito_managed_login_branding.web_client (D-320) removed - the app's own
+# login/signup/reset-password screens (frontend/src/routes/{Login,SignUp,ForgotPassword,
+# ResetPassword}.tsx) replaced the Cognito-rendered login page as the real entry point, so this
+# branding config has no page left to apply to. See decisions-log.md D-3xx for the full
+# rationale (Marcelo chose the app's own UI over Managed Login for visual fidelity).
