@@ -15,10 +15,24 @@
  * porque o mesmo `externalId` de integração pode legitimamente se repetir entre Subjects
  * diferentes (ex.: "contrato-01" de dois clientes distintos), só não pode se repetir DUAS vezes
  * para o MESMO Subject.
+ *
+ * ITEM (D-3xx, 2026-09-21, PENDING_PROTOCOL_REVIEW, decisão de produto 3): `ExpirationItem` não
+ * tem NENHUM campo de identidade externa (nem `externalId`, nem um equivalente a
+ * `displayNameNormalized`+GSI pequeno como TrackedSubject's GSI7 - volume de Item é ilimitado,
+ * não o teto de 25 do entitlement de Subject, então um pré-carregamento tenant-wide como o
+ * fallback fraco de TrackedSubject não escala para os 10k+ que motivaram esta iniciativa,
+ * PERF-12). Decisão: roteia como SUBJECT (mesma forma de chave, sem `subjectId`), mas
+ * `externalId` carrega uma CHAVE SINTÉTICA (`categoryNormalized|nameNormalized|dueDate`, ver
+ * `import-row.ts#buildItemDedupKey`) em vez de um valor real do CSV - dedup persiste só entre
+ * imports (mesma linha reimportada não duplica), nunca contra um Item criado manualmente fora
+ * de import (nenhum scan tenant-wide existe para detectar isso) - mesma postura "só contra
+ * import anterior" que Document/Requirement já têm (nenhum dos dois faz pré-carregamento
+ * fraco tenant-wide também - só TrackedSubject tem esse fallback, justamente por ser o único
+ * com corpus pequeno o bastante para caber em memória).
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
-export type ImportDedupEntityKind = "SUBJECT" | "DOCUMENT" | "REQUIREMENT";
+export type ImportDedupEntityKind = "SUBJECT" | "DOCUMENT" | "REQUIREMENT" | "ITEM";
 
 export interface ImportDedupRecord extends EntityKey {
   entityType: "ImportDedupRecord";
@@ -40,8 +54,8 @@ export interface ImportDedupRecord extends EntityKey {
 }
 
 export function importDedupKey(tenantId: string, kind: ImportDedupEntityKind, externalId: string, subjectId?: string): EntityKey {
-  if (kind === "SUBJECT") {
-    return { PK: `TENANT#${tenantId}#IMPORTDEDUP#SUBJECT`, SK: `EXT#${externalId}` };
+  if (kind === "SUBJECT" || kind === "ITEM") {
+    return { PK: `TENANT#${tenantId}#IMPORTDEDUP#${kind}`, SK: `EXT#${externalId}` };
   }
   if (!subjectId) {
     throw new Error(`importDedupKey: subjectId is required for kind=${kind}`);

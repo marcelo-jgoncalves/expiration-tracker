@@ -21,8 +21,16 @@ import { buildVersionedUpdate, type EntityKey, type TransactUpdateEntry } from "
  * v1's `TrackedSubject`-only scope. Um `ImportJob` continua UM tipo de entidade só - onboarding
  * completo é 3 jobs sequenciais (Subjects -> Documents -> Requirements), nunca um arquivo
  * combinado.
+ *
+ * D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW): `Item` adiciona um 4º tipo, seguindo a MESMA
+ * regra - um job Item nunca cria Document/Requirement/ReminderPolicy juntos. `ExpirationItem`
+ * não tem `subjectId`/`requirementId` (domínio confirmado em `expiration/domain/
+ * expiration-item.ts` - é uma entidade autônoma, não subordinada a TrackedSubject), então o
+ * ramo Item nunca precisa de resolução de referência (`resolve-subject-references.ts` e
+ * equivalentes) - mais próximo estruturalmente de `TrackedSubject` (mapeamento fixo, sem
+ * `subjectRef`) do que de `Document`/`Requirement`.
  */
-export type ImportTargetEntityType = "TrackedSubject" | "Document" | "Requirement";
+export type ImportTargetEntityType = "TrackedSubject" | "Document" | "Requirement" | "Item";
 
 export type ImportJobStatus =
   | "UPLOADED" // presigned PUT concluído (assumido, S3 não confirma para o backend síncronamente) - aguardando ObjectCreated
@@ -73,6 +81,29 @@ export type ColumnMapping =
         applicability?: string;
         externalId?: string;
       };
+    }
+  | {
+      schemaVersion: 1;
+      targetKind: "Item";
+      // D-3xx decision 1 (column mapping): mirrors `create-item-request.v1.json`'s field set
+      // exactly, minus `assigneeUserId` - deliberately excluded from v1 CSV import (unlike
+      // Document/Requirement's subjectRef/documentTypeRef, an assigneeUserId reference would
+      // need its own eligibility-resolution phase, same shape as `resolve-subject-references.ts`,
+      // for a field that is optional and already settable post-import via
+      // `bulkReassignItems`/`updateItem` - deferred, not a gap, keeps this slice's blast radius
+      // to "no new reference-resolution phase" the way TrackedSubject's own fixed mapping does).
+      columns: {
+        name: string;
+        category: string;
+        dueDate: string;
+        description?: string;
+        issueDate?: string;
+        periodicity?: string;
+        issuer?: string;
+        number?: string;
+        tags?: string;
+        priority?: string;
+      };
     };
 
 /** Mapeamento fixo v1 de `TrackedSubject` (D-042's CSV header convention) - preenchido pelo
@@ -83,6 +114,27 @@ export const DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING: ColumnMapping = {
   schemaVersion: 1,
   targetKind: "TrackedSubject",
   columns: { displayName: "displayName", type: "type", externalId: "externalId", notes: "notes", tags: "tags" },
+};
+
+/** D-3xx: mapeamento fixo v1 de `Item`, mesmo motivo/convenção do `TrackedSubject` acima
+ * (entidade central, campos universais, sem schema por tenant) - preenchido por
+ * `ImportService.reserveImport()` na criação do job quando `targetEntityType === "Item"`, nunca
+ * deixado para `AWAITING_MAPPING`. */
+export const DEFAULT_ITEM_COLUMN_MAPPING: ColumnMapping = {
+  schemaVersion: 1,
+  targetKind: "Item",
+  columns: {
+    name: "name",
+    category: "category",
+    dueDate: "dueDate",
+    description: "description",
+    issueDate: "issueDate",
+    periodicity: "periodicity",
+    issuer: "issuer",
+    number: "number",
+    tags: "tags",
+    priority: "priority",
+  },
 };
 
 export interface ImportJob extends EntityKey {
@@ -164,6 +216,18 @@ export const FIELD_CATALOG: Record<ImportTargetEntityType, ImportFieldCatalogEnt
     { field: "notes", required: false },
     { field: "applicability", required: false },
     { field: "externalId", required: false },
+  ],
+  Item: [
+    { field: "name", required: true },
+    { field: "category", required: true },
+    { field: "dueDate", required: true },
+    { field: "description", required: false },
+    { field: "issueDate", required: false },
+    { field: "periodicity", required: false },
+    { field: "issuer", required: false },
+    { field: "number", required: false },
+    { field: "tags", required: false },
+    { field: "priority", required: false },
   ],
 };
 

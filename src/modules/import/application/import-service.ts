@@ -21,6 +21,7 @@ import {
   IMPORT_JOB_TTL_SECONDS,
   MAX_IMPORT_FILE_BYTES,
   DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING,
+  DEFAULT_ITEM_COLUMN_MAPPING,
   FIELD_CATALOG,
   buildImportJobClaim,
   type ImportJob,
@@ -42,6 +43,17 @@ const OPERATION = "import.reserve";
 export interface ReserveImportInput {
   contentLength: number;
   checksumSha256: string;
+  /** D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW): optional, defaults to "TrackedSubject" (100%
+   * backward-compatible with every existing caller, which never sent this field). Closes a
+   * pre-existing gap noted by this same decision - before this field existed, `reserveImport()`
+   * hardcoded `targetEntityType: "TrackedSubject"` unconditionally, so Document/Requirement jobs
+   * had no real HTTP creation path at all (only reachable in tests, constructing an `ImportJob`
+   * directly) despite their parse/commit logic being fully implemented (D-192). Fixing this only
+   * for "Item" while leaving Document/Requirement equally hardcoded would have been an arbitrary
+   * asymmetry; this generalizes the one line that was actually TrackedSubject-specific instead.
+   * "Document"/"Requirement" still get no default `columnMapping` (need `POST /mapping`,
+   * unchanged); "TrackedSubject"/"Item" both seed their fixed mapping immediately, same as today. */
+  targetEntityType?: ImportTargetEntityType;
 }
 
 export interface ReserveImportResult {
@@ -109,12 +121,28 @@ function rawCsvNotYetUploaded(err: unknown): boolean {
  * `submitImportMapping()` validation and any future caller never drift on which fields mean
  * "a column in the file" vs. "a client-chosen enum". */
 function mappingHeaderRefFields(mapping: ColumnMapping): string[] {
-  const fields: (string | undefined)[] =
-    mapping.targetKind === "TrackedSubject"
-      ? [mapping.columns.displayName, mapping.columns.type, mapping.columns.externalId, mapping.columns.notes, mapping.columns.tags]
-      : mapping.targetKind === "Document"
-        ? [mapping.columns.subjectRef, mapping.columns.documentTypeRef, mapping.columns.hasValidity, mapping.columns.externalId]
-        : [mapping.columns.subjectRef, mapping.columns.name, mapping.columns.notes, mapping.columns.applicability, mapping.columns.externalId];
+  let fields: (string | undefined)[];
+  if (mapping.targetKind === "TrackedSubject") {
+    fields = [mapping.columns.displayName, mapping.columns.type, mapping.columns.externalId, mapping.columns.notes, mapping.columns.tags];
+  } else if (mapping.targetKind === "Document") {
+    fields = [mapping.columns.subjectRef, mapping.columns.documentTypeRef, mapping.columns.hasValidity, mapping.columns.externalId];
+  } else if (mapping.targetKind === "Requirement") {
+    fields = [mapping.columns.subjectRef, mapping.columns.name, mapping.columns.notes, mapping.columns.applicability, mapping.columns.externalId];
+  } else {
+    // D-3xx: Item.
+    fields = [
+      mapping.columns.name,
+      mapping.columns.category,
+      mapping.columns.dueDate,
+      mapping.columns.description,
+      mapping.columns.issueDate,
+      mapping.columns.periodicity,
+      mapping.columns.issuer,
+      mapping.columns.number,
+      mapping.columns.tags,
+      mapping.columns.priority,
+    ];
+  }
   return fields.filter((f): f is string => !!f);
 }
 
@@ -198,21 +226,28 @@ export class ImportService {
       try {
         jobIdForResponse = this.ids.newImportJobId();
         const jobExpiresAt = new Date(Date.parse(now) + IMPORT_JOB_TTL_SECONDS * 1000).toISOString();
+        const targetEntityType: ImportTargetEntityType = input.targetEntityType ?? "TrackedSubject";
+        // D-3xx: only TrackedSubject/Item have a fixed v1 mapping seeded at creation (same
+        // reasoning as the pre-existing TrackedSubject comment below - both are core entities
+        // with universal, tenant-schema-independent fields). Document/Requirement still need
+        // `POST /import-jobs/{jobId}/mapping` before parsing can proceed (AWAITING_MAPPING).
+        const defaultColumnMapping: ColumnMapping | undefined =
+          targetEntityType === "TrackedSubject" ? DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING : targetEntityType === "Item" ? DEFAULT_ITEM_COLUMN_MAPPING : undefined;
         const job: ImportJob = {
           ...importJobKey(ctx.tenant.tenantId, jobIdForResponse),
           entityType: "ImportJob",
           jobId: jobIdForResponse,
           tenantId: ctx.tenant.tenantId,
-          targetEntityType: "TrackedSubject",
+          targetEntityType,
           status: "UPLOADED",
           createdByUserId: ctx.principal.userId,
           checksumSha256: input.checksumSha256,
-          // D-192 §3 backward compat: um job TrackedSubject sempre nasce com o mapeamento fixo
-          // v1 já preenchido (CSV header convention de D-042) - nunca passa por
+          // D-192 §3 backward compat: um job TrackedSubject/Item sempre nasce com o mapeamento
+          // fixo v1 já preenchido (CSV header convention de D-042/D-3xx) - nunca passa por
           // AWAITING_MAPPING, vai direto UPLOADED->PARSING quando o evento S3 chegar, exatamente
           // como hoje. Só Document/Requirement (fatia futura, POST /mapping) nascem sem ele.
-          columnMapping: DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING,
-          columnMappingSha256: createHash("sha256").update(JSON.stringify(DEFAULT_TRACKED_SUBJECT_COLUMN_MAPPING), "utf-8").digest("hex"),
+          columnMapping: defaultColumnMapping,
+          columnMappingSha256: defaultColumnMapping ? createHash("sha256").update(JSON.stringify(defaultColumnMapping), "utf-8").digest("hex") : undefined,
           expiresAt: jobExpiresAt,
           createdAt: now,
           updatedAt: now,

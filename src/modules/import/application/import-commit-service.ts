@@ -54,13 +54,14 @@ import { createHash } from "node:crypto";
 import { importJobKey, type ImportJob } from "../domain/import-job.js";
 import { importDedupKey, type ImportDedupRecord, type ImportDedupEntityKind } from "../domain/import-dedup.js";
 import { buildCommittedRowOutcome, buildFailedRowOutcome } from "../domain/import-row-outcome.js";
-import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportRowPlanEntry } from "../domain/import-row.js";
+import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportRowPlanEntry, ItemImportRowPlanEntry } from "../domain/import-row.js";
 import { QuotaExceededError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate, getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import type { ImportStore } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import type { SubjectService } from "../../subject/application/subject-service.js";
+import type { ExpirationService } from "../../expiration/application/expiration-service.js";
 import { buildCreateDocumentEntries, buildCreateRequirementEntries, type TransactEntryLabel } from "../../document-archive/application/document-archive-service.js";
 import type { DocumentArchiveIdGenerator } from "../../document-archive/application/id-generator.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
@@ -75,6 +76,11 @@ export interface ImportCommitDeps {
    * `TableName`); o ramo TrackedSubject nunca toca este campo, exatamente como antes. */
   tableName: string;
   subjects: SubjectService;
+  /** D-3xx (2026-09-21, PENDING_PROTOCOL_REVIEW) - só usado pelo ramo Item, reaproveita
+   * `ExpirationService.createItem()` INALTERADO (mesma caixa-preta que o ramo TrackedSubject já
+   * usa para `SubjectService.createSubject()` - nunca uma segunda implementação de criação de
+   * item só para o worker de import). */
+  expiration: ExpirationService;
   /** D-192 §6 (fatia 8) - só usado pelos ramos Document/Requirement, para gerar `documentId`/
    * `requirementId` ANTES de montar a transação (ao contrário de `createSubject()`, que os gera
    * internamente como caixa-preta). */
@@ -127,6 +133,9 @@ export async function commitImportJob(deps: ImportCommitDeps, ctx: RequestContex
   }
   if (job.targetEntityType === "Requirement") {
     return commitReferencingRows(deps, ctx, job, rawEntries as unknown as RequirementImportRowPlanEntry[], "Requirement");
+  }
+  if (job.targetEntityType === "Item") {
+    return commitItemRows(deps, ctx, job, rawEntries as unknown as ItemImportRowPlanEntry[]);
   }
   return commitTrackedSubjectRows(deps, ctx, job, rawEntries as unknown as ImportRowPlanEntry[]);
 }
@@ -187,6 +196,78 @@ async function commitTrackedSubjectRows(deps: ImportCommitDeps, ctx: RequestCont
     }
     // claimed === false: linha já committada por uma tentativa anterior (retry seguro) -
     // avança o cursor sem recriar nada.
+
+    current = { ...current, lastCommittedRowNumber: entry.rowNumber, updatedAt: deps.now(), version: current.version + 1 };
+    await deps.store.update<ImportJob>(current);
+  }
+
+  current = { ...current, status: "COMMITTED", updatedAt: deps.now(), version: current.version + 1 };
+  await deps.store.update<ImportJob>(current);
+  return { kind: "COMMITTED", createdCount };
+}
+
+/**
+ * Item commit path (D-3xx, 2026-09-21, PENDING_PROTOCOL_REVIEW) - byte-for-byte the same
+ * claim-then-create-as-black-box dance as `commitTrackedSubjectRows()` above, just calling
+ * `ExpirationService.createItem()` instead of `SubjectService.createSubject()`. Never the
+ * Document/Requirement TENTATIVA/FALLBACK protocol (`commitReferencingRows()`) - that protocol
+ * exists specifically to fence a resolved reference (subjectId/documentTypeId) going stale
+ * between preview and commit; Item has no such reference to fence (import-job.ts's Item
+ * `ColumnMapping` comment), so there is no domain fence to recover from here, only the same
+ * ordinary dedup-claim race TrackedSubject already handles. `createItem()` has no entitlement
+ * cap today (confirmed in `expiration-service.ts` - unlike `createSubject()`'s
+ * `QuotaExceededError`), so there is no fail-fast branch to mirror; any other error from it
+ * propagates and fails the whole worker invocation, same as any TrackedSubject row's
+ * unanticipated `createSubject()` error would.
+ */
+async function commitItemRows(deps: ImportCommitDeps, ctx: RequestContext, job: ImportJob, entries: ItemImportRowPlanEntry[]): Promise<ImportCommitOutcome> {
+  const cursor = job.lastCommittedRowNumber ?? 0;
+  const pending = entries.filter((e): e is Extract<ItemImportRowPlanEntry, { action: "CREATE_ITEM" }> => e.action === "CREATE_ITEM" && e.rowNumber > cursor);
+
+  let current: ImportJob = job;
+  let createdCount = 0;
+
+  for (const entry of pending) {
+    // Reuses SUBJECT's placeholder convention (import-dedup.ts's ITEM-kind comment): `subjectId`
+    // holds "" until createItem() confirms, then is updated with the real itemId - the claim
+    // itself (not the placeholder value) is what guarantees idempotency, same as the
+    // TrackedSubject branch above.
+    const claimed = await deps.store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(ctx.tenant.tenantId, "ITEM", entry.dedupKey),
+      entityType: "ImportDedupRecord",
+      tenantId: ctx.tenant.tenantId,
+      kind: "ITEM",
+      externalId: entry.dedupKey,
+      subjectId: "",
+      createdAt: deps.now(),
+    });
+
+    if (claimed) {
+      const item = await deps.expiration.createItem(ctx, {
+        name: entry.row.name,
+        category: entry.row.category,
+        dueDate: entry.row.dueDate,
+        description: entry.row.description,
+        issueDate: entry.row.issueDate,
+        periodicity: entry.row.periodicity,
+        issuer: entry.row.issuer,
+        number: entry.row.number,
+        tags: entry.row.tags,
+        priority: entry.row.priority,
+      });
+      await deps.store.update<ImportDedupRecord>({
+        ...importDedupKey(ctx.tenant.tenantId, "ITEM", entry.dedupKey),
+        entityType: "ImportDedupRecord",
+        tenantId: ctx.tenant.tenantId,
+        kind: "ITEM",
+        externalId: entry.dedupKey,
+        subjectId: item.itemId,
+        createdAt: deps.now(),
+      });
+      createdCount += 1;
+    }
+    // claimed === false: linha já committada por uma tentativa anterior (retry seguro) - avança
+    // o cursor sem recriar nada, mesma disciplina do ramo TrackedSubject.
 
     current = { ...current, lastCommittedRowNumber: entry.rowNumber, updatedAt: deps.now(), version: current.version + 1 };
     await deps.store.update<ImportJob>(current);
