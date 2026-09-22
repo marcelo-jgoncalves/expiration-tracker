@@ -96,7 +96,21 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
 6. User Validation (planejamento de interface) — aguarda sinal explícito dele.
 7. Aplicar ao **Claude for Startups Program** (`claude.com/programs/startups`, até US$25.000 em créditos de API, sem exigir VC) — projeto se encaixa no perfil, mas o cadastro exige dados da empresa/ação direta de Marcelo. Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` §6.
 8. P0.5 — suíte "Real System E2E" contra `dev` real (browser→CloudFront→API Gateway→S3 sem mocks) — projeto de infra de teste novo, não correção pontual; precisa de decisão sobre credenciais/tenant de teste, cadência de execução e estratégia de limpeza antes de começar. Deliberadamente adiado, Marcelo 2026-09-14.
-9. **Import CSV em massa para Items** (proposta, ainda não decidida) — hoje o import CSV (`src/modules/import/`) só cobre `TrackedSubject`/`Document`/`Requirement`, não `Item` (o vencimento em si, entidade mais central do produto). Identificado como lacuna real durante o Programa de Performance (PERF-12, 2026-09-14) ao precisar semear 10k Items para teste de carga do pipeline de lembretes — não existe hoje nenhum caminho de criação em massa para Items (nem CSV, nem bulk-create). Não é correção pontual: decisões de produto reais precisam ser tomadas antes de implementar — mapeamento de colunas, se a Política de Lembrete vem junto na mesma linha ou é configurada depois, estratégia de deduplicação, validação linha a linha (mesmo padrão já usado para os outros 3 tipos). Provável nível 5-6 na escala de risco (`docs/engineering/change-risk-scale.md`) — protocolo Claude↔Codex + possível ADR antes de implementar. **AUTORIZADO 2026-09-21** a virar iniciativa autônoma (ver "Próxima ação recomendada" abaixo) — protocolo suspenso, decidir e marcar `PENDING_PROTOCOL_REVIEW`.
+9. ~~Import CSV em massa para Items~~ — **RESOLVIDO 2026-09-21 (D-319, `PENDING_PROTOCOL_REVIEW`)**:
+   4º tipo em `src/modules/import/` (`ImportTargetEntityType: "Item"`), mesmo padrão de
+   `TrackedSubject`/`Document`/`Requirement` (D-042/D-192). 4 decisões de produto tomadas e
+   documentadas em D-319 (mapeamento fixo v1 sem `assigneeUserId`; `ReminderPolicy` sempre
+   configurada depois, nunca na mesma linha; dedupe via chave sintética
+   `categoryNormalized|nameNormalized|dueDate` em `ImportDedupRecord`; validação linha-a-linha
+   reaproveitando 100% a infraestrutura existente). Commit worker reaproveita o protocolo de
+   2 chamadas do ramo `TrackedSubject` (claim de dedupe + `ExpirationService.createItem()` como
+   caixa-preta), não o TENTATIVA/FALLBACK de `Document`/`Requirement` (`Item` não tem referência
+   nenhuma a resolver). `reserveImport()` generalizado para aceitar `targetEntityType` opcional
+   (fechou incidentalmente o mesmo gap para `Document`/`Requirement`, que nunca tiveram via HTTP
+   real de criação de job). Sem tela de frontend nova (`ImportWizard.tsx` já é documentadamente
+   `TrackedSubject`-only, mesmo gap que os outros 2 tipos já tinham). Backend 271/3179 verdes
+   (+31 novos), cobertura 86,63%/84,85%/86,95%/86,63% (acima do threshold 85/83/85/85, D-317).
+   Revisão adversarial Codex pendente quando o protocolo voltar (ver item 20 abaixo).
 10. ~~`NotificationEntitlements` nunca provisionado~~ — **RESOLVIDO 2026-09-21 (D-315,
     `PENDING_PROTOCOL_REVIEW`)**: seedado atomicamente na criação da Organization
     (`CreateOrganizationService`), `email.enabled: true`/`whatsapp.enabled: false` por padrão.
@@ -136,6 +150,7 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
 19. **Versionamento completo de `Document` (item-level) — `PENDING_PROTOCOL_REVIEW` (D-314, 2026-09-21)**: pedido de Marcelo após comparar a tela "Documento" real com o protótipo, que assume um modelo de "substituir arquivo" inexistente hoje (`Document` é 1 linha = 1 arquivo, sem histórico/versão). Investigação confirmou que é mudança nível 5-6, estruturalmente equivalente ao D-143 (Domínio Documental, 6 rodadas de protocolo) — não implementado, nenhum código escrito. Assim que o protocolo Claude↔Codex voltar (Codex 2026-09-23), rodar a revisão adversarial completa, incluindo a alternativa de menor risco identificada (reaproveitar a máquina de versionamento já existente em `document-archive`/D-143 em vez de duplicá-la). "Baixar documento" (a outra metade do mesmo pedido) já foi implementado nesta sessão sem precisar de protocolo (D-313, nível 1-3, aditivo puro).
 20. **`NotificationEntitlements` seedado no onboarding e endpoint agregado de urgência da Visão Geral — ambos `PENDING_PROTOCOL_REVIEW` (D-315/D-316, 2026-09-21)**: implementados a pedido explícito de Marcelo (nível 3-4 cada, código real escrito e testado — ver itens #10/#14 acima e `decisions-log.md` para detalhe), mas envolveram decisão de produto (política de entitlement do plano free; quais 3 números mapeiam para os cards) tomada sem o protocolo Claude↔Codex formal. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23).
 21. **Página de login customizada — hoje usa a Hosted UI padrão do Cognito** (`fetch-cognito-oidc-client.ts`, domínio `*.auth.<region>.amazoncognito.com`), sem identidade visual própria (v2 violeta/Plus Jakarta Sans). Achado de Marcelo, 2026-09-21, ainda não investigado tecnicamente — decisões reais pendentes antes de virar iniciativa: Cognito Managed Login (branding customizável dentro do próprio Hosted UI, sem sair do domínio Cognito, menor esforço) vs. UI totalmente própria com Cognito só como backend OIDC (mais controle visual, mais superfície de auth para manter/testar). Precisa investigar direto na documentação oficial AWS antes de propor caminho (`AGENTS.md` §4). Sem prioridade definida ainda.
+22. **Import CSV em massa para Items — `PENDING_PROTOCOL_REVIEW` (D-319, 2026-09-21)**: implementado a pedido explícito de Marcelo (nível 5-6, código real escrito e testado — ver item #9 acima e `decisions-log.md` D-319 para as 4 decisões de produto), mas decidido/implementado sem o protocolo Claude↔Codex formal (suspenso). Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial ao trade-off de dedupe (decisão 3: sem proteção contra colisão com Item criado fora de import) e à generalização de `reserveImport()`'s `targetEntityType` (efeito colateral sobre Document/Requirement).
 
 ## Próxima ação recomendada
 
@@ -150,13 +165,8 @@ tem (não uma escolha técnica razoável que já cabe a esta sessão decidir soz
 
 1. ~~Item #3 — `coverage.thresholds` em `vitest.config.ts` (E-023)~~ — **RESOLVIDO 2026-09-21
    (D-317)**, ver item 3 da lista consolidada de pendências acima.
-2. **Item #9 — Import CSV em massa para Items**: autorizado a virar iniciativa agora. Prováveis
-   decisões de produto a tomar sozinho (mapeamento de colunas, se a Política de Lembrete vem na
-   mesma linha ou é configurada depois, estratégia de deduplicação) seguem o mesmo padrão já usado
-   para os outros 3 tipos de import (`src/modules/import/`). Nível 5-6 pela `change-risk-scale.md`
-   — protocolo Claude↔Codex normalmente exigido está suspenso (Codex bloqueado até 2026-09-23):
-   decidir e implementar mesmo assim, registrando como `PENDING_PROTOCOL_REVIEW` (mesmo padrão de
-   D-315/D-316), nunca `APPROVED_BY_OWNER`.
+2. ~~Item #9 — Import CSV em massa para Items~~ — **RESOLVIDO 2026-09-21 (D-319,
+   `PENDING_PROTOCOL_REVIEW`)**, ver item 9 da lista consolidada de pendências acima.
 3. ~~Item #13 — `ci.yml` sem fila global de lock do Terraform (D-306)~~ — **RESOLVIDO 2026-09-21
    (D-318)**, ver item 13 da lista consolidada de pendências acima.
 4. **Item #21 — Página de login customizada**: hoje é a Hosted UI padrão do Cognito. Investigar
@@ -237,7 +247,7 @@ listadas aqui para retomar quando Codex/Antigravity voltarem.
 pré-existente de cold start (`performance/TODO.md` §PERF-14); ADOT descarta lotes de trace sob
 carga sustentada sem afetar requisições reais (correção exigiria `collector.yaml` customizado em
 ~69 Lambdas, registrado como débito técnico); consolidação de 23 PRs Dependabot do Terraform em
-andamento; import CSV em massa para Items ainda não escopado (item 9 da lista de pendências abaixo).
+andamento.
 
 ## Itens de 2026-09-20 ainda não decididos/iniciados (ordem de Marcelo, itens 1-2 já resolvidos acima)
 
