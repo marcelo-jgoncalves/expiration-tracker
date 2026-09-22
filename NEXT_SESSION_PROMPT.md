@@ -158,6 +158,7 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
 22. **Import CSV em massa para Items — `PENDING_PROTOCOL_REVIEW` (D-319, 2026-09-21)**: implementado a pedido explícito de Marcelo (nível 5-6, código real escrito e testado — ver item #9 acima e `decisions-log.md` D-319 para as 4 decisões de produto), mas decidido/implementado sem o protocolo Claude↔Codex formal (suspenso). Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial ao trade-off de dedupe (decisão 3: sem proteção contra colisão com Item criado fora de import) e à generalização de `reserveImport()`'s `targetEntityType` (efeito colateral sobre Document/Requirement).
 23. **Login/signup/reset de senha via UI própria (reversão de D-320) — `PENDING_PROTOCOL_REVIEW` (D-321, 2026-09-22)**: ver item #21 acima e `decisions-log.md` D-321. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial à escolha `USER_PASSWORD_AUTH` (vs. SRP) e ao SECRET_HASH server-side no BFF (nova superfície de autenticação).
 24. ~~CI vermelho pós-D-321 + drift do Managed Login~~ — **RESOLVIDO 2026-09-22 (D-322/D-323)**: specs e2e/gate k6 assumiam o redirect antigo pra Hosted UI, corrigidos. Gap aberto sem impacto real: `dev` continua `ManagedLoginVersion=2` (Terraform de D-321 não força downgrade, optional+computed) — só importa se `GET /bff/login` reativar como fallback. Detalhe: `decisions-log.md` D-322/D-323.
+25. **Toggle real de canal (E-mail/WhatsApp) — adiado por Marcelo (D-327)**: E-mail Switch é só visual, WhatsApp só tem opt-in. Não iniciar sem pedido explícito.
 
 ## Próxima ação recomendada
 
@@ -172,15 +173,16 @@ aberto e MERGEADO 2026-09-22** (`main` em `01cb15d4`), CI verde em todos os jobs
 
 **Continuação 2026-09-22 (mesma sessão, depois do mandato): reestruturação visual de telas por
 protótipo real enviado por Marcelo, uma de cada vez, sempre confirmada por screenshot real antes
-do commit** — Criar Vencimento (grade 2 colunas, `7ad0d049`), busca de Fornecedores (largura do
-placeholder, `b247032f`), Novo/Editar Fornecedor (Panel/Section + grade, `83596ff6`), Entrega de
-Solicitação (cartões selecionáveis, `5bc96372`), Log de Atividade (filtros em grade + cartões
-reais, apply/clear em vez de live-filter, `e47eb837`). Todas pushadas em `develop` e já incluídas
-no PR #384/merge para `main`. **Próxima ação real**: aguardar Marcelo enviar o próximo protótipo
-de tela a ajustar (padrão já estabelecido: ler o HTML de referência, localizar a tela real
-correspondente, replicar estrutura/agrupamento com os componentes reais do design system v2 —
-nunca HTML bruto —, escopar CSS novo por tela quando diverge do padrão coluna-única do resto do
-produto, rodar checklist completo + screenshot real, só então commit/push).
+do commit** — Criar Vencimento, busca de Fornecedores, Novo/Editar Fornecedor, Entrega de
+Solicitação, Log de Atividade, Requisitos documentais (tiles de métrica coloridos permanentemente,
+`3aab86ed`), Importação em massa. Bug real de login (D-324/D-325, 2 rodadas — reproduzido ao vivo
+contra `dev` real, autorizado por Marcelo). G5 (opt-in de WhatsApp) fechado: backend já existia
+(D-286), faltava só a UI (D-326). Notificações: E-mail vira `Switch` visual, "Idioma dos
+lembretes" removido (D-327) — toggle REAL de canal (E-mail editável/WhatsApp opt-out) adiado por
+Marcelo, ver item 25 abaixo. Tudo pushado em `develop`, CI+CD verdes. **Próxima ação real**:
+aguardar Marcelo decidir o item 25, e/ou enviar o próximo protótipo (padrão: ler HTML de
+referência, replicar com componentes reais do design system v2 — nunca HTML bruto —, checklist
+completo + screenshot real antes do commit).
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 
