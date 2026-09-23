@@ -82,13 +82,13 @@
  * highlighting is unaffected, it was never the item with the bug.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Bell, Check, Clock } from "lucide-react";
 import { useNotificationPreferences } from "../hooks/useNotificationPreferences.js";
 import { useUpdateNotificationPreferences } from "../hooks/useUpdateNotificationPreferences.js";
 import { useWhatsAppOptIn } from "../hooks/useWhatsAppOptIn.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { InitialLoading, ErrorState } from "../components/AsyncStates.js";
-import { PageHeader, Panel } from "../components/ui/Layout.js";
+import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { Switch } from "../components/ui/Switch.js";
 import { Button } from "../components/ui/Button.js";
@@ -344,100 +344,111 @@ function PreferencesPanel() {
 
   return (
     <>
-    <Panel padded>
-      {preferences.consentSource === "MIGRATED_DEFAULT" ? (
-        <InlineNotice tone="neutral">Estas são as preferências padrão — ainda não personalizadas.</InlineNotice>
-      ) : null}
+    {preferences.consentSource === "MIGRATED_DEFAULT" ? (
+      <InlineNotice tone="neutral">Estas são as preferências padrão — ainda não personalizadas.</InlineNotice>
+    ) : null}
 
-      <div className="notif-prefs__row">
-        <div className="notif-prefs__row-label">
-          <h3>E-mail</h3>
-          <p className="u-text-secondary">{preferences.emailEnabled ? "Canal padrão da sua conta" : "Desativado — contate o suporte para reativar"}</p>
-        </div>
-        <div className="notif-prefs__row-control">
-          {/* Deviation 1 (file header) - still no real toggle here (e-mail is the mandatory
-              channel, A18 spec), only visually upgraded from Checkbox to the same Switch
-              component used for real toggles elsewhere (ItemReminderPolicy.tsx) for consistency. */}
-          <Switch label="Ativado" checked={preferences.emailEnabled} onChange={() => {}} disabled />
-          <p className="u-text-secondary">{consentCopy(preferences.consentSource, preferences.createdAt, preferences.updatedAt)}</p>
-        </div>
-      </div>
-
-      <div className="notif-prefs__row">
-        <div className="notif-prefs__row-label">
-          <h3>WhatsApp</h3>
-          <p className="u-text-secondary">Ainda não envia mensagens de verdade — o telefone fica registrado para quando o canal for liberado.</p>
-        </div>
-        <div className="notif-prefs__row-control">
-          {whatsAppConfirmedPhone ? (
-            <div className="notif-prefs__whatsapp-confirmed">
-              <InlineNotice tone="success" announce="status">
-                Número {whatsAppConfirmedPhone} registrado. Você será avisado quando o WhatsApp estiver disponível.
-              </InlineNotice>
+    {/* 2026-09-23 (Marcelo): duas colunas lado a lado - Canais à esquerda, Horário silencioso à
+        direita - em vez da coluna única que deixava a tela espremida contra um vazio enorme à
+        direita do Panel (mesmo achado real de `SubjectForm.css`/`CreateItem.css`). */}
+    <div className="notif-prefs__grid">
+      <Section heading="Canais de notificação" headingId="notif-channels" icon={Bell}>
+        <Panel padded>
+          <div className="notif-prefs__row">
+            <div className="notif-prefs__row-label">
+              <h3>E-mail</h3>
+              <p className="u-text-secondary">{preferences.emailEnabled ? "Canal padrão da sua conta" : "Desativado — contate o suporte para reativar"}</p>
             </div>
-          ) : (
-            <>
-              <div className="notif-prefs__whatsapp-phone">
-                <TextField
-                  id="whatsapp-phone"
-                  label="Telefone"
-                  hideLabel
-                  value={whatsAppPhone}
-                  onChange={setWhatsAppPhone}
-                  error={whatsAppError}
-                  placeholder="+5511999999999"
-                />
-              </div>
-              <Button variant="secondary" size="sm" pending={whatsAppOptIn.isPending} onClick={handleWhatsAppOptIn}>
-                {whatsAppOptIn.isPending ? "Ativando…" : "Ativar WhatsApp"}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+            <div className="notif-prefs__row-control">
+              {/* Deviation 1 (file header) - still no real toggle here (e-mail is the mandatory
+                  channel, A18 spec), only visually upgraded from Checkbox to the same Switch
+                  component used for real toggles elsewhere (ItemReminderPolicy.tsx) for consistency. */}
+              <Switch label="Ativado" checked={preferences.emailEnabled} onChange={() => {}} disabled />
+              <p className="u-text-secondary">{consentCopy(preferences.consentSource, preferences.createdAt, preferences.updatedAt)}</p>
+            </div>
+          </div>
 
-      <div className="notif-prefs__row">
-        <div className="notif-prefs__row-label">
-          <h3>Horário silencioso</h3>
-          <p className="u-text-secondary">Nenhum lembrete enviado neste intervalo</p>
-        </div>
-        <div className="notif-prefs__row-control">
-          <fieldset className="notif-prefs__quiet-hours-fields">
-            <legend className="u-visually-hidden">Horário silencioso</legend>
-            <TextField id="quiet-hours-start" label="Das" type="time" value={quietStart} onChange={setQuietStart} error={startFieldError} />
-            <TextField id="quiet-hours-end" label="Até" type="time" value={quietEnd} onChange={setQuietEnd} error={endFieldError} />
-          </fieldset>
-          {crossesMidnight ? <p className="u-text-secondary">Este intervalo atravessa a meia-noite.</p> : null}
-        </div>
-      </div>
+          <div className="notif-prefs__row">
+            <div className="notif-prefs__row-label">
+              <h3>WhatsApp</h3>
+              <p className="u-text-secondary">Em breve. Cadastre seu número agora para ser avisado assim que o canal for liberado.</p>
+            </div>
+            <div className="notif-prefs__row-control">
+              {whatsAppConfirmedPhone ? (
+                <div className="notif-prefs__whatsapp-confirmed">
+                  <InlineNotice tone="success" announce="status">
+                    Número {whatsAppConfirmedPhone} registrado. Você será avisado quando o WhatsApp estiver disponível.
+                  </InlineNotice>
+                </div>
+              ) : (
+                <>
+                  <div className="notif-prefs__whatsapp-phone">
+                    <TextField
+                      id="whatsapp-phone"
+                      label="Telefone"
+                      hideLabel
+                      value={whatsAppPhone}
+                      onChange={setWhatsAppPhone}
+                      error={whatsAppError}
+                      placeholder="+5511999999999"
+                    />
+                  </div>
+                  <Button variant="secondary" size="sm" pending={whatsAppOptIn.isPending} onClick={handleWhatsAppOptIn}>
+                    {whatsAppOptIn.isPending ? "Ativando…" : "Ativar WhatsApp"}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </Panel>
+      </Section>
 
-      {conflict ? (
-        <InlineNotice
-          tone="warning"
-          announce="alert"
-          actions={
-            <Button size="sm" variant="secondary" onClick={() => void handleReloadAfterConflict()}>
-              Recarregar
-            </Button>
-          }
-        >
-          Suas preferências foram alteradas em outro lugar enquanto você editava. Recarregue para ver os valores atuais antes de salvar novamente.
-          {reloadFailed ? " Não foi possível recarregar agora — tente novamente." : ""}
-        </InlineNotice>
-      ) : saveState === "unknown-outcome" ? (
-        <InlineNotice tone="warning" announce="alert">
-          Não sabemos se suas preferências foram salvas — verifique antes de tentar novamente.
-        </InlineNotice>
-      ) : saveState === "timezone-unavailable" ? (
-        <InlineNotice tone="warning" announce="alert">
-          Não foi possível detectar seu fuso horário automaticamente — não é seguro salvar o horário silencioso agora. Tente novamente ou recarregue a página.
-        </InlineNotice>
-      ) : saveState === "error" ? (
-        <InlineNotice tone="critical" announce="alert">
-          Não foi possível salvar suas preferências. Tente novamente.
-        </InlineNotice>
-      ) : null}
-    </Panel>
+      <Section heading="Horário silencioso" headingId="quiet-hours" icon={Clock}>
+        <Panel padded>
+          <div className="notif-prefs__row">
+            <div className="notif-prefs__row-label">
+              <p className="u-text-secondary">Nenhum lembrete enviado neste intervalo.</p>
+            </div>
+            <div className="notif-prefs__row-control">
+              <fieldset className="notif-prefs__quiet-hours-fields">
+                <legend className="u-visually-hidden">Horário silencioso</legend>
+                <TextField id="quiet-hours-start" label="Das" type="time" value={quietStart} onChange={setQuietStart} error={startFieldError} />
+                <TextField id="quiet-hours-end" label="Até" type="time" value={quietEnd} onChange={setQuietEnd} error={endFieldError} />
+              </fieldset>
+              {crossesMidnight ? <p className="u-text-secondary">Este intervalo atravessa a meia-noite.</p> : null}
+            </div>
+          </div>
+        </Panel>
+      </Section>
+    </div>
+
+    {conflict ? (
+      <InlineNotice
+        tone="warning"
+        announce="alert"
+        actions={
+          <Button size="sm" variant="secondary" onClick={() => void handleReloadAfterConflict()}>
+            Recarregar
+          </Button>
+        }
+      >
+        Suas preferências foram alteradas em outro lugar enquanto você editava. Recarregue para ver os valores atuais antes de salvar novamente.
+        {reloadFailed ? " Não foi possível recarregar agora — tente novamente." : ""}
+      </InlineNotice>
+    ) : saveState === "unknown-outcome" ? (
+      <InlineNotice tone="warning" announce="alert">
+        Não sabemos se suas preferências foram salvas — verifique antes de tentar novamente.
+      </InlineNotice>
+    ) : saveState === "timezone-unavailable" ? (
+      <InlineNotice tone="warning" announce="alert">
+        Não foi possível detectar seu fuso horário automaticamente — não é seguro salvar o horário silencioso agora. Tente novamente ou recarregue a página.
+      </InlineNotice>
+    ) : saveState === "error" ? (
+      <InlineNotice tone="critical" announce="alert">
+        Não foi possível salvar suas preferências. Tente novamente.
+      </InlineNotice>
+    ) : null}
+
     {/* Codex review round 2 MEDIUM finding, corrected: `position: sticky` on an element inside
         `Panel` never actually stuck - `.ui-panel` sets `overflow: hidden`, which makes the PANEL
         itself (not the page) the relevant scrolling ancestor, and the panel only ever grows to

@@ -36,7 +36,7 @@ export function useLogin() {
 }
 
 export function useSignUp() {
-  return useMutation<SignUpResult, unknown, { email: string; password: string }>({
+  return useMutation<SignUpResult, unknown, { email: string; password: string; name: string }>({
     mutationFn: (input) => signUp(input),
   });
 }

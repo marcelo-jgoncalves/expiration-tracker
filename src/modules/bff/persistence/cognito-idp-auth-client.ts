@@ -106,7 +106,7 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
     }
   }
 
-  async signUp(input: { username: string; password: string }): Promise<CognitoSignUpOutcome> {
+  async signUp(input: { username: string; password: string; name: string }): Promise<CognitoSignUpOutcome> {
     try {
       await this.client.send(
         new SignUpCommand({
@@ -114,7 +114,15 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
           Username: input.username,
           Password: input.password,
           SecretHash: this.hash(input.username),
-          UserAttributes: [{ Name: "email", Value: input.username }],
+          // `name` (standard Cognito attribute, no schema/read_attributes change needed - see
+          // infra/modules/cognito/main.tf) rides the ID token's own `name` claim on first login,
+          // which `AwsJwtIdTokenVerifier.verify()` already reads generically for every auth path
+          // (direct password login included, not just OIDC) - `BootstrapIdentityService` then
+          // just works, no other backend change required for `GlobalUser.displayName`.
+          UserAttributes: [
+            { Name: "email", Value: input.username },
+            { Name: "name", Value: input.name },
+          ],
         }),
       );
       return { kind: "CONFIRMATION_REQUIRED" };

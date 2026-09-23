@@ -151,11 +151,45 @@ describe("Members", () => {
     expect(screen.queryByLabelText(new RegExp("^Papel de owner-1"))).not.toBeInTheDocument();
     // #15 redesign (2026-09-21): the read-only role cell now shows the presented label
     // (`presentMembershipRole`, "Owner") instead of the raw enum value, matching the labels the
-    // role-change dropdown itself already used. Scoped to the member's own row: the invite
-    // form's role <select> also has an "Owner" option, so an unscoped query matches both.
+    // role-change dropdown itself already used. Scoped to the member's own row so it can't
+    // accidentally match a different "Owner" text elsewhere on the page.
     const row = screen.getByText("owner-1").closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("Owner")).toBeInTheDocument();
+  });
+
+  // Same backend carve-out as the role-change dropdown above (OwnerTierChangeRequiresOwnerError),
+  // but for CreateInvitationService.invite() - an ADMIN actor picking "Owner" in the invite form
+  // used to be a guaranteed backend 403 the UI never warned about (InviteForm had no actorRole
+  // input and always rendered the full, unfiltered ROLE_OPTIONS).
+  it("lets an OWNER actor select the Owner role in the invite form", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    const select = await screen.findByLabelText(new RegExp("^Papel \\("));
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).toContain("OWNER");
+  });
+
+  it("hides the Owner option from an ADMIN actor's invite form", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    const select = await screen.findByLabelText(new RegExp("^Papel \\("));
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).not.toContain("OWNER");
   });
 
   it("submits the invite form with the entered email and default role", async () => {

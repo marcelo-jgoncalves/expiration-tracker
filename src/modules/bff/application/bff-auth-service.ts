@@ -225,9 +225,13 @@ export class BffAuthService {
    * admins, `infra/modules/cognito/main.tf` - self-service signup was already live, this is
    * parity, not a new capability). `auto_verified_attributes = ["email"]` means Cognito always
    * requires the confirmation-code step below before the account can log in. */
-  async signUp(input: { email: string; password: string }): Promise<{ status: "CONFIRMATION_REQUIRED" }> {
+  async signUp(input: { email: string; password: string; name: string }): Promise<{ status: "CONFIRMATION_REQUIRED" }> {
     const username = input.email.trim().toLowerCase();
-    const outcome = await this.deps.cognitoAuthClient.signUp({ username, password: input.password });
+    const name = input.name.trim();
+    if (!name) {
+      throw new ValidationError("O nome é obrigatório.");
+    }
+    const outcome = await this.deps.cognitoAuthClient.signUp({ username, password: input.password, name });
     if (outcome.kind === "EMAIL_ALREADY_REGISTERED") {
       throw new ConflictError("Já existe uma conta com este e-mail.");
     }

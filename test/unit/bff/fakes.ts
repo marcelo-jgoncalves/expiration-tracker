@@ -63,7 +63,7 @@ export class FakeIdTokenVerifier implements IdTokenVerifier {
  * FakeCognitoOidcClient above (mutate `next*` fields to drive scenarios, never hit real Cognito). */
 export class FakeCognitoAuthClient implements CognitoAuthClient {
   authenticateCalls: { username: string; password: string }[] = [];
-  signUpCalls: { username: string; password: string }[] = [];
+  signUpCalls: { username: string; password: string; name: string }[] = [];
   confirmSignUpCalls: { username: string; confirmationCode: string }[] = [];
   resendCalls: { username: string }[] = [];
   forgotPasswordCalls: { username: string }[] = [];
@@ -83,7 +83,7 @@ export class FakeCognitoAuthClient implements CognitoAuthClient {
     this.authenticateCalls.push(input);
     return this.nextAuthenticateOutcome;
   }
-  async signUp(input: { username: string; password: string }): Promise<CognitoSignUpOutcome> {
+  async signUp(input: { username: string; password: string; name: string }): Promise<CognitoSignUpOutcome> {
     this.signUpCalls.push(input);
     return this.nextSignUpOutcome;
   }

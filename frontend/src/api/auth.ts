@@ -38,7 +38,7 @@ export interface SignUpResult {
   status: "CONFIRMATION_REQUIRED";
 }
 
-export async function signUp(input: { email: string; password: string }): Promise<SignUpResult> {
+export async function signUp(input: { email: string; password: string; name: string }): Promise<SignUpResult> {
   const result = await postJson<SignUpResult>("/bff/signup", input, [202]);
   return result ?? { status: "CONFIRMATION_REQUIRED" };
 }

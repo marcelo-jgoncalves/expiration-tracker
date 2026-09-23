@@ -83,7 +83,7 @@ export type CognitoConfirmForgotPasswordOutcome =
 
 export interface CognitoAuthClient {
   authenticateWithPassword(input: { username: string; password: string }): Promise<CognitoAuthenticateOutcome>;
-  signUp(input: { username: string; password: string }): Promise<CognitoSignUpOutcome>;
+  signUp(input: { username: string; password: string; name: string }): Promise<CognitoSignUpOutcome>;
   confirmSignUp(input: { username: string; confirmationCode: string }): Promise<CognitoConfirmSignUpOutcome>;
   resendConfirmationCode(input: { username: string }): Promise<CognitoResendConfirmationOutcome>;
   forgotPassword(input: { username: string }): Promise<CognitoForgotPasswordOutcome>;

@@ -1,0 +1,22 @@
+/* 2026-09-23 (Marcelo): mesmo achado real de `NotificationPreferences.css` - coluna única
+   deixava a tela espremida contra um vazio à direita. "Convidar novo membro" é um formulário
+   compacto (não precisa da largura da tela); o roster/convites pendentes são tabelas que se
+   beneficiam do espaço - por isso convite à esquerda (coluna estreita), conteúdo principal à
+   direita (coluna que sobra), em vez de duas colunas iguais como em Notificações. Só existe
+   quando `manage` é true - sem o formulário de convite, não há nada para pôr ao lado da tabela. */
+.members__grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.members__main > * + * {
+  margin-top: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .members__grid {
+    grid-template-columns: 1fr;
+  }
+}

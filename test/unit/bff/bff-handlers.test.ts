@@ -355,15 +355,20 @@ describe("handleLoginPassword", () => {
 });
 
 describe("handleSignUp", () => {
-  it("400s when email or password is missing", async () => {
+  it("400s when email, password or name is missing", async () => {
     const { deps } = buildDeps();
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
     expect(res.statusCode).toBe(400);
   });
 
   it("202s with CONFIRMATION_REQUIRED on a fresh signup", async () => {
     const { deps } = buildDeps();
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "new@example.com", password: "correct-horse-battery-1" }) });
+    const res = await handleSignUp(deps, {
+      method: "POST",
+      path: "/bff/signup",
+      headers: {},
+      body: JSON.stringify({ email: "new@example.com", password: "correct-horse-battery-1", name: "Ana Exemplo" }),
+    });
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({ status: "CONFIRMATION_REQUIRED" });
   });
@@ -371,7 +376,12 @@ describe("handleSignUp", () => {
   it("409s when the e-mail is already registered", async () => {
     const { deps, cognitoAuthClient } = buildDeps();
     cognitoAuthClient.nextSignUpOutcome = { kind: "EMAIL_ALREADY_REGISTERED" };
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "taken@example.com", password: "x" }) });
+    const res = await handleSignUp(deps, {
+      method: "POST",
+      path: "/bff/signup",
+      headers: {},
+      body: JSON.stringify({ email: "taken@example.com", password: "x", name: "Ana Exemplo" }),
+    });
     expect(res.statusCode).toBe(409);
   });
 });

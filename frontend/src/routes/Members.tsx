@@ -26,6 +26,7 @@ import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
+import "./Members.css";
 
 const ROLE_OPTIONS: { value: MembershipRole; label: string }[] = [
   { value: "VIEWER", label: "Viewer" },
@@ -40,10 +41,19 @@ function canManageMembers(role: MembershipRole | undefined): boolean {
   return role === "ADMIN" || role === "OWNER";
 }
 
-function InviteForm() {
+// Backend tier (create-invitation.ts: `OwnerTierChangeRequiresOwnerError`) - only an OWNER actor
+// may invite someone directly as OWNER. Mirrors `MembersTable`'s own `optionsFor()` so the invite
+// form never offers an option the backend is guaranteed to reject.
+function inviteRoleOptionsFor(actorRole: MembershipRole | undefined): typeof ROLE_OPTIONS {
+  if (actorRole === "OWNER") return ROLE_OPTIONS;
+  return ROLE_OPTIONS.filter((option) => option.value !== "OWNER");
+}
+
+function InviteForm({ actorRole }: { actorRole: MembershipRole | undefined }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<MembershipRole>("MEMBER");
   const invite = useInviteMember();
+  const roleOptions = inviteRoleOptionsFor(actorRole);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -61,7 +71,7 @@ function InviteForm() {
   return (
     <form onSubmit={handleSubmit}>
       <TextField label="E-mail" value={email} onChange={setEmail} required type="text" autoComplete="email" error={errorMessage} />
-      <SelectField label="Papel" value={role} onChange={(value) => setRole(value as MembershipRole)} options={ROLE_OPTIONS} required />
+      <SelectField label="Papel" value={role} onChange={(value) => setRole(value as MembershipRole)} options={roleOptions} required />
       <Button type="submit" variant="primary" icon={UserPlus} pending={invite.isPending}>
         {invite.isPending ? "Enviando…" : "Convidar"}
       </Button>
@@ -178,71 +188,87 @@ export function Members() {
 
   const members = membersQuery.data.members;
 
+  const rosterPanel = (
+    <Panel>
+      {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} actorRole={role} />}
+    </Panel>
+  );
+
+  // Não-gerentes (VIEWER/MEMBER) nunca veem o formulário de convite - sem nada para pôr ao lado
+  // da tabela, a grade de 2 colunas fica com uma coluna vazia. Só ADMIN/OWNER (`manage`) usa o
+  // layout lado a lado; o roster sozinho continua em coluna única para todo o resto.
+  if (!manage) {
+    return (
+      <>
+        {header}
+        {rosterPanel}
+      </>
+    );
+  }
+
   return (
     <>
       {header}
-      {manage ? (
+      <div className="members__grid">
         <Section heading="Convidar novo membro" headingId="invite-member">
           <Panel>
-            <InviteForm />
+            <InviteForm actorRole={role} />
           </Panel>
         </Section>
-      ) : null}
-      <Panel>
-        {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} actorRole={role} />}
-      </Panel>
-      {manage ? (
-        <Section heading="Convites pendentes" headingId="pending-invitations">
-          {/* Holistic frontend review finding: loading, error, and genuine-empty were all
-              collapsed into "render nothing" (`invitationsQuery.data && ...length > 0`) - an
-              admin who hit a load failure had no way to distinguish it from "no invitations". */}
-          {invitationsQuery.isPending ? (
-            <Panel>
-              <CollectionSkeleton label="Carregando convites…" />
-            </Panel>
-          ) : invitationsQuery.isError ? (
-            <Panel>
-              <ErrorState
-                message={invitationsQuery.error instanceof ApiError ? invitationsQuery.error.message : "Não foi possível carregar os convites pendentes."}
-                onRetry={() => void invitationsQuery.refetch()}
-              />
-            </Panel>
-          ) : invitationsQuery.data.invitations.length === 0 ? (
-            <Panel>
-              <EmptyState kind="true-empty" message="Nenhum convite pendente." />
-            </Panel>
-          ) : (
-            <Panel>
-              <DataTable
-                caption="Convites pendentes"
-                columns={[
-                  { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
-                  { key: "role", header: "Papel", render: (i) => presentMembershipRole(i.role) },
-                  { key: "status", header: "Status", render: (i) => <StatusBadge presentation={presentInvitationStatus(i.status)} /> },
-                  {
-                    key: "actions",
-                    header: "Ações",
-                    actions: true,
-                    render: (i) => (
-                      <Button variant="tertiary" size="sm" icon={X} onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
-                        Revogar
-                      </Button>
-                    ),
-                  },
-                ]}
-                rows={invitationsQuery.data.invitations}
-                rowKey={(i) => i.invitationId}
-              />
-              {/* Holistic frontend review finding: revocation had no error rendering at all. */}
-              {revokeInvitation.isError ? (
-                <InlineNotice tone="critical" announce="alert">
-                  {revokeInvitation.error instanceof ApiError ? revokeInvitation.error.message : "Não foi possível revogar este convite."}
-                </InlineNotice>
-              ) : null}
-            </Panel>
-          )}
-        </Section>
-      ) : null}
+        <div className="members__main">
+          {rosterPanel}
+          <Section heading="Convites pendentes" headingId="pending-invitations">
+            {/* Holistic frontend review finding: loading, error, and genuine-empty were all
+                collapsed into "render nothing" (`invitationsQuery.data && ...length > 0`) - an
+                admin who hit a load failure had no way to distinguish it from "no invitations". */}
+            {invitationsQuery.isPending ? (
+              <Panel>
+                <CollectionSkeleton label="Carregando convites…" />
+              </Panel>
+            ) : invitationsQuery.isError ? (
+              <Panel>
+                <ErrorState
+                  message={invitationsQuery.error instanceof ApiError ? invitationsQuery.error.message : "Não foi possível carregar os convites pendentes."}
+                  onRetry={() => void invitationsQuery.refetch()}
+                />
+              </Panel>
+            ) : invitationsQuery.data.invitations.length === 0 ? (
+              <Panel>
+                <EmptyState kind="true-empty" message="Nenhum convite pendente." />
+              </Panel>
+            ) : (
+              <Panel>
+                <DataTable
+                  caption="Convites pendentes"
+                  columns={[
+                    { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
+                    { key: "role", header: "Papel", render: (i) => presentMembershipRole(i.role) },
+                    { key: "status", header: "Status", render: (i) => <StatusBadge presentation={presentInvitationStatus(i.status)} /> },
+                    {
+                      key: "actions",
+                      header: "Ações",
+                      actions: true,
+                      render: (i) => (
+                        <Button variant="tertiary" size="sm" icon={X} onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
+                          Revogar
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  rows={invitationsQuery.data.invitations}
+                  rowKey={(i) => i.invitationId}
+                />
+                {/* Holistic frontend review finding: revocation had no error rendering at all. */}
+                {revokeInvitation.isError ? (
+                  <InlineNotice tone="critical" announce="alert">
+                    {revokeInvitation.error instanceof ApiError ? revokeInvitation.error.message : "Não foi possível revogar este convite."}
+                  </InlineNotice>
+                ) : null}
+              </Panel>
+            )}
+          </Section>
+        </div>
+      </div>
     </>
   );
 }

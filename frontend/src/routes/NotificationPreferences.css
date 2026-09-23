@@ -1,8 +1,26 @@
-/* Codex review round 1 (D-2xx) MÉDIO finding, corrected: the spec's "coluna única, max-width
-   var(--layout-reading-max)" requirement was never actually applied - `Panel` itself carries no
-   max-width by default (only `.ui-page-header__description`/`.ui-section__description` do). */
+/* 2026-09-23 (Marcelo): a coluna única (`max-width: var(--layout-reading-max)`, 42rem) deixava a
+   tela inteira espremida contra um vazio enorme à direita do Panel - mesmo achado real já
+   corrigido em `CreateItem.css`/`SubjectForm.css` para os respectivos formulários de 2 colunas.
+   Sem largura própria aqui: `.notif-prefs__grid` é quem agora define a largura útil da tela. */
 .notif-prefs {
-  max-width: var(--layout-reading-max);
+  max-width: none;
+}
+
+/* Canais (Email/WhatsApp) à esquerda, Horário silencioso à direita - as duas únicas seções desta
+   tela, lado a lado numa única linha em telas largas. `minmax(0, 1fr)` cada (não `auto`), mesmo
+   padrão de `subject-form__grid`, para as duas colunas dividirem o espaço igualmente em vez de
+   uma esticar mais que a outra por conteúdo. */
+.notif-prefs__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .notif-prefs__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .notif-prefs__row {

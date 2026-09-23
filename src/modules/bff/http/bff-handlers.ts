@@ -108,9 +108,10 @@ export async function handleSignUp(deps: BffHttpDeps, req: BffHttpRequest): Prom
     const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const password = typeof body["password"] === "string" ? body["password"] : undefined;
-    if (!email || !password) throw new ValidationError("email and password are required.");
+    const name = typeof body["name"] === "string" ? body["name"] : undefined;
+    if (!email || !password || !name) throw new ValidationError("email, password and name are required.");
 
-    const result = await deps.auth.signUp({ email, password });
+    const result = await deps.auth.signUp({ email, password, name });
     return { statusCode: 202, body: result };
   } catch (err) {
     return toErrorResponse(err);
