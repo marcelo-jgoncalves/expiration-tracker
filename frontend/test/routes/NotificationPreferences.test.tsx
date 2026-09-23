@@ -83,10 +83,10 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     renderScreen();
 
     await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked());
-    // G5 closed (Marcelo, 2026-09-22, D-286): WhatsApp shows a real phone opt-in form now,
+    // Item 26 (Marcelo, 2026-09-23): WhatsApp shows a real phone confirmation form now,
     // never the old permanent "Indisponível" badge.
     expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ativar WhatsApp" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar código" })).toBeInTheDocument();
   });
 
   // Deviation 1 (file header comment, Codex review round 1 BLOQUEANTE finding): the switch is
@@ -347,48 +347,74 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue(""));
   });
 
-  // G5 closed (Marcelo, 2026-09-22, D-286): real WhatsApp opt-in tests.
-  describe("WhatsApp opt-in", () => {
+  // Item 26 (Marcelo, 2026-09-23): phone-ownership confirmation, two-step flow.
+  describe("WhatsApp phone confirmation", () => {
     it("rejects a number that does not match the E.164 shape without ever calling the API", async () => {
       getMock.mockResolvedValue({ preferences: basePreferences() });
       renderScreen();
       await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
 
       fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "011999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Ativar WhatsApp" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
 
       await waitFor(() => expect(screen.getByText(/formato internacional/)).toBeInTheDocument());
       expect(postMock).not.toHaveBeenCalled();
     });
 
-    it("submits a valid E.164 number and shows a real confirmation once the API accepts it", async () => {
+    it("sends the code, then confirms it, showing a real confirmation once the API accepts it", async () => {
       getMock.mockResolvedValue({ preferences: basePreferences() });
-      postMock.mockResolvedValue({ optIn: { phoneE164: "+5511999999999", optedInAt: "2026-09-22T12:00:00.000Z" } });
+      postMock.mockResolvedValueOnce({ expiresAt: "2026-09-23T00:10:00.000Z" });
+      postMock.mockResolvedValueOnce({ optIn: { phoneE164: "+5511999999999", optedInAt: "2026-09-22T12:00:00.000Z" } });
       renderScreen();
       await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
 
       fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Ativar WhatsApp" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
 
-      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/notifications/whatsapp-opt-in", { phoneE164: "+5511999999999", source: "USER_SETTINGS" }));
-      await waitFor(() => expect(screen.getByText(/\+5511999999999 registrado/)).toBeInTheDocument());
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/notifications/whatsapp-opt-in/request-confirmation", { phoneE164: "+5511999999999" }));
+      await waitFor(() => expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText(/^Código de confirmação/), { target: { value: "123456" } });
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/notifications/whatsapp-opt-in/confirm", { phoneE164: "+5511999999999", code: "123456" }));
+      await waitFor(() => expect(screen.getByText(/\+5511999999999 confirmado/)).toBeInTheDocument());
       // The form itself is gone once confirmed - never left showing alongside its own success
       // message, which would look like the opt-in silently failed.
       expect(screen.queryByLabelText(/^Telefone/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/^Código de confirmação/)).not.toBeInTheDocument();
     });
 
-    it("shows the real backend error message (never a generic fallback) when the API rejects the number", async () => {
+    it("shows the real backend error message (never a generic fallback) when requesting the code fails", async () => {
       getMock.mockResolvedValue({ preferences: basePreferences() });
-      postMock.mockRejectedValue(new ApiError({ code: "VALIDATION", category: "VALIDATION", message: "Número já usado por outra conta.", retryable: false }));
+      postMock.mockRejectedValue(new ApiError({ code: "DEPENDENCY_UNAVAILABLE", category: "DEPENDENCY_UNAVAILABLE", message: "Canal WhatsApp ainda não está disponível.", retryable: false }));
       renderScreen();
       await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
 
       fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Ativar WhatsApp" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
 
-      await waitFor(() => expect(screen.getByText("Número já usado por outra conta.")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Canal WhatsApp ainda não está disponível.")).toBeInTheDocument());
       // The form stays usable after a real failure - never replaced by a fake success state.
       expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument();
+    });
+
+    it("shows the real backend error message when the confirmation code is wrong, without recording an opt-in", async () => {
+      getMock.mockResolvedValue({ preferences: basePreferences() });
+      postMock.mockResolvedValueOnce({ expiresAt: "2026-09-23T00:10:00.000Z" });
+      postMock.mockRejectedValueOnce(new ApiError({ code: "VALIDATION", category: "VALIDATION", message: "Código inválido ou expirado.", retryable: false }));
+      renderScreen();
+      await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
+      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
+      await waitFor(() => expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText(/^Código de confirmação/), { target: { value: "000000" } });
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+      await waitFor(() => expect(screen.getByText("Código inválido ou expirado.")).toBeInTheDocument());
+      expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument();
     });
   });
 });

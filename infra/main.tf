@@ -268,14 +268,32 @@ module "reminders_handler" {
 module "notifications_handler" {
   source = "./modules/lambda-function"
 
-  function_name         = "${local.name_prefix}-notifications-handler"
-  handler_name          = "notifications-handler"
-  source_dir            = "${local.dist_dir}/notifications-handler"
-  adot_layer_arn        = var.adot_layer_arn
-  environment_variables = local.common_env
+  # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): WhatsApp phone-ownership confirmation
+  # (request-confirmation/confirm routes) needs the SAME Cloud API secret + AppConfig flags as
+  # module.whatsapp_delivery below - granted here too so this Lambda can send the confirmation
+  # code itself, synchronously, outside the reminder-delivery outbox/queue pipeline.
+  # GUEST_TOKEN_PEPPER reused for the confirmation-code HMAC, same "no cross-family confusion, a
+  # brand new secret would be disproportionate" rationale as memberships_handler's own reuse below.
+  function_name  = "${local.name_prefix}-notifications-handler"
+  handler_name   = "notifications-handler"
+  source_dir     = "${local.dist_dir}/notifications-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    GUEST_TOKEN_PEPPER                 = random_password.guest_token_pepper.result
+    WHATSAPP_SECRET_ID                 = aws_secretsmanager_secret.whatsapp_cloud_api.id
+    WHATSAPP_API_VERSION               = var.whatsapp_api_version
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
+  })
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
-  policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
-  tags                  = { Project = local.project_name, Environment = var.environment }
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.table.gsi4_read_policy_json,
+    data.aws_iam_policy_document.whatsapp_secret_read.json,
+    module.feature_flags.feature_flags_read_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
 }
 
 module "memberships_handler" {

@@ -65,6 +65,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // non-blocking gap in the WhatsApp roadmap item (all 5 engineering slices closed, but no
   // real user could opt in until now).
   { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in" },
+  // Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation, same
+  // notification:configure action as the route above.
+  { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in/request-confirmation" },
+  { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in/confirm" },
   { method: "POST", pathTemplate: "/reminders/policies" },
   { method: "GET", pathTemplate: "/reminders/policies/{policyId}" },
   { method: "PUT", pathTemplate: "/reminders/policies/{policyId}" },

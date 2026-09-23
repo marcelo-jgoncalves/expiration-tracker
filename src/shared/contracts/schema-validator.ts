@@ -48,6 +48,8 @@ import reportSubscriptionDeleteRequestV1 from "../../../schemas/api/report-subsc
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
 import whatsAppOptInRequestV1 from "../../../schemas/api/whatsapp-opt-in-request.v1.json";
+import whatsAppPhoneConfirmationStartRequestV1 from "../../../schemas/api/whatsapp-phone-confirmation-start-request.v1.json";
+import whatsAppPhoneConfirmationConfirmRequestV1 from "../../../schemas/api/whatsapp-phone-confirmation-confirm-request.v1.json";
 import updateProfileRequestV1 from "../../../schemas/api/update-profile-request.v1.json";
 import reserveDocumentUploadRequestV1 from "../../../schemas/api/reserve-document-upload-request.v1.json";
 import createSubjectRequestV1 from "../../../schemas/api/create-subject-request.v1.json";
@@ -212,6 +214,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
   whatsAppOptInRequestV1,
+  whatsAppPhoneConfirmationStartRequestV1,
+  whatsAppPhoneConfirmationConfirmRequestV1,
   updateProfileRequestV1,
   reserveDocumentUploadRequestV1,
   createSubjectRequestV1,

@@ -649,6 +649,10 @@ locals {
     # program fully wired). Same Lambda/authorizer as the routes above, same action name
     # (notification:configure) - a user managing their own channel consent.
     whatsapp_opt_in = { method = "POST", path = "/notifications/whatsapp-opt-in" }
+    # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation before
+    # recordOptIn() is called - same Lambda/authorizer/action as whatsapp_opt_in above.
+    whatsapp_opt_in_request_confirmation = { method = "POST", path = "/notifications/whatsapp-opt-in/request-confirmation" }
+    whatsapp_opt_in_confirm              = { method = "POST", path = "/notifications/whatsapp-opt-in/confirm" }
   }
 }
 

@@ -9,6 +9,8 @@ import { WhatsAppCloudApiAdapter, type WhatsAppCloudApiConfig } from "../../../m
 import { whatsAppOptInKey, type WhatsAppOptIn } from "../../../modules/notification/domain/whatsapp-opt-in.js";
 import { NotificationPreferencesService } from "../../../modules/notification/application/notification-preferences-service.js";
 import { WhatsAppOptInService } from "../../../modules/notification/application/whatsapp-opt-in-service.js";
+import { WhatsAppPhoneConfirmationService } from "../../../modules/notification/application/whatsapp-phone-confirmation-service.js";
+import type { WhatsAppProviderAdapter } from "../../../modules/notification/ports/whatsapp-provider.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { buildTenantManagerLookup } from "./reminder.js";
 import { UlidIdGenerator } from "../ids.js";
@@ -18,6 +20,26 @@ export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableN
   const preferences = new NotificationPreferencesService({ store, tableName });
   const whatsAppOptIn = new WhatsAppOptInService({ store });
   return { store, preferences, whatsAppOptIn };
+}
+
+/**
+ * Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): `WhatsAppPhoneConfirmationService`, built
+ * separately from `buildNotificationHttpDeps` above because it needs credentials/flags that must
+ * be loaded ASYNCHRONOUSLY (Secrets Manager + AppConfig, same sources `buildWhatsAppDeliveryDeps`
+ * already uses for the delivery worker) — the handler is responsible for that async load (same
+ * memoized-per-cold-start pattern as `whatsapp-delivery-handler.ts`'s `getDeps()`) and passes the
+ * resolved `whatsAppProvider`/`isWhatsAppChannelEnabled` in here as plain values.
+ */
+export function buildWhatsAppPhoneConfirmationDeps(
+  client: DynamoDBDocumentClient,
+  tableName: string,
+  whatsAppOptIn: WhatsAppOptInService,
+  whatsAppProvider: WhatsAppProviderAdapter,
+  pepper: string,
+  isWhatsAppChannelEnabled: () => Promise<boolean>,
+): WhatsAppPhoneConfirmationService {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  return new WhatsAppPhoneConfirmationService({ store, whatsAppOptIn, whatsAppProvider, pepper, isWhatsAppChannelEnabled });
 }
 
 /**

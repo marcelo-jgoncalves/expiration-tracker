@@ -48,14 +48,24 @@
  * **G5 CLOSED (2026-09-22, Marcelo)**: `POST /notifications/whatsapp-opt-in` shipped in D-286
  * (`preferences-handlers.ts`'s own doc comment confirms the route, allowlisted in
  * `proxy-allowlist.ts`) — this comment previously said "no HTTP route yet", which had gone stale.
- * The real remaining gap was purely this screen never calling it. Now wired: a phone field
- * (E.164, same pattern the backend schema validates) + "Ativar WhatsApp" button. Safe to expose
- * ahead of the legal prerequisite (E-019) — a separate kill-switch (`whatsappChannelEnabled`,
- * `notification-router.ts`) keeps every WhatsApp send inert regardless of opt-in state until that
- * flag flips, so recording consent now creates no real delivery risk. **Named, accepted gap**: no
- * GET endpoint exists for opt-in status (create-once POST only) — this screen cannot show
- * "already opted in" on load/reload, only an ephemeral confirmation right after a successful
- * submit in the same session. Never claims a persisted "ativado" state it cannot actually read.
+ * **Named, accepted gap**: no GET endpoint exists for opt-in status (create-once POST only) — this
+ * screen cannot show "already opted in" on load/reload, only an ephemeral confirmation right after
+ * a successful submit in the same session. Never claims a persisted "ativado" state it cannot
+ * actually read.
+ *
+ * **Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23, Marcelo) — phone-ownership confirmation.**
+ * `recordOptIn()` used to be called directly from this screen the moment "Ativar WhatsApp" was
+ * pressed, persisting any self-declared number with zero proof of possession (unlike e-mail's
+ * `VerifyEmail.tsx` + Cognito code). Two real risks that made this a blocker for
+ * `WHATSAPP_DELIVERY_WORKER_ENABLED` going live with real users: a mistyped/third-party number
+ * receiving another organization's reminders, and Meta's WhatsApp Business Platform policy
+ * requiring verifiable consent. Now a two-step flow, same shape as `VerifyEmail.tsx`: "Enviar
+ * código" (`requestWhatsAppPhoneConfirmation`) sends a 6-digit code over WhatsApp itself, then a
+ * code field + "Confirmar"/"Reenviar código" (`confirmWhatsAppPhoneConfirmation`) verifies it and
+ * only THEN calls `recordOptIn()` server-side. The channel's own kill-switch (`WHATSAPP`,
+ * `notification-router.ts`) still gates the confirmation SEND itself (not just later delivery) —
+ * every environment today returns a clean "ainda não disponível" error pending E-019, exactly
+ * mirroring this screen's existing "Em breve" copy rather than contradicting it.
  *
  * **Real backend gap, not implemented**: tenant-level channel entitlements
  * (`notification/domain/notification-entitlements.ts`) are never exposed via any HTTP route — the
@@ -85,7 +95,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, Check, Clock } from "lucide-react";
 import { useNotificationPreferences } from "../hooks/useNotificationPreferences.js";
 import { useUpdateNotificationPreferences } from "../hooks/useUpdateNotificationPreferences.js";
-import { useWhatsAppOptIn } from "../hooks/useWhatsAppOptIn.js";
+import { useRequestWhatsAppPhoneConfirmation, useConfirmWhatsAppPhoneConfirmation } from "../hooks/useWhatsAppPhoneConfirmation.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { InitialLoading, ErrorState } from "../components/AsyncStates.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
@@ -158,26 +168,60 @@ const WHATSAPP_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
 function PreferencesPanel() {
   const query = useNotificationPreferences();
   const mutation = useUpdateNotificationPreferences();
-  const whatsAppOptIn = useWhatsAppOptIn();
+  const requestConfirmation = useRequestWhatsAppPhoneConfirmation();
+  const confirmPhone = useConfirmWhatsAppPhoneConfirmation();
 
+  // Item 26: two-step flow, mirroring VerifyEmail.tsx's shape - "idle" (phone entry) ->
+  // "code-sent" (code entry, phone re-typing locked in) -> confirmed (ephemeral success notice,
+  // same "no GET for opt-in status" gap the file header already names).
+  const [whatsAppStep, setWhatsAppStep] = useState<"idle" | "code-sent">("idle");
   const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [whatsAppCode, setWhatsAppCode] = useState("");
   const [whatsAppError, setWhatsAppError] = useState<string | undefined>();
+  const [whatsAppCodeError, setWhatsAppCodeError] = useState<string | undefined>();
   const [whatsAppConfirmedPhone, setWhatsAppConfirmedPhone] = useState<string | undefined>();
 
-  function handleWhatsAppOptIn() {
+  function handleRequestWhatsAppConfirmation() {
     const trimmed = whatsAppPhone.trim();
     if (!WHATSAPP_PHONE_PATTERN.test(trimmed)) {
       setWhatsAppError("Informe o telefone no formato internacional, ex.: +5511999999999.");
       return;
     }
     setWhatsAppError(undefined);
-    whatsAppOptIn.mutate(trimmed, {
+    requestConfirmation.mutate(trimmed, {
       onSuccess: () => {
-        setWhatsAppConfirmedPhone(trimmed);
-        setWhatsAppPhone("");
+        setWhatsAppPhone(trimmed);
+        setWhatsAppStep("code-sent");
       },
       onError: (err) => {
-        setWhatsAppError(err instanceof ApiError ? err.message : "Não foi possível ativar o WhatsApp com este número.");
+        setWhatsAppError(err instanceof ApiError ? err.message : "Não foi possível enviar o código de confirmação pelo WhatsApp.");
+      },
+    });
+  }
+
+  function handleConfirmWhatsAppPhone() {
+    setWhatsAppCodeError(undefined);
+    confirmPhone.mutate(
+      { phoneE164: whatsAppPhone, code: whatsAppCode },
+      {
+        onSuccess: () => {
+          setWhatsAppConfirmedPhone(whatsAppPhone);
+          setWhatsAppStep("idle");
+          setWhatsAppPhone("");
+          setWhatsAppCode("");
+        },
+        onError: (err) => {
+          setWhatsAppCodeError(err instanceof ApiError ? err.message : "Código inválido ou expirado.");
+        },
+      },
+    );
+  }
+
+  function handleResendWhatsAppCode() {
+    setWhatsAppCodeError(undefined);
+    requestConfirmation.mutate(whatsAppPhone, {
+      onError: (err) => {
+        setWhatsAppCodeError(err instanceof ApiError ? err.message : "Não foi possível reenviar o código.");
       },
     });
   }
@@ -377,9 +421,31 @@ function PreferencesPanel() {
               {whatsAppConfirmedPhone ? (
                 <div className="notif-prefs__whatsapp-confirmed">
                   <InlineNotice tone="success" announce="status">
-                    Número {whatsAppConfirmedPhone} registrado. Você será avisado quando o WhatsApp estiver disponível.
+                    Número {whatsAppConfirmedPhone} confirmado. Você será avisado quando o WhatsApp estiver disponível.
                   </InlineNotice>
                 </div>
+              ) : whatsAppStep === "code-sent" ? (
+                <>
+                  <p className="u-text-secondary">Enviamos um código para {whatsAppPhone} pelo WhatsApp.</p>
+                  <div className="notif-prefs__whatsapp-phone">
+                    <TextField
+                      id="whatsapp-code"
+                      label="Código de confirmação"
+                      hideLabel
+                      value={whatsAppCode}
+                      onChange={setWhatsAppCode}
+                      error={whatsAppCodeError}
+                      placeholder="000000"
+                      autoComplete="one-time-code"
+                    />
+                  </div>
+                  <Button variant="secondary" size="sm" pending={confirmPhone.isPending} onClick={handleConfirmWhatsAppPhone}>
+                    {confirmPhone.isPending ? "Confirmando…" : "Confirmar"}
+                  </Button>
+                  <Button variant="tertiary" size="sm" pending={requestConfirmation.isPending} onClick={handleResendWhatsAppCode}>
+                    {requestConfirmation.isPending ? "Reenviando…" : "Reenviar código"}
+                  </Button>
+                </>
               ) : (
                 <>
                   <div className="notif-prefs__whatsapp-phone">
@@ -393,8 +459,8 @@ function PreferencesPanel() {
                       placeholder="+5511999999999"
                     />
                   </div>
-                  <Button variant="secondary" size="sm" pending={whatsAppOptIn.isPending} onClick={handleWhatsAppOptIn}>
-                    {whatsAppOptIn.isPending ? "Ativando…" : "Ativar WhatsApp"}
+                  <Button variant="secondary" size="sm" pending={requestConfirmation.isPending} onClick={handleRequestWhatsAppConfirmation}>
+                    {requestConfirmation.isPending ? "Enviando…" : "Enviar código"}
                   </Button>
                 </>
               )}

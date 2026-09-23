@@ -19,10 +19,16 @@ export function updateNotificationPreferences(input: UpdateNotificationPreferenc
   return apiClient.put<{ preferences: NotificationPreferences }>("/notifications/preferences", input, { expectedVersion });
 }
 
-/** `POST /notifications/whatsapp-opt-in` (D-286) - create-once, always 201 whether this call
- * created the row or found an existing one for the exact same phone (`preferences-handlers.ts`'s
- * own doc comment). No GET counterpart exists yet - there is no way to ask "is this user already
- * opted in" ahead of a submit, a real, named gap (see NotificationPreferences.tsx). */
-export function recordWhatsAppOptIn(phoneE164: string): Promise<{ optIn: { phoneE164: string; optedInAt: string } }> {
-  return apiClient.post<{ optIn: { phoneE164: string; optedInAt: string } }>("/notifications/whatsapp-opt-in", { phoneE164, source: "USER_SETTINGS" });
+/** `POST /notifications/whatsapp-opt-in/request-confirmation` (item 26) - sends a 6-digit code to
+ * `phoneE164` over WhatsApp. Never returns the code itself. Real send is gated server-side on the
+ * `WHATSAPP` channel flag — off in every environment today (pending E-019), so this currently
+ * rejects with a 503 until that flag flips. */
+export function requestWhatsAppPhoneConfirmation(phoneE164: string): Promise<{ expiresAt: string }> {
+  return apiClient.post<{ expiresAt: string }>("/notifications/whatsapp-opt-in/request-confirmation", { phoneE164 });
+}
+
+/** `POST /notifications/whatsapp-opt-in/confirm` (item 26) - verifies the code sent by
+ * `requestWhatsAppPhoneConfirmation` and, only on success, records the `WhatsAppOptIn` server-side. */
+export function confirmWhatsAppPhoneConfirmation(phoneE164: string, code: string): Promise<{ optIn: { phoneE164: string; optedInAt: string } }> {
+  return apiClient.post<{ optIn: { phoneE164: string; optedInAt: string } }>("/notifications/whatsapp-opt-in/confirm", { phoneE164, code });
 }

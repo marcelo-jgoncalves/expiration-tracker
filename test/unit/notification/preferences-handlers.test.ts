@@ -24,13 +24,22 @@ import { RequestContextResolver, type ValidatedClaims } from "../../../src/modul
 import { GlobalUserRepository } from "../../../src/modules/identity/persistence/global-user-repository.js";
 import { TenantQuotaService } from "../../../src/modules/identity/application/quota.js";
 import { NotificationPreferencesService } from "../../../src/modules/notification/application/notification-preferences-service.js";
-import { handleGetPreferences, handleUpdatePreferences, handleRecordWhatsAppOptIn, type NotificationHttpDeps } from "../../../src/modules/notification/http/preferences-handlers.js";
+import {
+  handleGetPreferences,
+  handleUpdatePreferences,
+  handleRecordWhatsAppOptIn,
+  handleRequestWhatsAppPhoneConfirmation,
+  handleConfirmWhatsAppPhoneConfirmation,
+  type NotificationHttpDeps,
+} from "../../../src/modules/notification/http/preferences-handlers.js";
 import { WhatsAppOptInService } from "../../../src/modules/notification/application/whatsapp-opt-in-service.js";
+import { WhatsAppPhoneConfirmationService } from "../../../src/modules/notification/application/whatsapp-phone-confirmation-service.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import type { WhatsAppProviderAdapter, WhatsAppSendInput } from "../../../src/modules/notification/ports/whatsapp-provider.js";
 
 const TABLE = "MainTable";
 
-async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMemoryIdentityStore }> {
+async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMemoryIdentityStore; sentMessages: WhatsAppSendInput[] }> {
   const identityStore = new InMemoryIdentityStore();
   const organizations = new InMemoryOrganizationStore();
   // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
@@ -45,7 +54,17 @@ async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMe
     now: () => "2026-08-21T00:00:00.000Z",
   });
   const whatsAppOptIn = new WhatsAppOptInService({ store: notificationStore, now: () => "2026-08-21T00:00:00.000Z" });
-  return { resolver, preferences, quota, whatsAppOptIn, identityStore };
+  const sentMessages: WhatsAppSendInput[] = [];
+  const provider: WhatsAppProviderAdapter = { send: async (input) => (sentMessages.push(input), { providerMessageId: "msg-1" }) };
+  const whatsAppPhoneConfirmation = new WhatsAppPhoneConfirmationService({
+    store: notificationStore,
+    whatsAppOptIn,
+    whatsAppProvider: provider,
+    pepper: "test-pepper",
+    isWhatsAppChannelEnabled: async () => true,
+    now: () => "2026-08-21T00:00:00.000Z",
+  });
+  return { resolver, preferences, quota, whatsAppOptIn, whatsAppPhoneConfirmation, identityStore, sentMessages };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -112,6 +131,71 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
       correlationId: "c1",
       claims: claims(),
       body: { phoneE164: "not-a-phone", source: "USER_SETTINGS" } as never,
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("handleRequestWhatsAppPhoneConfirmation sends a code and never echoes it back in the response", async () => {
+    const deps = await buildDeps();
+    const response = await handleRequestWhatsAppPhoneConfirmation(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.body["expiresAt"]).toBeTruthy();
+    expect(deps.sentMessages).toHaveLength(1);
+    expect(deps.sentMessages[0]!.to).toBe("+5511999999999");
+  });
+
+  it("handleRequestWhatsAppPhoneConfirmation rejects a malformed phone via schema validation", async () => {
+    const deps = await buildDeps();
+    const response = await handleRequestWhatsAppPhoneConfirmation(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "not-a-phone" } as never,
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("handleConfirmWhatsAppPhoneConfirmation records the opt-in only with the code from the real send", async () => {
+    const deps = await buildDeps();
+    await handleRequestWhatsAppPhoneConfirmation(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999" },
+    });
+    const code = deps.sentMessages[0]!.templateParams[0]!;
+
+    const wrong = await handleConfirmWhatsAppPhoneConfirmation(deps, {
+      requestId: "r2",
+      correlationId: "c2",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", code: "000000" },
+    });
+    expect(wrong.statusCode).toBe(400);
+
+    const right = await handleConfirmWhatsAppPhoneConfirmation(deps, {
+      requestId: "r3",
+      correlationId: "c3",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", code },
+    });
+    expect(right.statusCode).toBe(200);
+    expect((right.body["optIn"] as { phoneE164: string }).phoneE164).toBe("+5511999999999");
+  });
+
+  it("handleConfirmWhatsAppPhoneConfirmation rejects a code via schema validation when malformed", async () => {
+    const deps = await buildDeps();
+    const response = await handleConfirmWhatsAppPhoneConfirmation(deps, {
+      requestId: "r1",
+      correlationId: "c1",
+      claims: claims(),
+      body: { phoneE164: "+5511999999999", code: "abc" } as never,
     });
     expect(response.statusCode).toBe(400);
   });

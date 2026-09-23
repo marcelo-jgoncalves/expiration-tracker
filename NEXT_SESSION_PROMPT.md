@@ -159,6 +159,40 @@ WhatsApp com usuário real). **E-023** teve seu achado pendente de `coverage.thr
 23. **Login/signup/reset de senha via UI própria (reversão de D-320) — `PENDING_PROTOCOL_REVIEW` (D-321, 2026-09-22)**: ver item #21 acima e `decisions-log.md` D-321. Rodar revisão adversarial quando o protocolo voltar (Codex 2026-09-23) — atenção especial à escolha `USER_PASSWORD_AUTH` (vs. SRP) e ao SECRET_HASH server-side no BFF (nova superfície de autenticação).
 24. ~~CI vermelho pós-D-321 + drift do Managed Login~~ — **RESOLVIDO 2026-09-22 (D-322/D-323)**: specs e2e/gate k6 assumiam o redirect antigo pra Hosted UI, corrigidos. Gap aberto sem impacto real: `dev` continua `ManagedLoginVersion=2` (Terraform de D-321 não força downgrade, optional+computed) — só importa se `GET /bff/login` reativar como fallback. Detalhe: `decisions-log.md` D-322/D-323.
 25. **Toggle real de canal (E-mail/WhatsApp) — adiado por Marcelo (D-327)**: E-mail Switch é só visual, WhatsApp só tem opt-in. Não iniciar sem pedido explícito.
+26. ~~Confirmação de posse do número no opt-in de WhatsApp~~ — **IMPLEMENTADO 2026-09-23,
+    `PENDING_PROTOCOL_REVIEW`** (nível 4-5, decisão de Marcelo: implementar direto e marcar para
+    revisão adversarial Codex quando o protocolo voltar, em vez de esperar). Novo par
+    `WhatsAppPhoneConfirmation` (domain+service, `whatsapp-phone-confirmation.ts`/
+    `-service.ts`) — entidade IRMÃ de `WhatsAppOptIn`, nunca um campo de status nela: um código de
+    6 dígitos (HMAC+pepper reaproveitado `GUEST_TOKEN_PEPPER`, TTL 10min, 5 tentativas, cooldown de
+    reenvio de 60s) é enviado via `WhatsAppProviderAdapter.send()` direto (fora do pipeline de
+    outbox/intent/attempt de lembretes) e só DEPOIS de confirmado é que `WhatsAppOptInService.
+    recordOptIn()` é chamado — ou seja, todo `WhatsAppOptIn` criado a partir de agora já nasce
+    possession-confirmed, sem migração/backfill nem mudar `notification-router.ts`/
+    `resolveRecipientPhone`. 2 rotas novas (`POST .../whatsapp-opt-in/request-confirmation` e
+    `.../confirm`), gated no mesmo flag `WHATSAPP` (`isWhatsAppChannelEnabled`) que já existia —
+    todo ambiente hoje retorna 503 "ainda não disponível" até a E-019 (item 4) liberar, o que é
+    coerente com o "Em breve" que a tela já mostrava (nunca uma contradição). `notifications-
+    handler.ts` ganhou o mesmo padrão de carregamento assíncrono de Secrets Manager+AppConfig que
+    `whatsapp-delivery-handler.ts` já usava (memoizado por cold start), com fail-closed se as envs
+    não estiverem configuradas — nunca derruba o Lambda inteiro (que também serve `/notifications/
+    preferences`, sem relação com WhatsApp). Terraform: `notifications_handler` ganhou os mesmos
+    `WHATSAPP_SECRET_ID`/`APPCONFIG_*`/`GUEST_TOKEN_PEPPER` e policies que `whatsapp_delivery` já
+    tinha (mesmo secret, IAM só ampliado, nada novo provisionado) — `terraform validate`/`fmt`/
+    `test` locais rodados (nunca `apply`, regra permanente). Frontend: `NotificationPreferences.tsx`
+    trocou "Ativar WhatsApp" (chamada direta a `recordOptIn`) por um fluxo de 2 passos espelhando
+    `VerifyEmail.tsx` ("Enviar código" → campo de código + "Confirmar"/"Reenviar código") — hook e
+    função de API antigos (`useWhatsAppOptIn`/`recordWhatsAppOptIn`) removidos por ficarem mortos no
+    frontend (a rota HTTP `POST .../whatsapp-opt-in` em si continua existindo/testada, só não é mais
+    chamada por esta tela). Testes: 7 domain + 11 service + 4 handler (backend, todos novos) + 4
+    e2e atualizados (`block8-notification-preferences.spec.ts`, rodados de verdade contra
+    `npm run build`+`vite preview`, não só mockados) + testes unitários de frontend atualizados.
+    3232 testes backend / 466 frontend verdes, lint/typecheck limpos nos dois. **Achado incidental,
+    não corrigido (fora de escopo, pré-existente)**: `infra/modules/api-gateway/tests/
+    api_gateway.tftest.hcl`'s asserção de `/items/{itemId}/documents*` já esperava 6 rotas mas a
+    config real tem 7 — drift não relacionado a esta mudança, não meu para corrigir aqui. Revisão
+    adversarial Codex pendente quando o protocolo voltar (ver item 11 e seguintes acima para o
+    mesmo padrão de espera).
 
 ## Próxima ação recomendada
 
@@ -183,6 +217,22 @@ Marcelo, ver item 25 abaixo. Tudo pushado em `develop`, CI+CD verdes. **Próxima
 aguardar Marcelo decidir o item 25, e/ou enviar o próximo protótipo (padrão: ler HTML de
 referência, replicar com componentes reais do design system v2 — nunca HTML bruto —, checklist
 completo + screenshot real antes do commit).
+
+**Continuação 2026-09-23 (sessão anterior, commitado em `d058becf`)**: achado real corrigido —
+`InviteForm` (Membros) oferecia "Owner" no seletor de convite pra qualquer ADMIN, sem o mesmo
+filtro que a troca de papel já tinha (`create-invitation.ts`'s `OwnerTierChangeRequiresOwnerError`)
+— corrigido + 2 testes novos. Layout em 2 colunas aplicado a Notificações, Membros e Relatórios
+(protótipos enviados por Marcelo). Nome completo passou a obrigatório no cadastro (`SignUp.tsx`) —
+seta o atributo Cognito `name`, que já flui para `GlobalUser.displayName` no primeiro login via
+`AwsJwtIdTokenVerifier`, sem nenhuma outra mudança de backend. Texto de relatório "Vencimentos a
+vencer" → "Vencimentos próximos" (redundância apontada por Marcelo).
+
+**Nova sessão 2026-09-23 (mesmo dia)**: item 26 (confirmação de posse do número de WhatsApp)
+implementado por completo, ver essa entrada na lista de pendências acima para o detalhe técnico —
+`PENDING_PROTOCOL_REVIEW`, ainda não commitado nesta sessão (revisar `git status`/`git diff` antes
+de commitar). **Próxima ação real**: commitar/pushar este trabalho, depois aguardar Marcelo decidir
+o item 25 e/ou enviar o próximo protótipo, e/ou revisão adversarial Codex do item 26 quando o
+protocolo Claude↔Codex voltar.
 
 **Regra permanente (2026-09-14)**: `terraform apply` NUNCA roda localmente — só via pipeline de CD. `plan`/`validate`/`fmt`/`test` locais continuam liberados.
 

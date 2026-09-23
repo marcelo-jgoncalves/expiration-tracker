@@ -199,8 +199,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.notifications) == 3
-    error_message = "Expected exactly 3 /notifications* routes (get/update preferences, whatsapp-opt-in)"
+    condition     = length(aws_apigatewayv2_route.notifications) == 5
+    error_message = "Expected exactly 5 /notifications* routes (get/update preferences, whatsapp-opt-in, request-confirmation, confirm)"
   }
 
   assert {
@@ -219,6 +219,23 @@ run "jwt_authorizer_attached_to_every_route" {
       "POST /notifications/whatsapp-opt-in",
     )
     error_message = "POST /notifications/whatsapp-opt-in route must exist"
+  }
+
+  # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation routes.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.notifications : r.route_key],
+      "POST /notifications/whatsapp-opt-in/request-confirmation",
+    )
+    error_message = "POST /notifications/whatsapp-opt-in/request-confirmation route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.notifications : r.route_key],
+      "POST /notifications/whatsapp-opt-in/confirm",
+    )
+    error_message = "POST /notifications/whatsapp-opt-in/confirm route must exist"
   }
 
   # D-129 (GTR-01 supersession): /profile routes removed entirely - no assertion left for them.
