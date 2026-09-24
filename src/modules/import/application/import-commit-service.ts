@@ -58,7 +58,7 @@ import type { ImportRowPlanEntry, DocumentImportRowPlanEntry, RequirementImportR
 import { QuotaExceededError, TenantNotActiveError } from "../../../shared/errors/app-error.js";
 import { buildVersionedUpdate, getCancellationReasonCodes, isTransactionCanceled, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { executeTenantBusinessMutation } from "../../../shared/tenant-lifecycle/tenant-business-mutation.js";
-import type { ImportStore } from "../ports/import-store.js";
+import type { ImportStore, EntityKey } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import type { SubjectService } from "../../subject/application/subject-service.js";
 import type { ExpirationService } from "../../expiration/application/expiration-service.js";
@@ -93,6 +93,7 @@ export type ImportCommitOutcome =
   | { kind: "FAILED_ENTITLEMENT_EXCEEDED"; createdCount: number }
   | { kind: "FAILED_INTEGRITY_MISMATCH" }
   | { kind: "FAILED_TENANT_NOT_ACTIVE"; createdCount: number }
+  | { kind: "FAILED_INDETERMINATE_ROW_STATE"; createdCount: number }
   | { kind: "SKIPPED_NOT_COMMITTING" };
 
 function syntheticRowDedupKey(jobId: string, rowNumber: number): string {
@@ -101,6 +102,31 @@ function syntheticRowDedupKey(jobId: string, rowNumber: number): string {
 
 async function failJob(deps: ImportCommitDeps, job: ImportJob, reason: string): Promise<void> {
   await deps.store.update<ImportJob>({ ...job, status: "FAILED", failureReason: reason, updatedAt: deps.now(), version: job.version + 1 });
+}
+
+/**
+ * `putIfAbsent()` returning `false` only proves an `ImportDedupRecord` already exists for this
+ * key - it does NOT prove the entity it claims to guard was actually created (round-1 Codex
+ * finding, `docs/architecture/reviews/d319-item-bulk-import-adversarial-review/`). A crash/error
+ * between the claim write and the follow-up `update()` that fills in the real entity id leaves
+ * `subjectId` empty forever. The bug this closes: both `commitTrackedSubjectRows()` and
+ * `commitItemRows()` used to treat ANY existing claim as "already committed successfully" and
+ * silently advance the cursor - if the claim's `subjectId` was still the empty placeholder, the
+ * row's entity was NEVER created, silently and permanently (the row can never be imported again,
+ * and nothing ever creates the entity).
+ *
+ * The other direction is equally unsafe: blindly re-running `createSubject()`/`createItem()`
+ * whenever `subjectId` is empty could DUPLICATE the entity, because an empty `subjectId` does not
+ * prove creation never happened either - it could have succeeded with only the follow-up `update()`
+ * failing, or another concurrent attempt could still be in flight. Neither "assume done" nor
+ * "assume not done" is safe from the claim's existence alone - this is a genuinely indeterminate
+ * state that requires the job to stop and surface for manual/operator investigation (the FAILED
+ * status + a dedicated `failureReason`, same visibility mechanism `FAILED_ENTITLEMENT_EXCEEDED`
+ * already uses), never a silent skip or a blind retry.
+ */
+async function resolveExistingClaim(store: ImportStore, key: EntityKey): Promise<"COMPLETED" | "INDETERMINATE"> {
+  const record = await store.get<ImportDedupRecord>(key);
+  return record?.subjectId ? "COMPLETED" : "INDETERMINATE";
 }
 
 export async function commitImportJob(deps: ImportCommitDeps, ctx: RequestContext, jobId: string): Promise<ImportCommitOutcome> {
@@ -193,9 +219,18 @@ async function commitTrackedSubjectRows(deps: ImportCommitDeps, ctx: RequestCont
         }
         throw err;
       }
+    } else {
+      // claimed === false: an ImportDedupRecord already exists - round-1 Codex finding
+      // (resolveExistingClaim's own doc comment above): its mere existence does NOT prove
+      // createSubject() ever ran. Only a claim with a real subjectId is a safe "already
+      // committed" - anything else stops the job for operator investigation rather than
+      // silently losing the row or risking a duplicate blind retry.
+      const outcome = await resolveExistingClaim(deps.store, importDedupKey(ctx.tenant.tenantId, "SUBJECT", dedupExternalId));
+      if (outcome === "INDETERMINATE") {
+        await failJob(deps, current, "INDETERMINATE_ROW_STATE");
+        return { kind: "FAILED_INDETERMINATE_ROW_STATE", createdCount };
+      }
     }
-    // claimed === false: linha já committada por uma tentativa anterior (retry seguro) -
-    // avança o cursor sem recriar nada.
 
     current = { ...current, lastCommittedRowNumber: entry.rowNumber, updatedAt: deps.now(), version: current.version + 1 };
     await deps.store.update<ImportJob>(current);
@@ -218,7 +253,9 @@ async function commitTrackedSubjectRows(deps: ImportCommitDeps, ctx: RequestCont
  * cap today (confirmed in `expiration-service.ts` - unlike `createSubject()`'s
  * `QuotaExceededError`), so there is no fail-fast branch to mirror; any other error from it
  * propagates and fails the whole worker invocation, same as any TrackedSubject row's
- * unanticipated `createSubject()` error would.
+ * unanticipated `createSubject()` error would. On a RETRY of that failed invocation, an orphaned
+ * claim (round-1 Codex finding, `resolveExistingClaim()`'s own doc comment) stops the job with
+ * `FAILED_INDETERMINATE_ROW_STATE` rather than silently skipping the row or blindly re-creating.
  */
 async function commitItemRows(deps: ImportCommitDeps, ctx: RequestContext, job: ImportJob, entries: ItemImportRowPlanEntry[]): Promise<ImportCommitOutcome> {
   const cursor = job.lastCommittedRowNumber ?? 0;
@@ -265,9 +302,16 @@ async function commitItemRows(deps: ImportCommitDeps, ctx: RequestContext, job: 
         createdAt: deps.now(),
       });
       createdCount += 1;
+    } else {
+      // claimed === false: an ImportDedupRecord already exists - round-1 Codex finding
+      // (resolveExistingClaim's own doc comment above): only a real itemId proves createItem()
+      // ever ran. Same stop-and-surface discipline as the TrackedSubject branch above.
+      const outcome = await resolveExistingClaim(deps.store, importDedupKey(ctx.tenant.tenantId, "ITEM", entry.dedupKey));
+      if (outcome === "INDETERMINATE") {
+        await failJob(deps, current, "INDETERMINATE_ROW_STATE");
+        return { kind: "FAILED_INDETERMINATE_ROW_STATE", createdCount };
+      }
     }
-    // claimed === false: linha já committada por uma tentativa anterior (retry seguro) - avança
-    // o cursor sem recriar nada, mesma disciplina do ramo TrackedSubject.
 
     current = { ...current, lastCommittedRowNumber: entry.rowNumber, updatedAt: deps.now(), version: current.version + 1 };
     await deps.store.update<ImportJob>(current);

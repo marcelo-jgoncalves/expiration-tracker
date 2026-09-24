@@ -1,0 +1,49 @@
+Voce e o revisor adversarial independente (Codex) no protocolo Claude-Codex deste repositorio
+(AGENTS.md secao 4). Uma decisao de nivel 5-6 (bulk CSV import para um 4o tipo de entidade, Item)
+foi implementada sem o protocolo formal (suspenso na epoca, autorizado diretamente pelo dono do
+produto) e agora precisa da revisao adversarial completa, retroativa.
+
+Regra do protocolo: minimo 3 rodadas, nota minima 9.0 de AMBOS antes de considerar concluido, sem
+arredondar. Protocolo de nota cega: voce ainda NAO viu a nota do Claude para esta rodada (existe,
+em arquivo separado, NAO incluido na lista abaixo) - de sua propria nota independente.
+
+Leia estes arquivos (working dir: c:\Users\Usuario\Desktop\projects\expiration-tracker):
+
+1. docs/architecture/reviews/d319-item-bulk-import-adversarial-review/round-1-claude-proposal.md
+2. src/modules/import/domain/import-dedup.ts (dedupe record/tipo, todos os 4 kinds)
+3. src/modules/import/domain/import-row.ts - especificamente a construcao da chave de dedupe de
+   Item (buildItemDedupKey ou equivalente, procure por "categoryNormalized"/dedupKey)
+4. src/modules/import/application/import-commit-service.ts - leia INTEIRO o arquivo, mas preste
+   atencao especial em commitTrackedSubjectRows() e commitItemRows() (ambas por volta das linhas
+   150-280) - o protocolo de 2 chamadas (claim de dedupe + criacao) e como "claimed === false" e
+   tratado em cada uma
+5. src/modules/import/application/import-service.ts - reserveImport() e o default de
+   targetEntityType
+6. schemas/api/reserve-import-request.v1.json
+7. test/unit/import/import-commit-service.test.ts - a secao/describe sobre Item (procure por
+   "Item" ou "commitItemRows") - confira se existe algum teste que force um erro DEPOIS da claim
+   de dedupe suceder mas ANTES de createItem() completar, ou que force um erro do proprio
+   createItem() apos a claim
+8. src/modules/expiration/application/expiration-service.ts - createItem() - confirme se ha algum
+   cap de entitlement/QuotaExceededError ali ou nao
+
+Sua tarefa: critique adversarialmente esta feature como um engenheiro senior faria numa revisao de
+codigo real. A proposta do Claude ja admite 3 achados proprios (dedupe permanente sem protecao
+contra Item manual; claim de dedupe orfa tratada incorretamente como sucesso numa nova tentativa,
+sem cobertura de teste; reserveImport() destravando incidentalmente uma via HTTP nova para
+Document/Requirement). Verifique cada um contra o codigo real - sao precisos? Estao descritos com
+a severidade correta? Falta algum achado que a proposta nao mencionou?
+
+Foco especifico no achado 2 (claim orfa): confirme a leitura do codigo - "claimed === false" em
+commitItemRows() realmente nunca verifica se subjectId ja foi preenchido com um itemId real antes
+de assumir "ja committado com sucesso"? Isso e um bug de correcao real (nao so uma limitacao de
+produto aceita) - concorda? Se sim, qual seria a correcao minima e segura (sem reescrever o
+protocolo inteiro)? Avalie tambem se esse mesmo bug ja existe em commitTrackedSubjectRows() (pre-
+existente, fora do escopo estrito de D-319, mas relevante para decidir se corrigir aqui tambem faz
+sentido ou e escopo demais para esta rodada).
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada) e liste cada achado separadamente
+(bug de correcao vs. gap de produto aceitavel vs. sugestao de polimento). Termine com uma linha no
+formato exato:
+
+NOTA_CODEX: X.X

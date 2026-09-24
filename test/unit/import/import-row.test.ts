@@ -109,6 +109,31 @@ describe("normalizeCsvDateTime (D-3xx)", () => {
   it("rejects a non-date string", () => {
     expect(normalizeCsvDateTime("not-a-date")).toBeUndefined();
   });
+
+  // Round-1 Codex finding (d319-item-bulk-import-adversarial-review): before the fix, only the
+  // plain-date branch calendar-validated - the timestamp branch let `Date.parse` silently roll
+  // "2026-02-30T00:00:00Z" forward to March 2nd instead of rejecting it.
+  it("rejects a calendar-invalid FULL TIMESTAMP (2026-02-30T00:00:00Z), not just a plain date", () => {
+    expect(normalizeCsvDateTime("2026-02-30T00:00:00Z")).toBeUndefined();
+  });
+
+  // Round-2 Codex finding: the calendar-only check let an impossible clock time slip through -
+  // "24:00:00" has a syntactically valid date part, but Date.parse silently rolls it forward to
+  // the next day at midnight instead of erroring, which RFC3339 never allows as a same-day sentinel.
+  it("rejects an impossible clock time (hour 24) even with a calendar-valid date", () => {
+    expect(normalizeCsvDateTime("2026-12-31T24:00:00Z")).toBeUndefined();
+  });
+
+  // Round-1 Codex finding: three different textual representations of the exact same instant
+  // used to produce three different strings, which meant buildItemDedupKey() never caught an
+  // equivalent-but-differently-formatted re-import of the same due date as a duplicate.
+  it("canonicalizes different representations of the SAME instant to the identical string", () => {
+    const fromPlainDate = normalizeCsvDateTime("2026-12-31");
+    const fromUtcTimestamp = normalizeCsvDateTime("2026-12-31T00:00:00Z");
+    const fromOffsetTimestamp = normalizeCsvDateTime("2026-12-30T21:00:00-03:00"); // same instant, -03:00
+    expect(fromPlainDate).toBe(fromUtcTimestamp);
+    expect(fromUtcTimestamp).toBe(fromOffsetTimestamp);
+  });
 });
 
 describe("validateItemImportRow (D-3xx)", () => {
@@ -209,6 +234,15 @@ describe("buildItemDedupKey (D-3xx decision 3)", () => {
   it("treats the same name/category with a DIFFERENT dueDate as a different key", () => {
     const a = buildItemDedupKey("Licença", "Alvará", "2026-12-31T00:00:00.000Z");
     const b = buildItemDedupKey("Licença", "Alvará", "2027-12-31T00:00:00.000Z");
+    expect(a).not.toBe(b);
+  });
+
+  // Round-1 Codex finding (d319-item-bulk-import-adversarial-review): a raw `${a}|${b}|${c}`
+  // join let two DIFFERENT (category, name) pairs collide into the same literal string whenever
+  // one field's value itself contained the "|" separator - both produce "a|b|c".
+  it("never collides two different (category, name) pairs that only differ in where '|' falls", () => {
+    const a = buildItemDedupKey("a|b", "c", "2026-12-31T00:00:00.000Z");
+    const b = buildItemDedupKey("a", "b|c", "2026-12-31T00:00:00.000Z");
     expect(a).not.toBe(b);
   });
 });

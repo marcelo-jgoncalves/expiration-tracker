@@ -178,6 +178,30 @@ describe("commitImportJob (M11, D-042)", () => {
     expect(created).toHaveLength(1); // the dedup claim (not the cursor) is what actually prevented the duplicate
   });
 
+  // Round-1 Codex finding (d319-item-bulk-import-adversarial-review) - same pre-existing bug as
+  // commitItemRows(), fixed here too: a claim with no real subjectId yet must stop the job for
+  // investigation, never be silently treated as "already committed".
+  it("stops with FAILED_INDETERMINATE_ROW_STATE when a claim exists with no real subjectId yet", async () => {
+    await seedPlan([planEntry(1, { externalId: "ext-1" })]);
+    await store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(TENANT, "SUBJECT", "ext-1"),
+      entityType: "ImportDedupRecord",
+      tenantId: TENANT,
+      kind: "SUBJECT",
+      externalId: "ext-1",
+      subjectId: "", // orphaned
+      createdAt: NOW,
+    });
+
+    const outcome = await commitImportJob(deps(), ctx(), JOB_ID);
+
+    expect(outcome).toEqual({ kind: "FAILED_INDETERMINATE_ROW_STATE", createdCount: 0 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("FAILED");
+    expect(job?.failureReason).toBe("INDETERMINATE_ROW_STATE");
+    expect(subjectStore.allItems().filter((i) => i["entityType"] === "TrackedSubject")).toHaveLength(0);
+  });
+
   it("stops fail-fast on entitlement exceeded, without processing the remaining rows", async () => {
     await subjectStore.putIfAbsent<TenantEntitlement>({ ...defaultEntitlement(AUTH_TENANT, NOW), activeTrackedSubjectsLimit: 1 });
     await seedPlan([planEntry(1), planEntry(2), planEntry(3)]);
@@ -602,5 +626,57 @@ describe("commitImportJob — Item branch (D-3xx, PENDING_PROTOCOL_REVIEW)", () 
 
     const created = expirationStore.allItems().find((i) => i["entityType"] === "ExpirationItem");
     expect(created).toMatchObject({ description: "nota", issuer: "Prefeitura", number: "123", periodicity: "ANNUAL", priority: "HIGH", tags: ["urgente"] });
+  });
+
+  // Round-1 Codex finding (d319-item-bulk-import-adversarial-review): an ImportDedupRecord whose
+  // claim exists but whose subjectId is still the "" placeholder means createItem() never ran
+  // (or never finished) - simulates a crash between the claim write and the follow-up update.
+  // Before the fix, this was silently treated as "already committed", permanently losing the row.
+  it("stops with FAILED_INDETERMINATE_ROW_STATE (never silently skips, never blindly re-creates) when a claim exists with no real itemId yet", async () => {
+    await seedPlan([itemEntry(1)]);
+    const entry = itemEntry(1);
+    await store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(TENANT, "ITEM", entry.dedupKey),
+      entityType: "ImportDedupRecord",
+      tenantId: TENANT,
+      kind: "ITEM",
+      externalId: entry.dedupKey,
+      subjectId: "", // orphaned - claim exists, but createItem() never confirmed
+      createdAt: NOW,
+    });
+
+    const outcome = await commitImportJob(deps(), ctx(), JOB_ID);
+
+    expect(outcome).toEqual({ kind: "FAILED_INDETERMINATE_ROW_STATE", createdCount: 0 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("FAILED");
+    expect(job?.failureReason).toBe("INDETERMINATE_ROW_STATE");
+    expect(job?.lastCommittedRowNumber).toBeUndefined(); // cursor never advanced past the indeterminate row
+    expect(expirationStore.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(0); // never blindly re-created
+  });
+
+  // A claim with a REAL itemId already filled in (createItem() genuinely succeeded, only some
+  // earlier retry never got to advance the cursor) must still be treated as done - the fix must
+  // not turn every retry into a false failure.
+  it("still advances the cursor without re-creating when the existing claim already has a real itemId", async () => {
+    await seedPlan([itemEntry(1)]);
+    const entry = itemEntry(1);
+    await store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(TENANT, "ITEM", entry.dedupKey),
+      entityType: "ImportDedupRecord",
+      tenantId: TENANT,
+      kind: "ITEM",
+      externalId: entry.dedupKey,
+      subjectId: "item-already-created",
+      createdAt: NOW,
+    });
+
+    const outcome = await commitImportJob(deps(), ctx(), JOB_ID);
+
+    expect(outcome).toEqual({ kind: "COMMITTED", createdCount: 0 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("COMMITTED");
+    expect(job?.lastCommittedRowNumber).toBe(1);
+    expect(expirationStore.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(0);
   });
 });

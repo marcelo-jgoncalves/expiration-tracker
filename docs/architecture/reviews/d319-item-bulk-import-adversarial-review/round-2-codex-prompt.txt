@@ -1,0 +1,43 @@
+Rodada 2, protocolo Claude-Codex sobre D-319 (bulk import de Item). Rodada 1 voce deu 6.5/10 com
+6 achados (2 de alta severidade). Nota cega: voce ainda nao viu a nota do Claude desta rodada
+(arquivo separado, nao esta na lista abaixo).
+
+Leia:
+
+1. docs/architecture/reviews/d319-item-bulk-import-adversarial-review/round-2-claude-revision.md
+
+Depois verifique cada correcao contra o codigo real:
+
+2. src/modules/import/application/import-commit-service.ts - a nova funcao resolveExistingClaim()
+   e como e usada em AMBOS commitTrackedSubjectRows() e commitItemRows() - confirme que a logica
+   esta correta (le o record, so trata como concluido se subjectId tiver um valor real) e que o
+   novo outcome FAILED_INDETERMINATE_ROW_STATE realmente para o job sem avancar o cursor
+3. src/modules/import/domain/import-row.ts - buildItemDedupKey() (agora JSON.stringify) e
+   normalizeCsvDateTime() (canonicalizacao + validacao de calendario no ramo timestamp)
+4. src/modules/import/application/import-service.ts - reserveImport() incluindo
+   effectiveTargetEntityType no requestHash
+5. test/unit/import/import-commit-service.test.ts - os 3 testes novos sobre claim orfa (procure
+   "INDETERMINATE" ou "orphaned")
+6. test/unit/import/import-row.test.ts - os 3 testes novos (calendario em timestamp,
+   canonicalizacao, colisao de delimitador)
+7. test/unit/import/import-service.test.ts - os 2 testes novos sobre requestHash/targetEntityType
+
+Para cada um dos 6 achados da Rodada 1, confirme se foi genuinamente resolvido:
+- Achado 1/2 (claim orfa): a correcao aplicada e exatamente a que voce recomendou (ler o record,
+  so aceitar como concluido com ID real preenchido, parar o job em vez de recriar ou pular)?
+  Alguma lacuna na implementacao real (ex: race condition entre a leitura em
+  resolveExistingClaim() e outra escrita concorrente)?
+- Achado 3 (colisao de delimitador): JSON.stringify() realmente elimina a ambiguidade para
+  qualquer entrada, incluindo caracteres de controle ou unicode incomum?
+- Achado 4 (idempotencia): a ordem de resolucao do default ANTES do hash esta correta em todos os
+  caminhos de codigo?
+- Achado 5/6 (datas): a canonicalizacao via toISOString() e a validacao de calendario no ramo
+  timestamp cobrem todos os casos que voce citou?
+
+Avalie tambem se a decisao de corrigir commitTrackedSubjectRows() (fora do escopo estrito de
+D-319) foi apropriada ou introduziu algum risco de regressao no fluxo TrackedSubject existente.
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Se ainda houver algo real faltando,
+liste especificamente. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

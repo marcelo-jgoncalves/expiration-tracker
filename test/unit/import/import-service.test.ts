@@ -141,6 +141,27 @@ describe("ImportService (M11, D-042)", () => {
     expect(bytesQuota?.count).toBe(1);
   });
 
+  // Round-1 Codex finding (d319-item-bulk-import-adversarial-review): before the fix, requestHash
+  // only covered contentLength+checksumSha256 - reusing the same Idempotency-Key and file but
+  // changing targetEntityType silently returned the FIRST call's job (e.g. a TrackedSubject job
+  // handed back for a request that asked for Item), instead of a real conflict.
+  it("reusing the same Idempotency-Key+file with a DIFFERENT targetEntityType is a real conflict, never a silent same-job return", async () => {
+    await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256, targetEntityType: "TrackedSubject" }, "idem-type-conflict");
+
+    await expect(
+      service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256, targetEntityType: "Item" }, "idem-type-conflict"),
+    ).rejects.toThrow(/already in progress/i);
+  });
+
+  // The closed union's default resolution must be applied BEFORE hashing, so an omitted
+  // targetEntityType and an explicit "TrackedSubject" (the same effective request) never
+  // conflict with each other.
+  it("omitting targetEntityType and explicitly passing the default 'TrackedSubject' hash identically (same effective request)", async () => {
+    const first = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256 }, "idem-equiv");
+    const second = await service.reserveImport(ctx(), { contentLength: 1024, checksumSha256: VALID_SHA256, targetEntityType: "TrackedSubject" }, "idem-equiv");
+    expect(second.jobId).toBe(first.jobId);
+  });
+
   it("getImportJob throws NotFoundError for an unknown jobId", async () => {
     await expect(service.getImportJob(ctx(), "does-not-exist")).rejects.toBeInstanceOf(NotFoundError);
   });
