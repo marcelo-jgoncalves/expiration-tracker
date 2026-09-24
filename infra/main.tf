@@ -1748,10 +1748,25 @@ resource "aws_secretsmanager_secret_version" "whatsapp_cloud_api_placeholder" {
 # (WhatsAppDeliveryWorker, WhatsAppWebhookHandler) - D-10's explicit requirement.
 data "aws_iam_policy_document" "whatsapp_secret_read" {
   statement {
-    sid       = "ReadWhatsAppCloudApiSecret"
-    effect    = "Allow"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.whatsapp_cloud_api.arn]
+    sid     = "ReadWhatsAppCloudApiSecret"
+    effect  = "Allow"
+    actions = ["secretsmanager:GetSecretValue"]
+    # Deterministic ARN (region/account/name, `-*` for the random 6-char suffix Secrets Manager
+    # always appends) - never `aws_secretsmanager_secret.whatsapp_cloud_api.arn`/`.name` (nor any
+    # other attribute read back off that resource). Empirically confirmed (2026-09-24, real
+    # `terraform test` runs): for a not-yet-created resource, the AWS provider's SDKv2-based
+    # Secrets Manager implementation leaves EVERY attribute - including ones that only echo back a
+    # config value, like `.name` - as "known after apply" in `tests/stack.tftest.hcl`'s `command =
+    # plan` runs (which never apply, by design - see that file's own header). That made this
+    # document's rendered JSON, and by extension every capability_policy_documents list containing
+    # it, unusable in a `for`/`anytrue()` test assertion. `local.name_prefix` is a pure local value
+    # (never a resource reference), so it's always known regardless of resource lifecycle state -
+    # switching to it here is what actually fixed the assertion; referencing `.name` did not, even
+    # though `.name` is technically an input we set ourselves. Found when D-328 attached this
+    # document to notifications_handler, the first consumer `stack.tftest.hcl` actually asserts on
+    # - `whatsapp_delivery`/`whatsapp_webhook_handler` had the identical latent issue via the
+    # original `.arn` reference, just never surfaced (nothing there was ever asserted on).
+    resources = ["arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${local.name_prefix}-whatsapp-cloud-api-*"]
   }
 }
 

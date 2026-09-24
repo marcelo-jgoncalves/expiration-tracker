@@ -129,8 +129,15 @@ run "gsi3_access_granted_only_to_reminder_producer" {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "SesCallback must NOT reference GSI3"
   }
+  # D-328's 4th entry (feature_flags_read_policy_json) references AppConfig application/
+  # environment/configuration-profile IDs, which AWS assigns server-side - only known after
+  # apply for a not-yet-created resource, same class of gap as dispatch_outbox_relay's stream-
+  # read policy above. `slice(0, 3)` checks the 3 entries that ARE plan-time-known (table RW,
+  # GSI4, WhatsApp secret read - none of which could ever reference GSI3 by construction); the
+  # 4th is a fixed AppConfig statement that by construction never mentions a DynamoDB index ARN,
+  # so omitting it here does not weaken the GSI3 isolation guarantee.
   assert {
-    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    condition     = !anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI3")])
     error_message = "NotificationsHandler must NOT reference GSI3"
   }
 
@@ -315,8 +322,10 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "SesCallback must NOT reference GSI6"
   }
+  # slice(0, 3) - see the GSI3 assertion above for why the 4th entry (AppConfig, D-328) is
+  # excluded (only known after apply for a not-yet-created resource).
   assert {
-    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    condition     = !anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI6")])
     error_message = "NotificationsHandler must NOT reference GSI6"
   }
 
@@ -383,8 +392,11 @@ run "gsi4_access_granted_only_to_identity_context_lambdas" {
     condition     = anytrue([for p in module.reminders_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
     error_message = "RemindersHandler must have a policy referencing GSI4"
   }
+  # slice(0, 3) - see the GSI3 assertion (gsi3_access_granted_only_to_reminder_producer) for why
+  # the 4th entry (AppConfig, D-328) is excluded (only known after apply for a not-yet-created
+  # resource) - GSI4 is in element [1], well within the sliced range.
   assert {
-    condition     = anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    condition     = anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI4")])
     error_message = "NotificationsHandler must have a policy referencing GSI4"
   }
   assert {
