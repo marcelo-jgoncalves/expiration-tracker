@@ -1,0 +1,48 @@
+Você é o revisor adversarial independente (Codex) no protocolo Claude-Codex deste repositório
+(AGENTS.md secao 4). Uma decisão de nível 6 (ADR-0014, separação de ambientes AWS - nova fronteira
+de risco de conta) foi tomada sem o protocolo formal (suspenso na época, autorizado diretamente
+pelo dono do produto) e agora precisa da revisão adversarial completa.
+
+Regra do protocolo: minimo 3 rodadas, nota minima 9.0 de AMBOS antes de considerar concluido, sem
+arredondar. Protocolo de nota cega: voce ainda NAO viu a nota do Claude para esta rodada (existe,
+em arquivo separado, nao esta na lista abaixo).
+
+IMPORTANTE sobre escopo: esta revisao avalia a DECISAO ARQUITETURAL (ADR-0014 completo, Fases 1-4)
+e a Fase 1 + emenda D-306 ja implementadas em codigo real. Fases 2-4 (criar contas AWS novas) NAO
+devem ser executadas por voce nem por ninguem - exigem autorizacao explicita separada do dono do
+produto, o protocolo so avalia se a ARQUITETURA proposta esta correta.
+
+Leia, nesta ordem:
+
+1. docs/architecture/reviews/adr-0014-environment-separation-adversarial-review/round-1-claude-proposal.md
+2. docs/architecture/adr/ADR-0014-environment-separation.md (o ADR completo, ja com a Emenda 2
+   desta rodada aplicada - a proposta do Claude explica o achado que motivou essa emenda)
+3. infra/variables.tf (variable "environment" - confirme a Fase 1 esta implementada como descrito)
+4. .github/workflows/cd.yml (trigger workflow_run - confirme a emenda D-306)
+
+Depois, verifique via pesquisa externa (documentacao oficial, nunca so memoria - AGENTS.md secao 4
+exige isso para decisao AWS-specific):
+
+5. A citacao da AWS sobre SCPs nao restringirem a management account (usada para justificar a
+   Emenda 2) - confirme que a citacao e precisa e que a conclusao (dev nao deve virar management
+   account) esta correta.
+6. Rode `gh run list --workflow="Deploy (CD)" --limit 15` (voce tem acesso de shell) para verificar
+   independentemente a evidencia ao vivo que a proposta cita sobre o CD disparando corretamente via
+   workflow_run, incluindo o caso "skipped" quando CI falha.
+
+Sua tarefa: critique adversarialmente esta decisao arquitetural como um arquiteto de nuvem senior
+faria numa revisao real. Considere especificamente:
+- A escolha central (AWS Organizations, conta-por-ambiente, nunca terraform workspace) esta
+  correta e bem fundamentada, ou ha uma alternativa melhor nao considerada?
+- Falta alguma peca real da arquitetura-alvo (ex: Service Control Policies especificas, estrategia
+  de political de backup/DR cross-conta, como o OIDC trust role de cada conta nova sera
+  provisionado, billing alerts/budget por conta)?
+- A Fase 1 (aditiva) e a emenda D-306 estao implementadas corretamente, sem risco real a dev?
+- O achado da Emenda 2 (management account nunca deve ser dev) esta correto e bem resolvido?
+- Alguma coisa no rollout faseado (Fases 2-4) tem um gap logico ou um gatilho mal definido?
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Liste cada achado separadamente
+(decisao arquitetural incorreta vs. peca faltante vs. sugestao de polimento vs. confirmacao de que
+esta correto). Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

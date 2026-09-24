@@ -285,6 +285,13 @@ jobs:
       # rollback.yml's default target ("previous healthy deployment"). Only written, and
       # current-healthy only advanced, after apply + alias verification + the shallow
       # smoke test above all succeeded - a failed deploy never becomes a rollback target.
+      #
+      # ADR-0014 adversarial review round 1 (Codex, 2026-09-24): `commitSha` below MUST resolve
+      # the same way `ref:` above does (line 88) - `github.sha` alone is WRONG on the
+      # `workflow_run` trigger path (it resolves to the latest commit on the repo's DEFAULT
+      # branch, `main`, never the `develop` commit this job actually checked out and deployed).
+      # A wrong commitSha here would make the manifest lie about what code is actually running,
+      # undermining exactly the provenance rollback.yml depends on.
       - name: Persist deploy manifest and advance current-healthy pointer
         if: success()
         run: |
@@ -301,7 +308,7 @@ jobs:
           manifest=$(jq -n \
             --arg schemaVersion "1" \
             --arg deploymentId "$deployment_id" \
-            --arg commitSha "${{ github.sha }}" \
+            --arg commitSha "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}" \
             --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg environment "dev" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
@@ -321,7 +328,7 @@ jobs:
           {
             echo "### Dev Deploy Complete"
             echo "- **Deployment ID:** ${{ github.run_id }}-${{ github.run_attempt }}"
-            echo "- **Commit:** ${{ github.sha }}"
+            echo "- **Commit:** ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
             echo "- **Table:** ${{ steps.tf.outputs.table_name }}"
             echo "- **Cognito User Pool:** ${{ steps.tf.outputs.user_pool_id }}"
             echo "- **API endpoint:** ${{ steps.tf.outputs.api_endpoint }}"
