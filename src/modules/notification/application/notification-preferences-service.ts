@@ -9,14 +9,20 @@
  * gates a user's OWN preference, so any real Membership must be able to configure it for
  * themself), OCC via shared/dynamodb/occ.ts.
  *
- * `defaultNotificationPreferences()` (notification-preferences.ts) was previously never
- * called anywhere in src/ - onboarding wiring for it is still a documented gap, not real
- * code. getOrCreatePreferences() below is the pragmatic bridge until that onboarding step
- * exists: a GET lazily creates the record with its documented default (emailEnabled: true),
- * tagged `consentSource: "MIGRATED_DEFAULT"` (not "ONBOARDING" - this bridge is not the real
- * onboarding flow and must not claim that provenance) instead of 404-ing on every user who
- * predates or bypasses that step - never silently treats a missing record as "no consent"
- * (that's the router's own fail-closed matrix's job, not this service's).
+ * `defaultNotificationPreferences()` (notification-preferences.ts) is now ALSO called at real
+ * onboarding (D-332, revisão adversarial de D-315/D-316): `CreateOrganizationService.
+ * buildCreateEntries()` (owner) and `AcceptInvitationService.accept()` (invited member, via
+ * `if_not_exists()` to never clobber a real pre-existing record on reinstatement) both seed it
+ * atomically now - before D-332, NEITHER path did, so `getOrCreatePreferences()` below was the
+ * ONLY place this record was ever created, and a user who never opened notification settings
+ * had `preference.emailEnabled === undefined` forever (`notification-router.ts`'s fail-closed
+ * `RETRY`/`PREFERENCE_UNAVAILABLE` - reminders never delivered, same class of bug D-315 fixed
+ * for the entitlement record). getOrCreatePreferences() below remains as the bridge for any
+ * tenant/user created BEFORE D-332 (same no-backfill posture as D-315 - see decisions-log.md):
+ * a GET lazily creates the record with its documented default (emailEnabled: true), tagged
+ * `consentSource: "MIGRATED_DEFAULT"` (not "ONBOARDING" - this bridge is not the real onboarding
+ * flow and must not claim that provenance) instead of 404-ing - never silently treats a missing
+ * record as "no consent" (that's the router's own fail-closed matrix's job, not this service's).
  */
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";

@@ -114,7 +114,7 @@ export function Overview() {
     />
   );
 
-  if (query.isPending || summaryQuery.isPending) {
+  if (query.isPending) {
     return (
       <>
         {header}
@@ -157,15 +157,23 @@ export function Overview() {
     );
   }
 
-  // Real tenant-wide aggregate (D-308 pendência #14, PENDING_PROTOCOL_REVIEW) - `summaryQuery`
-  // is guaranteed settled (not pending) by the gate above; `isError` degrades gracefully instead
-  // of blocking the whole page over a secondary widget (the items table below is the primary
-  // content and never depends on this query).
+  // Real tenant-wide aggregate (D-308 pendência #14, D-332 revisão adversarial) - never gates
+  // the page's own loading state (removed from the `isPending` check above, D-332 achado real:
+  // this secondary widget was blocking the whole page, including the items table, contradicting
+  // this comment's own "nunca bloqueando a tabela principal"). `summaryQuery.data` is undefined
+  // both while pending and on error, but the render below (D-332 Rodada 2 achado, Codex) treats
+  // them differently: pending renders nothing (still in flight, not yet a failure), only a
+  // settled query with no data renders the InlineNotice.
+  // `approximate: true` (D-332 achado real: `Overview.tsx` computed `attention` but never read
+  // this field, so a truncated page-cap search could render a misleadingly exact "0") appends
+  // "(parcial)" to every label - the shared flag covers all 3 cards uniformly (a per-card
+  // breakdown would need per-sub-count tracking in `DashboardService`, out of proportion for
+  // this fix - see round-1-claude-proposal.md achado 3).
   const attention: AttentionItem[] | undefined = summaryQuery.data
     ? [
-        { count: summaryQuery.data.itemsOverdueCount, label: "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
-        { count: summaryQuery.data.itemsExpiringSoonCount, label: "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
-        { count: summaryQuery.data.activeItemsCount, label: "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsOverdueCount, label: summaryQuery.data.approximate ? "vencidos (parcial)" : "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsExpiringSoonCount, label: summaryQuery.data.approximate ? "vencem em 7 dias (parcial)" : "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+        { count: summaryQuery.data.activeItemsCount, label: summaryQuery.data.approximate ? "em acompanhamento (parcial)" : "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
       ]
     : undefined;
 
@@ -175,7 +183,11 @@ export function Overview() {
       <StorageQuotaCard orgPath={orgPath} />
       {attention ? (
         <AttentionRow items={attention} />
-      ) : (
+      ) : summaryQuery.isPending ? null : (
+        // D-332 achado real (Codex Rodada 2): antes desta mudança, `summaryQuery` ainda
+        // pendente (não errado, só mais lento que a tabela) já disparava este aviso de erro -
+        // um falso positivo enquanto os dados reais ainda estavam a caminho. `isPending` aqui
+        // nunca reintroduz o bloqueio da Rodada 1 (a tabela acima não depende disto).
         <InlineNotice tone="warning" announce="none">
           Não foi possível carregar os contadores de atenção agora.
         </InlineNotice>

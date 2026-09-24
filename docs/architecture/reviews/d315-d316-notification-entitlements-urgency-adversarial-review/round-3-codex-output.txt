@@ -1,0 +1,1622 @@
+OpenAI Codex v0.156.1
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0d2e2-d88d-7723-9935-ff45c6ebdacc
+--------
+user
+Rodada 3 (final de confirmacao), protocolo Claude-Codex sobre D-315/D-316. Rodada 2 voce deu
+9.0/10, ja atingindo o gate, aceitando a divisao de escopo (corrigir achados 1/4/5, registrar 2/3/6
+para uma rodada dedicada ao worker M4). O minimo do protocolo e 3 rodadas. Nota cega: voce ainda
+nao viu a nota do Claude desta rodada.
+
+Leia:
+
+1. docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-3-claude-revision.md
+2. frontend/src/routes/Overview.tsx (trecho do InlineNotice, linha ~178-192)
+3. frontend/test/routes/Overview.test.tsx (teste "renders the items table before the summary
+   aggregate resolves", reforcado com a asserção do aviso de erro)
+4. test/unit/organization/accept-invitation.test.ts (teste "never overwrites an existing
+   NotificationPreferences record", reforcado com toEqual completo)
+
+NAO leia round-3-claude-selfgrade.md - nota cega, arquivo separado.
+
+Esta rodada corrigiu APENAS os 2 achados "Baixa" que voce apontou na Rodada 2 (aviso de erro
+disparando com summary so pendente, nao errado; teste de reativacao mais estreito que o nome
+prometia) - nenhuma mudanca arquitetural. Tambem registrei, sem aplicar, a sua sugestao de builder
+dedicado para o padrao if_not_exists() - julgamento consciente (2 usos no arquivo, nao 3 - limiar
+usual deste projeto para abstrair), nao um achado ignorado.
+
+Verifique se os 2 residuos foram genuinamente corrigidos, e se alguma correcao introduziu uma nova
+inconsistencia por acidente. De sua nota final (0-10, uma casa decimal, nunca arredondada). Se
+atingir 9.0 novamente, confirme que isto e convergencia (3 rodadas atingidas, ambos os lados >=9.0
+nesta e na rodada anterior, dentro do escopo restrito ja acordado - achados 2/3/6 continuam
+registrados para uma rodada dedicada ao worker M4, nunca fechados aqui). Termine com uma linha no
+formato exato:
+
+NOTA_CODEX: X.X
+
+codex
+Vou conferir os dois resíduos e a consistência das correções, preservando a nota cega e o escopo acordado para o worker M4.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content NEXT_SESSION_PROMPT.md; Get-Content docs/architecture/README.md; Get-Content docs/engineering/README.md' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 110ms:
+# Expiration Tracker â€” Estado Atual + PrÃ³xima AÃ§Ã£o
+
+> Este arquivo Ã© estado atual + prÃ³xima aÃ§Ã£o (`AGENTS.md` Â§2), nunca fonte normativa e nunca histÃ³rico narrativo â€” histÃ³ria detalhada vive em `docs/architecture/{session-log,decisions-log}.md`, `docs/engineering/decisions-log.md` e nas pastas `reviews/`. Cada linha abaixo deve caber em 1-3 frases: o quÃª + status + referÃªncia D-xxx/E-xxx para detalhe completo. **Recompactado em 2026-09-24 (terceira reconciliaÃ§Ã£o de engenharia de contexto â€” D-236 em 2026-09-08 jÃ¡ tinha feito isso, 2026-08-29 antes disso; o arquivo reacumulou 335 linhas/35,9KB/4235 palavras, estourando o guardrail de `check-doc-drift.ts` e quebrando o CI).** Antes de adicionar uma entrada nova aqui: se o D-nÃºmero/E-nÃºmero jÃ¡ tem linha completa em `decisions-log.md` (deveria sempre ter), esta seÃ§Ã£o sÃ³ recebe 1-3 frases â€” nunca reconte a narrativa.
+
+## Branch / as-of
+
+**NÃ£o confie nesta seÃ§Ã£o sem confirmar.** `git branch --show-current` deve ser `develop`; `git log --oneline -5`, `git status` e `git pull` antes de assumir qualquer coisa abaixo como pendente ou concluÃ­do â€” mÃºltiplas sessÃµes/agentes trabalham neste repo em paralelo.
+
+**PadrÃ£o de trabalho autÃ´nomo (Marcelo, 2026-09-01)**: prosseguir continuamente enquanto houver trabalho real a fazer â€” nunca parar para pedir "posso continuar?". SÃ³ pausar quando o prÃ³ximo passo depender genuinamente de decisÃ£o exclusiva de Marcelo. Registrar o pendente aqui/`decisions-log.md`, seguir para outra frente independente.
+
+**Protocolo Claudeâ†”Codex RETOMADO (2026-09-23/24)** â€” nÃ£o estÃ¡ mais suspenso. `AGENTS.md` Â§4 volta a valer normalmente para toda decisÃ£o nÃ­vel 5-6.
+
+## Fase atual
+
+`Consolidation + Pilot Readiness`, recomendaÃ§Ã£o **CONDITIONAL GO**. M0-M12, Multi-User B2B (15 waves) e DomÃ­nio Documental completos. Roadmap competitivo P0 (11 itens) 100% implementado â€” Ãºnicas pendÃªncias residuais sÃ£o nÃ£o-engenharia: **E-019** (jurÃ­dico, bloqueia WhatsApp com usuÃ¡rio real) e validaÃ§Ã£o visual final de Marcelo (identidade visual v2, `prototype/_tmp_validacao/`). Full-audit round2 substancialmente fechado (sÃ³ E-019 aberto). Detalhe completo de tudo isso: `decisions-log.md` D-143 a D-290, nunca recontado aqui.
+
+## PendÃªncias reais que dependem de decisÃ£o de Marcelo (lista consolidada)
+
+Itens resolvidos mantÃªm sÃ³ uma linha-ponteiro para `decisions-log.md` â€” nunca a narrativa completa.
+
+1. Busca OCR/full-text (backlog P1 item 3) â€” ðŸ”´ bloqueado, escolher entre 3 caminhos em D-202.
+2. `--include-cognito` de `scripts/reset-dev-data.ts` contra `dev` â€” postergado, nÃ£o perguntar de novo atÃ© Marcelo sinalizar.
+4. WhatsApp com usuÃ¡rio real â€” engenharia 100% fechada (D-286/D-328); resta sÃ³ E-019 (jurÃ­dico).
+5. Wave 1b (Design System, componentes com overlay/focus-trap) â€” deliberadamente por Ãºltimo, pedido de Marcelo.
+6. User Validation (planejamento de interface) â€” aguarda sinal explÃ­cito dele.
+7. Aplicar ao Claude for Startups Program â€” exige aÃ§Ã£o direta de Marcelo (dados da empresa). Ver `docs/project/integrations-and-tooling-research-2026-09-11.md` Â§6.
+8. P0.5 "Real System E2E" contra `dev` real â€” deliberadamente adiado, Marcelo 2026-09-14.
+11. Reminder default local time (`Organization.defaultReminderLocalTime`) â€” implementado/mergeado; revisÃ£o adversarial Codex voluntÃ¡ria ainda pendente (nÃ­vel 4, nÃ£o normativamente exigida). Contexto: `docs/architecture/reviews/reminder-default-local-time/PROPOSAL.md`. **PrÃ³xima no protocolo, prioridade baixa.**
+12. ~~SeparaÃ§Ã£o de ambientes (ADR-0014, D-305)~~ â€” **APROVADO via protocolo (D-331, 2026-09-24)** (direÃ§Ã£o arquitetural apenas), nota cega final Claude 9,3/Codex 9,1. Achado proativo do Claude na R1: management account da Fase 2 deve ser SEMPRE nova/vazia, nunca `975707451904`/`dev` (SCPs nÃ£o restringem management account). Bug real corrigido: `cd.yml` gravava commit errado no manifesto de deploy sob `workflow_run` (agora usa `head_sha`). **Fases 2-4 (contas AWS staging/produÃ§Ã£o reais) continuam exigindo autorizaÃ§Ã£o explÃ­cita e separada de Marcelo, e primeiro a elaboraÃ§Ã£o da Emenda 3** (baseline SCPs/trust, bootstrap de conta nova, contrato de promoÃ§Ã£o de artefato, DR/budget por conta) â€” nenhuma dessas 4 peÃ§as implementada ainda, registradas como exigÃªncia explÃ­cita. Detalhe: `decisions-log.md` D-331, `docs/architecture/reviews/adr-0014-environment-separation-adversarial-review/`.
+19. Versionamento completo de `Document` (item-level) â€” **SUSPENSO por Marcelo (2026-09-23)**, incerteza sobre valor de produto; nÃ£o retomar sem pedido explÃ­cito. "Baixar documento" jÃ¡ implementado (D-313).
+20. `NotificationEntitlements` seedado no onboarding + endpoint agregado de urgÃªncia da VisÃ£o Geral â€” implementados (D-315/D-316), `PENDING_PROTOCOL_REVIEW`. **PrÃ³xima no protocolo.**
+22. ~~Import CSV em massa para Items~~ â€” **APROVADO via protocolo Claudeâ†”Codex (D-330, 2026-09-24)**: 3 rodadas, nota cega final Claude 9,1/Codex 9,0. Achados reais corrigidos: claim de dedupe Ã³rfÃ£ confundida com sucesso (`resolveExistingClaim()`, corrigida em AMBAS as fases parse+commit, e em AMBOS os branches Item/TrackedSubject); colisÃ£o de chave via delimitador sem escape (`JSON.stringify`); idempotÃªncia de `reserveImport()` ignorando `targetEntityType`; datas equivalentes/hora=24 escapando validaÃ§Ã£o/dedupe. **Achado estrutural registrado, NÃƒO corrigido** (fora de proporÃ§Ã£o â€” prÃ©-existente a D-319 inteiro, mas replicado no branch Item novo): toda escrita de status/cursor nos branches TrackedSubject/Item usa `update()` sem condiÃ§Ã£o de versÃ£o â€” duas execuÃ§Ãµes concorrentes do worker podem se sobrescrever; precisa de rodada de escopo dedicada (fencing OCC, trazer ao padrÃ£o que Document/Requirement jÃ¡ tÃªm). Detalhe: `decisions-log.md` D-330, `docs/architecture/reviews/d319-item-bulk-import-adversarial-review/`.
+23. ~~Login/signup/reset de senha via UI prÃ³pria (D-320â†’D-321)~~ â€” **APROVADO via protocolo (D-329, 2026-09-23/24)**, nota cega final Claude 9,3/Codex 9,1. Bug de integraÃ§Ã£o real corrigido (device-remembering do Cognito quebrava refresh de sessÃ£o â€” `device_configuration` removido). PendÃªncias registradas, nÃ£o bloqueiam: rate-limiting dedicado por conta/IP (obrigatÃ³rio antes de usuÃ¡rio real, junto com E-019); signup revela e-mail jÃ¡ cadastrado (409, decisÃ£o consciente mantida). Detalhe: `decisions-log.md` D-329.
+25. Toggle real de canal (E-mail/WhatsApp) â€” adiado por Marcelo (D-327), nÃ£o iniciar sem pedido explÃ­cito.
+26. ConfirmaÃ§Ã£o de posse do nÃºmero no opt-in de WhatsApp â€” implementado (D-328), `PENDING_PROTOCOL_REVIEW`, nÃ­vel 4-5. **PrÃ³xima no protocolo.**
+
+Itens 0, 3, 9, 10, 13-18, 21, 24 â€” todos **RESOLVIDOS**, detalhe completo em `decisions-log.md` (respectivamente D-none/CI #380, D-317, D-319, D-315, vÃ¡rias D-31x, D-321, D-322/D-323); nÃ£o recontados aqui.
+
+## PrÃ³xima aÃ§Ã£o recomendada
+
+**Ordem de prioridade do protocolo Claudeâ†”Codex** (retomado 2026-09-23/24, ver itens acima): ~~item 22~~ (D-330) â†’ ~~item 12~~ (D-331) â†’ item 26 (WhatsApp phone confirmation) â†’ item 20 (NotificationEntitlements/urgÃªncia) â†’ item 11 (reminder default local time, voluntÃ¡rio). Item 19 suspenso, nÃ£o entra na fila.
+
+**Ãšltima sessÃ£o (2026-09-23/24)**: D-329 (login/D-321), D-330 (bulk import/D-319) e D-331 (ADR-0014/separaÃ§Ã£o de ambientes) â€” as 3 revisÃµes adversariais concluÃ­das e aprovadas, ver itens 23/22/12 acima. D-328 (WhatsApp phone confirmation) implementado, ainda na fila do protocolo (item 26, prÃ³ximo). Este arquivo recompactado (guardrail de `check-doc-drift.ts` estourado, ver nota do cabeÃ§alho).
+
+**Regras permanentes**: `terraform apply` NUNCA roda localmente (sÃ³ via CD); `plan`/`validate`/`fmt`/`test` locais liberados. Antes de PR `develop`â†’`main`: sempre rodar suÃ­te e2e completa sem filtro e conferir o CI real do PR (D-322 â€” specs desatualizadas jÃ¡ ficaram vermelhas por mÃºltiplos commits sem detecÃ§Ã£o). ParalelizaÃ§Ã£o multi-agente: default Ã© fork serial, sÃ³ paralelizar se Marcelo pedir velocidade explicitamente. `docs/engineering/task-completion-checklist.md`/skill `/task-checklist` â€” uso obrigatÃ³rio ao fim de toda tarefa.
+
+## Programa de Performance â€” ENCERRADO (Marcelo, 2026-09-19/21)
+
+Escada 10kâ†’100kâ†’500k encerrada, nÃ£o retomar sem novo pedido explÃ­cito. PERF-12 (pipeline de lembretes) implantado; degrau de 10k revalidado (SLO 300s atingido); degrau de 100k confirmado via AWS direto (100% TRIGGERED, mas SLO de 300s NÃƒO atingido a essa escala â€” nÃ£o bloqueador, sem usuÃ¡rio real). Detalhe completo: `decisions-log.md` D-299 a D-310, `docs/engineering/performance/TODO.md`. Backlog registrado, nÃ£o implementado: `dispatch-outbox-relay-processor.ts` processa lotes sequencialmente (~14/s) â€” risco se 100k/500k reproduzirem o gargalo; aguardando decisÃ£o de quando priorizar.
+
+**Achados incidentais registrados, nÃ£o bloqueantes**: gate `Authenticated k6 smoke` com flakiness de cold start; ADOT descarta lotes de trace sob carga sustentada; consolidaÃ§Ã£o de PRs Dependabot do Terraform em andamento.
+
+## Status de evidÃªncia (nÃ£o presumir E2E sem checar)
+
+A maioria dos mecanismos do roadmap estÃ¡ `IMPLEMENTED`/`UNIT TESTED` e confirmada `Active` contra `dev`, mas **nem todo mecanismo tem prova E2E de ponta a ponta pelo gatilho real** (cron/SQS real) â€” nomeado individualmente onde relevante em `decisions-log.md`. NÃ£o assumir E2E PROVEN sem checar.
+
+## Links para histÃ³rico (nÃ£o reler por padrÃ£o â€” sÃ³ sob demanda)
+
+- `docs/architecture/session-log.md` â€” linha do tempo compacta, uma entrada por sessÃ£o.
+- `docs/architecture/decisions-log.md` / `docs/engineering/decisions-log.md` â€” toda decisÃ£o com nota Claude/Codex e status (D-0xx / E-0xx).
+- `docs/architecture/reviews/` â€” artefatos de cada rodada Claudeâ†”Codex por tema.
+- `docs/project/handoffs/` â€” prompts de handoff de sessÃµes anteriores, superseded por este arquivo.
+- `docs/frontend/` â€” planejamento de interface + `interface-quality-standard.md` + `prototype/`.
+- `docs/architecture/multi-user-b2b-wave-tracker.md` â€” detalhe fatia-a-fatia do Multi-User B2B.
+# docs/architecture/ â€” Ãndice e Mapa de Autoridade
+
+```text
+Design maturity:        APPROVED (arquitetura conceitual + Implementation Blueprint)
+Operational architecture: NOT APPROVED
+Current phase:           ImplementaÃ§Ã£o real (cÃ³digo/infra/testes) â€” Implementation Blueprint concluÃ­do
+Last verified:           2026-08-29 (reconciliaÃ§Ã£o de engenharia de contexto â€” este bloco reescrito para corrigir drift real: dizia "auto-CONFIRMED nÃ£o propaga dueDate, aguardando decisÃ£o do Marcelo" e "8 de 9 classes de retenÃ§Ã£o sem purga" quando D-058/D-061 jÃ¡ tinham decidido e implementado ambos em sessÃµes anteriores). Consolidation + Pilot Readiness Program concluÃ­do, recomendaÃ§Ã£o **CONDITIONAL GO** (`docs/engineering/pilot-readiness-assessment.md`, backlog item-a-item em `pilot-readiness-program.md`): Wave 3 (tenant isolation/LGPD) `DONE` de ponta a ponta, zero vulnerabilidade cross-tenant real; `USER_DOCUMENT` e `EXTRACTION_TRANSIENT` tÃªm purga fÃ­sica real (D-061), as outras 7 de 9 classes de retenÃ§Ã£o LGPD nÃ£o tÃªm, decisÃ£o de escopo pendente do Marcelo; Wave 4 confirmou `tenantId=userId` literal, sem Organization/Membership; Wave 5 fechou GTR-01. M6/M7/M9/M10/M11 deployados em `main`/`dev`, M7 **E2E PROVEN** (verificaÃ§Ã£o real 2026-08-27, achados registrados em `decisions-log.md` D-057/D-058); M12 bloqueado por decisÃ£o de fornecedor (D-052). Full BFF + Frontend Production Foundation (D-053/D-054) **implementado e `APPROVED`**; planejamento de interface 8/9 etapas `APPROVED`, sÃ³ falta User Validation (em suspenso a pedido do Marcelo); BLOCKER-A/B/C **todos resolvidos**. W3-07 (exclusÃ£o fÃ­sica de tenant/DSR) tem design **`APPROVED WITH CONDITIONS`** (D-066/D-067, condiÃ§Ã£o de polÃ­tica SES jÃ¡ decidida) e implementaÃ§Ã£o incremental em andamento (fencing de writers D-068 a D-080, purge pipeline D-081 a D-083 com nota Codex 9,1/10, emenda de privacidade B2B-9/D-103/D-104); orquestrador real ganhou design `APROVADO` depois (D-121, ver mais adiante neste mesmo bloco) â€” nÃ£o deixar a frase acima ler como "ainda nÃ£o decidido" sem essa referÃªncia, achado de autocontradiÃ§Ã£o de `full-audit-round2-contexto` (2026-09-07). **Multi-User B2B (D-084 a D-108, 2026-08-30)**: design tÃ©cnico `APPROVED` via protocolo (Claude 9,2/Codex 9,2) e timing decidido diretamente pelo Marcelo (proceder agora, supersedendo o gatilho comercial de `roadmap-evolution/05`) â€” maior iniciativa de arquitetura autorizada no momento; **Waves B2B-0 a B2B-11 `DONE`** (inventÃ¡rio, physical model D-086, identidade global D-087/D-088, Organization+Membership+CreateOrganizationService D-089/D-090/D-091, `OnboardingStateResolver` puro D-092/D-094, `RequestContext Cutover` D-095/D-096 â€” login nÃ£o cria mais tenant sozinho, `POST /bff/organizations` fecha o loop de onboarding, cap transacional; `RBAC` D-097/D-098 â€” `Membership.role=ADMIN` real na matriz de autorizaÃ§Ã£o, primeira aplicaÃ§Ã£o real de `docs/engineering/research-protocol.md`/E-014; `Invitations/Team` D-099/D-100 â€” `Invitation`/aceite/revogaÃ§Ã£o/gerÃªncia de membros com last-owner protection, segunda aplicaÃ§Ã£o de E-014, primeiro writer real de `Membership` alÃ©m da criaÃ§Ã£o; `BFF Organization Context` D-101/D-102 â€” `X-Organization-Id` transportado do BFF ao recurso, terceira aplicaÃ§Ã£o de E-014, fecha o `InternalError` 500 que B2B-8 tornou explorÃ¡vel; `W3-07/Privacy Reconciliation` D-103/D-104 â€” quarta aplicaÃ§Ã£o de E-014, fecha o `InvitationTokenPointer` Ã³rfÃ£o pÃ³s-exclusÃ£o de Organization, formaliza a fronteira User-level vs. Organization-level erasure em `privacy-lgpd.md`; `Tenant-aware Frontend` D-105/D-106 â€” primeira aplicaÃ§Ã£o do protocolo a uma decisÃ£o de frontend, corrige a regressÃ£o real do `AuthContext`, isolamento de cache real entre tenants, switcher/members/settings; `Responsibility + Notifications` D-107/D-108 â€” quinta aplicaÃ§Ã£o de E-014, migra `NotificationRecipientResolver`/`assigneeUserId`/`ItemWatch` de validaÃ§Ã£o vestigial para `Membership`+`GlobalUser` reais; NÃƒO inclui a supersessÃ£o de GTR-01, ver `multi-user-b2b-wave-tracker.md`; `Cutover de dev` D-110/D-111 â€” sexta aplicaÃ§Ã£o de E-014 (declaraÃ§Ã£o `NÃƒO`), `scripts/reset-dev-data.ts` (reset/reseed, nÃ£o migraÃ§Ã£o, dado 100% sintÃ©tico confirmado por inventÃ¡rio real via `aws --profile claude-dev`) + remoÃ§Ã£o de `LEGACY_TENANT_ONLY`, Fase A verificada de fato contra `dev`; execuÃ§Ã£o real destrutiva (`--confirm`) pendente de confirmaÃ§Ã£o explÃ­cita do Marcelo; `E2E/Adversarial Security` D-112/D-113 â€” sÃ©tima aplicaÃ§Ã£o de E-014, auditoria contra as 25 perguntas de `roadmap-evolution/17` Â§121 (20/25 jÃ¡ cobertas, 2 fecham com fix real de TOCTOU entre roteamento e entrega assÃ­ncrona de notificaÃ§Ã£o â€” `notification.ts`+`subject.ts` reaproveitam `DynamoDbNotificationRecipientResolver` jÃ¡ testado, 2 ganham teste novo de revogaÃ§Ã£o/isolamento de role, 1 Ã© auditoria de fixture IDs sem achado). **Multi-User B2B â€” todas as 14 waves originais (B2B-0 a B2B-13) `DONE`.** **B2B-14 (Operational Evidence) `EM ANDAMENTO`, 2026-08-30**: 7 achados reais severos, cada um encontrado sÃ³ por exercitar o fluxo de verdade contra `dev` pela primeira vez â€” `app_origin` placeholder nunca trocado (D-114), `bff-handler` crashava em toda invocaÃ§Ã£o (D-115), GSI4 nunca autorizado aos 10 Lambdas reais que o consomem (D-116), 2 rotas do BFF nunca wireadas no API Gateway (D-117), nenhuma tela de onboarding existia (D-118), `ExpressionAttributeNames: {}` quebrava `TransactWriteItems` real em 3 arquivos incluindo o guard de Ãºltima-proteÃ§Ã£o-de-OWNER (D-119), e o convite/aceite de membro nunca foi alcanÃ§Ã¡vel de ponta a ponta â€” tela nunca existiu, rota nunca foi wireada, e-mail real nunca foi ativado, SES sandbox sem NENHUMA identity verificada no ambiente inteiro (D-120, 2 endereÃ§os reais verificados com o Marcelo). Pendente para fechar: Marcelo testar convite/aceite/troca-de-organizaÃ§Ã£o com uma segunda conta â€” **explicitamente adiado para uma sessÃ£o futura**, nÃ£o bloqueia o resto do trabalho. Em paralelo, **W3-07 â€” orquestrador de purga ganhou design `APROVADO` (D-121, protocolo Claudeâ†”Codex 3 rodadas, 9,1/9,2): Step Functions + EventBridge Scheduler, e a implementaÃ§Ã£o real estÃ¡ `IMPLEMENTED`/`DEPLOYED`** (D-124, PR #122, CD `success` 2026-08-31, state machine + sweeper `ENABLED` confirmados ao vivo contra `dev` â€” corrigido em 2026-09-07, esta frase ainda dizia "implementaÃ§Ã£o real ainda nÃ£o construÃ­da", achado de `full-audit-round2-contexto`); e 2 lacunas de produto levantadas pelo Marcelo (exportaÃ§Ã£o de dados CSV/planilha, reatribuiÃ§Ã£o de responsabilidade ao remover um Membership) tiveram rodadas de scoping dispatchadas via o mesmo protocolo â€” ver `decisions-log.md` para o D-number final de cada uma antes de assumir status. **`docs/engineering/definition-of-done.md` (E-012, emenda E-013)**: gate de processo permanente â€” nenhum item de todo list que produza cÃ³digo Ã© `completed` sem passar pelo gate correspondente ao seu nÃ­vel de risco, incluindo aplicaÃ§Ã£o concreta (nÃ£o sÃ³ referencial) de `test-engineering-standard.md`. Ver `NEXT_SESSION_PROMPT.md` para a prÃ³xima aÃ§Ã£o exata â€” este bloco Ã© sÃ³ o resumo de fase, nÃ£o histÃ³rico item-a-item.
+```
+
+Ver `ARCHITECTURE.md` (raiz do repo) para o resumo executivo consolidado e `NEXT_SESSION_PROMPT.md` para a prÃ³xima aÃ§Ã£o concreta.
+
+## PrecedÃªncia de fontes (quando houver divergÃªncia)
+
+1. `AGENTS.md` (raiz) â€” processo de trabalho dos agentes, sempre vence sobre conteÃºdo de arquitetura.
+2. ADR aceito em `adr/` â€” decisÃ£o arquitetural especÃ­fica e formal.
+3. Documento temÃ¡tico corrente (tabela abaixo, coluna "normativo atual") â€” especificaÃ§Ã£o detalhada do domÃ­nio.
+4. `ARCHITECTURE.md` â€” visÃ£o consolidada e Ã­ndice executivo; nÃ£o sobrescreve silenciosamente um ADR ou documento temÃ¡tico divergente â€” divergÃªncia entre eles Ã© defeito a corrigir, nÃ£o licenÃ§a para escolher.
+5. `NEXT_SESSION_PROMPT.md` â€” estado de execuÃ§Ã£o, nunca fonte normativa de arquitetura.
+6. `docs/architecture/history/` â€” evidÃªncia histÃ³rica de como se chegou a uma decisÃ£o, nunca normativo.
+
+## Ãndice por documento
+
+| Documento | ClassificaÃ§Ã£o | Do que trata |
+|---|---|---|
+| `../ARCHITECTURE.md` | resumo/Ã­ndice | Documento consolidado final, aponta para todos os outros |
+| `../docs/00-prompt-mestre.md` | histÃ³rico/processo (ciclo concluÃ­do) | Processo Claudeâ†”Codex que produziu o design; nÃ£o Ã© ponto de entrada de sessÃ£o |
+| `quality-criteria.md` | normativo atual | 12 critÃ©rios de qualidade, pesos, gates G1-G6 |
+| `fitness-function.md` | normativo atual | Fitness function derivada dos critÃ©rios |
+| `requirements.md` | normativo atual | Requisitos funcionais/nÃ£o-funcionais, unknowns |
+| `capacity-model.md` | normativo atual | Modelo de capacidade Stage 0-5 |
+| `architecture-fase3-consolidada.md` | normativo atual | Arquitetura AWS conceitual, 14 decisÃµes numeradas |
+| `data-model.md` | normativo atual | Modelo de domÃ­nio/dados, DynamoDB single-table, 6 GSIs |
+| `slo.md` | normativo atual | SLOs, incluindo drenagem de pico extremo |
+| `disaster-recovery.md` | normativo atual | RPO/RTO, teste de restore, runbook |
+| `incident-runbooks.md` | normativo atual (draft operacional) | Runbooks OPS-006 (falha de disparo, DLQ, provedor, IA), matriz de severidade/escalonamento, template de post-mortem, registro de exercÃ­cios |
+| `privacy-lgpd.md` | normativo atual | Classes de retenÃ§Ã£o, direitos do titular |
+| `cost-model.md` | normativo atual | Modelo de custo por estÃ¡gio |
+| `mcp-readiness.md` | normativo atual | ProntidÃ£o de domÃ­nio para MCP futuro |
+| `evolution.md` | normativo atual | TransiÃ§Ãµes de estÃ¡gio, gatilhos |
+| `aws-well-architected-review.md` | normativo atual | RevisÃ£o pelos 6 pilares AWS, riscos conhecidos |
+| `threat-model.md` | normativo atual | Threat model STRIDE, seÃ§Ã£o 33 â€” APPROVED (Claude ~9.05 / Codex 9.002) |
+| `implementation-blueprint.md` | normativo atual | Implementation Blueprint, seÃ§Ã£o 60 â€” componentes, interfaces, eventos/schemas, ordem de deploy, milestones â€” APPROVED (Claude 9.20 / Codex 9.2) |
+| `correlationid-xray-trace-join.md` | normativo atual (decisÃ£o + implementaÃ§Ã£o) | JunÃ§Ã£o `correlationId`â†”trace ADOT/X-Ray (E-011 pendÃªncia 1) â€” `APPROVED` via protocolo Claudeâ†”Codex (Claude 9,3/Codex 9,4), amplia D-022 sem reabri-la; implementado 2026-08-29 (`xray-trace-header.ts`, correÃ§Ã£o de precedÃªncia do `SecureLogger`), status `E2E PROVEN` (smoke test real contra `dev` confirmado 2026-08-29 â€” corrigido em 2026-09-07, esta linha ainda dizia "pendente", achado de `full-audit-round2-contexto`) |
+| `m3.5-runtime-design.md` | normativo atual | Design do milestone M3.5 (runtime real do Reminder Engine, fechamento de G8) â€” adapters DynamoDB, handlers Lambda, outbox+relay SQS/DLQ, EventBridge Scheduler+GSI6, testes em 3 camadas â€” APPROVED (Claude 9.0 / Codex 9.3) |
+| `reminder-delivery-pipeline.md` | normativo atual | BLOCKER-B â€” pipeline real de materializaÃ§Ã£o/entrega de lembretes: event taxonomy (`expiration.item-due-date-changed.v1`/`item-deactivated.v1`/`reminder.policy-changed.v1`), lifecycle do ponteiro `POLICYREF#`, fencing de concorrÃªncia (dispatch + reconciliaÃ§Ã£o), backfill â€” APPROVED (arquitetura, Codex 9.2/10, rodadas B-H; implementaÃ§Ã£o, Codex 9.2/10, 2 rodadas) |
+| `blocker-b-recon-handoff.md` | histÃ³rico/evidÃªncia (citado por `reminder-delivery-pipeline.md` Â§3/Â§3.2) | Recon prÃ©-implementaÃ§Ã£o de BLOCKER-B (materializer/trigger de materializaÃ§Ã£o, infra Terraform) confirmado contra o cÃ³digo real antes do design ser escrito; BLOCKER-B estÃ¡ implementado e mergeado (PR #50) â€” este documento sÃ³ registra a evidÃªncia que fundamentou o design |
+| `blocker-b-mission-brief.md` | histÃ³rico/evidÃªncia | Texto verbatim do prompt de missÃ£o original (2026-08-24) que abriu o recon de BLOCKER-B acima; persistido porque sÃ³ existia em histÃ³rico de conversa de uma sessÃ£o especÃ­fica |
+| `decisions-log.md` | decisÃ£o/ADR (log vivo) | D-000 em diante (D-231+ na revisÃ£o mais recente â€” nÃ£o referenciar um teto fixo aqui, ele desatualiza a cada sessÃ£o; a numeraÃ§Ã£o tambÃ©m nÃ£o Ã© sequencial na ordem das linhas â€” ex. D-024 a D-028 foram inseridas antes de D-010 a D-023 no arquivo), nota Claude/Codex, status |
+| `reviews/m7-extraction-design/` | histÃ³rico/evidÃªncia de rodada | Artefatos do protocolo Claudeâ†”Codex de M7 (proposta Claude, proposta Codex, crÃ­tica, reconciliaÃ§Ã£o final aprovada â€” D-035) |
+| `adr/` | decisÃ£o/ADR | 11 ADRs formais para decisÃµes Type 1 |
+| `reviews/spa-hosting-cloudfront-bff/` | histÃ³rico/evidÃªncia de rodada (protocolo `AGENTS.md` Â§4) | Debate de 6 rodadas que produziu ADR-0011 (coexistÃªncia CloudFront + Full BFF) â€” nota final 9,2/9,3 |
+| `diagrams/diagrams.md` | normativo atual (visual) | 14 diagramas Mermaid |
+| `diagrams/project-status.html` | resumo/Ã­ndice (visual) | **O documento de status do projeto** â€” painel visual (timeline de marcos, achados reais, pendÃªncias); abrir no navegador para uma visÃ£o executiva rÃ¡pida, mais legÃ­vel que `NEXT_SESSION_PROMPT.md` para esse fim (que continua sendo a fonte de estado detalhado por sessÃ£o) |
+| `session-log.md` | histÃ³rico | Log cronolÃ³gico compacto por sessÃ£o |
+| `roadmap-evolution/00-mission-brief.md` | histÃ³rico/evidÃªncia | Texto verbatim do prompt original (2026-08-22) que abriu as 3 fases de evoluÃ§Ã£o estratÃ©gica do roadmap abaixo; movido da raiz em 2026-08-29, mesmo tratamento de `blocker-b-mission-brief.md` |
+| `roadmap-evolution/01-gap-analysis.md` | informativo (rascunho, nÃ£o normativo) | Fase 1 da evoluÃ§Ã£o estratÃ©gica do roadmap (2026-08-23): estado real dos milestones + classificaÃ§Ã£o de cada capacidade comercial proposta contra o cÃ³digo real. Insumo para a Fase 2 (pesquisa de mercado + modelagem de domÃ­nio + protocolo Claudeâ†”Codex por tema), nunca decisÃ£o fechada |
+| `roadmap-evolution/02-market-research.md` | informativo (rascunho, nÃ£o normativo) | Fase 2a: pesquisa de mercado real sobre concorrentes (TrustLayer, Certificial, SubCompliant, VendorJot, Remindax, categoria ampla) e tentativa de refutar cada capacidade proposta na Fase 1 â€” achado central: billing por sujeito rastreado Ã© padrÃ£o de mercado dominante |
+| `roadmap-evolution/03-domain-model-tracked-subject-requirement.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, primeiro cluster de modelagem de domÃ­nio (`TrackedSubject`+`RequirementAssignment`) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,1/9,1 |
+| `roadmap-evolution/04-domain-model-guest-upload.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, segundo cluster (guest upload/magic link, `DocumentRequest`+`DocumentSubmission`) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,2/9,2; achado real: GSI novo evitado reaproveitando padrÃ£o de `IdentityMapping` |
+| `roadmap-evolution/05-domain-model-organization-billing.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, terceiro cluster (Organization/Membership/RBAC + Billing/Entitlements) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,2/9,2; reordena billing por `TrackedSubject` antes de Organization; achado real de correÃ§Ã£o pendente em `evolution.md:13` |
+| `roadmap-evolution/06-domain-model-automated-chasing.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, quarto cluster (automated document chasing via Reminder Engine) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,1/9,2; agregados-irmÃ£os em vez de generalizar `NotificationIntent`/`ReminderOccurrence` jÃ¡ em produÃ§Ã£o, aplicando o precedente de M7; GSI3 reaproveitado sob condiÃ§Ã£o de mini-revisÃ£o de capacidade |
+| `roadmap-evolution/07-domain-model-escalation-watchers-digest.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, quinto cluster (escalation/watchers/digest) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,2/9,4; `ItemWatch` como extensÃ£o direta de padrÃ£o jÃ¡ em produÃ§Ã£o (mesma partiÃ§Ã£o de `Document`/M6); digest registrado como questÃ£o aberta, nÃ£o decidida |
+| `roadmap-evolution/08-domain-model-custom-fields.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, lista de rejeitados formal sÃ³ na Fase 3) | Fase 2b, sexto cluster â€” custom fields genÃ©rico (`FieldDefinition`/`FieldValue`) rejeitado/adiado por padrÃ£o (nota 9,1/9,0), valor jÃ¡ servido por `tags[]`+`notes?`+`requirementName`; emenda registrada nos clusters 1 e 2 |
+| `roadmap-evolution/09-domain-model-csv-import.md` | informativo (decisÃ£o reconciliada via protocolo AGENTS.md Â§4, ADR formal sÃ³ na Fase 3) | Fase 2b, sÃ©timo e Ãºltimo cluster (CSV import/export) â€” protocolo Claudeâ†”Codex completo via MCP, nota final 9,2/9,4; formula injection mitigada na exportaÃ§Ã£o (nÃ£o na entrada); plano linha-a-linha em S3, nÃ£o DynamoDB; **Fase 2b concluÃ­da, 7/7 clusters â‰¥9,0** |
+| `roadmap-evolution/10-phase3-scoring-and-roadmap.md` | informativo (sÃ­ntese proposta, nÃ£o autorizaÃ§Ã£o de implementaÃ§Ã£o) | Fase 3: executive summary, feature score ponderado, roadmap revisado M9-M13 (milestone-a-milestone, formato completo), dependency graph â€” consolida os 7 clusters da Fase 2b |
+| `roadmap-evolution/11-phase3-impacts-and-closing.md` | informativo (sÃ­ntese proposta, ADRs formais sÃ³ com decisÃ£o do Marcelo) | Fase 3: domain model antes/depois, impacto de arquitetura/seguranÃ§a/persistÃªncia/custo, lista de 10 ADRs candidatos, estratÃ©gia de teste/migraÃ§Ã£o, perguntas abertas reais, capacidades rejeitadas â€” inclui revisÃ£o adversarial final de coerÃªncia do pacote completo (nota 8,2/10, achados corrigidos) |
+| `roadmap-evolution/12-automated-chasing-capacity-review.md` | verificaÃ§Ã£o de prÃ©-requisito (D-046) | Mini-revisÃ£o de capacidade de GSI3 antes de M10 cluster 4 (automated chasing) â€” pico orgÃ¢nico ~220Ã— abaixo do SLO de drenagem de pico extremo, GSI3 reaproveitado sem shard/Ã­ndice novo |
+| `roadmap-evolution/13-guest-link-delivery-design.md` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-047/D-048) | Fecha D-047 â€” entrega/reenvio do link de guest upload: rotaÃ§Ã£o de token a cada disparo de chasing, sem KMS/secret cifrado persistido; nota final 9,2/9,4 |
+| `roadmap-evolution/14-document-request-initial-invite-design.md` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-049) | Fecha "DecisÃ£o B" de D-048 â€” automatiza o convite inicial de guest upload (hoje manual) atrÃ¡s de preferÃªncia de tenant + kill switch global default `false`; nota final 9,2/9,4 |
+| `roadmap-evolution/15-m12-billing-scope-decision.md` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-052) | PÃ³s-M11: M12 (Billing) fica bloqueado por decisÃ£o de produto (fornecedor de pagamento) â€” zero cÃ³digo novo; achado real de que o projeto nÃ£o tem conceito de "platform staff" cross-tenant, descartando atÃ© a fatia manual de entitlement; nota final 9,3/9,4 |
+| `roadmap-evolution/16-document-lifecycle-strategic-analysis.md` | informativo (anÃ¡lise externa, nÃ£o passou pelo protocolo AGENTS.md Â§4, sem ADR) | EvoluÃ§Ã£o estratÃ©gica de "controle de vencimentos" para "gestÃ£o enxuta do ciclo de vida documental" â€” avaliaÃ§Ã£o de coerÃªncia/reaproveitamento/risco de overengineering; recomenda aprovar a direÃ§Ã£o mas nÃ£o antecipar o escopo, mantendo o foco em Consolidation + Pilot Readiness; identifica `Document` deixar de ser filho exclusivo de `ExpirationItem` como a mudanÃ§a arquitetural futura central, marcada nela mesma como Type 1 (ADR + protocolo Claudeâ†”Codex antes de qualquer implementaÃ§Ã£o) |
+| `roadmap-evolution/17-multi-user-b2b-revised-strategy.md` | **`APPROVED` â€” design tÃ©cnico (protocolo AGENTS.md Â§4) + timing (decisÃ£o direta do Marcelo, D-085)** | EspecificaÃ§Ã£o vigente de Multi-User B2B â€” `Organization` como tenant boundary permanente, `User` global, `Membership` N:N, RBAC por permissions. Protocolo Claudeâ†”Codex completo (Â§125): 3 rodadas reais, Claude 9,2/Codex 9,2, ambos â‰¥9,0 (mecanismo transacional de last-OWNER, unicidade de Membership/Invitation, tabela mantÃ©m/emenda/refaz do impacto no W3-07, supersessÃ£o explÃ­cita de D-060/GTR-01). **D-085 (2026-08-29)**: Marcelo decidiu diretamente proceder agora, supersedendo o gatilho comercial de `roadmap-evolution/05` (marcado `SUPERSEDED (timing)`, modelo de billing/entitlements desse cluster permanece vigente). **Waves B2B-0 a B2B-11 `DONE`** (D-108 conclui B2B-11, Responsibility + Notifications) â€” ver `multi-user-b2b-wave-tracker.md` para o detalhamento por subitem (inclui a nota de escopo sobre GTR-01/`Organization.displayName` ainda pendente). Wave B2B-12 (Cutover de dev) foi, na Ã©poca da escrita original desta linha, a prÃ³xima aÃ§Ã£o real do documento fonte â€” **hoje jÃ¡ `APPROVED`/`IMPLEMENTADO` (D-110/D-111, ver linha da tabela abaixo)**, corrigido em 2026-09-07 (achado de `full-audit-round2-contexto`: esta linha descrevia um estado histÃ³rico do documento-fonte como se fosse o estado atual) â€” ver `NEXT_SESSION_PROMPT.md` para o estado de execuÃ§Ã£o vigente |
+| `roadmap-evolution/18-synthetic-persona-research-quality-baseline.md` | informativo (anÃ¡lise externa trazida pelo Marcelo em 2026-08-31, nÃ£o passou pelo protocolo AGENTS.md Â§4, sem ADR, sem decisÃ£o de proceder) | Fundamento metodolÃ³gico proposto para um futuro "Synthetic Persona Evaluation Framework" (agentes condicionados por persona exercitando a aplicaÃ§Ã£o real, em complemento â€” nunca substituiÃ§Ã£o â€” a testes humanos): modelo Persona+Contexto+Dataset+CenÃ¡rio+Objetivo="Trial", provenance de evidÃªncia (`hypothesisâ†’research-groundedâ†’human-observedâ†’production-observed`), hierarquia de oracle (estado determinÃ­stico > banco/API/evento > LLM grader > autoavaliaÃ§Ã£o do agente, esta Ãºltima nunca fonte de verdade), scorecard de 100 pontos + 18 Hard Gates (HG-01..18, ex. "agente nunca recebe oracle/caminho de navegaÃ§Ã£o", "actor nÃ£o pode ser o Ãºnico judge"). Puramente conceitual/genÃ©rico nesta etapa, ainda nÃ£o aplicado ao Expiration Tracker |
+| `roadmap-evolution/19-synthetic-persona-application-analysis.md` | informativo (anÃ¡lise externa trazida pelo Marcelo em 2026-08-31, nÃ£o passou pelo protocolo AGENTS.md Â§4, sem ADR, sem decisÃ£o de proceder) | Aplica o baseline de `18` Ã  realidade atual do cÃ³digo: conclui que a aplicaÃ§Ã£o Ã© "muito favorÃ¡vel" a personas sintÃ©ticas (domÃ­nio modelado, OCC, idempotÃªncia, outbox, relÃ³gio injetÃ¡vel, `dev` resetÃ¡vel, Playwright, Test Engineering Standard jÃ¡ existentes), mas nomeia 4 restriÃ§Ãµes reais â€” zero usuÃ¡rio/produÃ§Ã£o real, frontend cobre sÃ³ parte das superfÃ­cies planejadas, modelo B2B ainda em transiÃ§Ã£o, e a principal: **o Playwright atual roda majoritariamente contra um BFF mockado (`page.route()`), nÃ£o contra o sistema real** â€” a mesma lacuna que B2B-14 (Operational Evidence) jÃ¡ vinha fechando manualmente. TambÃ©m documenta drift real entre `NEXT_SESSION_PROMPT.md`/comentÃ¡rios antigos e o cÃ³digo atual |
+| `roadmap-evolution/20-synthetic-trial-identity-design.md` | informativo (anÃ¡lise externa trazida pelo Marcelo em 2026-08-31, nÃ£o passou pelo protocolo AGENTS.md Â§4, sem ADR, sem decisÃ£o de proceder) | Proposta de implementaÃ§Ã£o: identidade de execuÃ§Ã£o hierÃ¡rquica `evaluationRunIdâ†’trialIdâ†’correlationIdâ†’traceId/spanId`, deliberadamente **execution metadata, nunca atributo funcional do domÃ­nio** (nunca `ExpirationItem.trialId`), propagada via header Playwrightâ†’middleware BFFâ†’`RequestContext`â†’outbox `metadata` (nunca `payload`)â†’SQSâ†’workerâ†’audit event/log estruturado; gate de ambiente (`EVALUATION_CONTEXT_ENABLED`, `prod=false` por padrÃ£o), fail-closed para metadata invÃ¡lida, 12 Hard Gates prÃ³prios (HG-TID-01..12, ex. "trialId nunca altera autorizaÃ§Ã£o/validaÃ§Ã£o funcional"). O prÃ³prio documento recomenda revisÃ£o via protocolo Claudeâ†”Codex antes de entrar no roadmap â€” ainda nÃ£o submetida |
+| `multi-user-b2b-wave-b2b4-scope.md` | **`APPROVED` (D-092, protocolo Claudeâ†”Codex 4 rodadas, Claude 9,3/Codex 9,4)** | Escopo final de Wave B2B-4 â€” `OnboardingStateResolver` puro (4 estados, procedimento sequencial estrito), sem wiring de login, sem exposiÃ§Ã£o HTTP; redesigna "remover auto-provision"/gate real para Wave B2B-5. EvidÃªncia das 4 rodadas em `reviews/multi-user-b2b-wave-b2b4-scoping/` |
+| `multi-user-b2b-wave-b2b5-scope.md` | **`APPROVED` (D-095, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,1/Codex 9,1) â€” `IMPLEMENTADO` (D-096)** | Escopo final de Wave B2B-5 (RequestContext Cutover) â€” `bootstrapUser()` de 2 itens, `RequestContextResolver` reescrito com resoluÃ§Ã£o de Membership Ãºnica e assert explÃ­cito para `ADMIN` nÃ£o suportado, `POST /bff/organizations` com cap transacional (`GlobalUser.hasCreatedOrganization`), self-heal de sessÃ£o BFF; desvio faseado explÃ­cito de Â§11/Â§12 do physical model (seleÃ§Ã£o real de organizaÃ§Ã£o fica para B2B-6). EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b5-scoping/`; implementaÃ§Ã£o e 2 achados reais corrigidos (UserProfile mantido, gate de lifecycle da Organization adicionado) em `decisions-log.md` D-096 |
+| `multi-user-b2b-wave-b2b6-scope.md` | **`APPROVED` (D-101, protocolo Claudeâ†”Codex 3 rodadas, checklist v2, Claude 9,1/Codex 9,2) â€” `IMPLEMENTADO` (D-102)** | Escopo final de Wave B2B-6 (BFF Organization Context) â€” terceira aplicaÃ§Ã£o real de E-014 (padrÃ£o header+revalidaÃ§Ã£o server-side, OWASP Multi Tenant Security). `X-Organization-Id` injetado sÃ³ pelo BFF (nunca do browser), `resolveWorkingOrganization()`/`OrganizationUnavailableError`(403)/`OrganizationSelectionRequiredError`(409) fecham o `InternalError` 500 que B2B-8 tornou explorÃ¡vel; `POST /bff/organization/select` (CSRF)/`GET /bff/organizations` (filtrado por lifecycle) novos. EvidÃªncia das 3 rodadas (checklist contestado e reconciliado 2x) em `reviews/multi-user-b2b-wave-b2b6-scoping/` |
+| `multi-user-b2b-wave-b2b7-scope.md` | **`APPROVED` (D-097, protocolo Claudeâ†”Codex 3 rodadas, checklist v2, Claude 9,2/Codex 9,3) â€” `IMPLEMENTADO` (D-098)** | Escopo final de Wave B2B-7 (RBAC) â€” primeira aplicaÃ§Ã£o real de `docs/engineering/research-protocol.md`/E-014 (pesquisa GitHub/Linear/Slack/Notion/NIST-ANSI-INCITS-359, checklist de critÃ©rios de nota contestado e reconciliado na Rodada 1â†’2). `Role` ganha `ADMIN`, paritÃ¡rio com `OWNER` nas 4 actions de deleÃ§Ã£o de recurso e no bypass de ownership; `notification:configure` reclassificada para `READ_ONLY_ROLES` (bug fix real, nÃ£o escolha ADMIN-vs-OWNER); `tenant:configure-document-request-delivery` isolada em novo tier `OWNER_ROLES`. EvidÃªncia das 3 rodadas (incl. a contestaÃ§Ã£o do checklist) em `reviews/multi-user-b2b-wave-b2b7-scoping/` |
+| `multi-user-b2b-wave-b2b8-scope.md` | **`APPROVED` (D-099, protocolo Claudeâ†”Codex 3 rodadas, checklist v3, Claude 9,1/Codex 9,2) â€” `IMPLEMENTADO` (D-100)** | Escopo final de Wave B2B-8 (Invitations/Team) â€” segunda aplicaÃ§Ã£o real de E-014, declaraÃ§Ã£o `SIM PARCIAL` (mecanismo de dados jÃ¡ `APPROVED` em D-086; last-owner protection/hierarquia de gerÃªncia de membros pesquisados nesta wave, GitHub/Slack/Linear/Notion). `Invitation`+token pointer+dedup (D-086 Â§7), `AcceptInvitationService` (transaÃ§Ã£o de 6 itens, token consumido estruturalmente), `ChangeMembershipRoleService`/`RemoveMembershipService`/`LeaveOrganizationService` com builder Ãºnico de `ownerCount` (`LastOwnerError`) â€” primeiro writer real de `Membership` alÃ©m da criaÃ§Ã£o. EvidÃªncia das 3 rodadas (checklist contestado e reconciliado 2x) em `reviews/multi-user-b2b-wave-b2b8-scoping/` |
+| `multi-user-b2b-wave-b2b9-scope.md` | **`APPROVED` (D-103, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,3/Codex 9,3) â€” `IMPLEMENTADO` (D-104)** | Escopo final de Wave B2B-9 (W3-07/Privacy Reconciliation) â€” quarta aplicaÃ§Ã£o real de E-014 (GitHub/Slack/Atlassian, "delete conta" vs. "delete organizaÃ§Ã£o"). Fix real: `InvitationTokenPointer` (declara `organizationId`, nÃ£o `tenantId`) ganha 3Âª clÃ¡usula OR no scan/`PURGE_DELETE` de purga, fechando Ã³rfÃ£o pÃ³s-exclusÃ£o de Organization. `privacy-lgpd.md` Â§4.1/Â§4.2 novos (fronteira User-level vs. Organization-level erasure, invariante de Ãºltimo OWNER documentada) + 4 linhas de retenÃ§Ã£o. EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b9-scoping/` |
+| `multi-user-b2b-wave-b2b10-scope.md` | **`APPROVED` (D-105, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,2/Codex 9,2) â€” `IMPLEMENTADO` (D-106)** | Escopo final de Wave B2B-10 (Tenant-aware Frontend) â€” primeira aplicaÃ§Ã£o do protocolo a uma decisÃ£o de frontend nesta sessÃ£o. Fix de regressÃ£o real (`AuthContext` tratava todo usuÃ¡rio autenticado como deslogado desde B2B-5); arquitetura de cache isolation (query keys por `organizationId` + `ActiveOrganizationProvider`/`switching`/`cancelQueries`/`AbortSignal` ponta-a-ponta) fecha uma corrida real de vazamento de dado entre tenants na UI; switcher/members/settings novos. EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b10-scoping/` |
+| `multi-user-b2b-wave-b2b11-scope.md` | **`APPROVED` (D-107, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,2/Codex 9,2) â€” `IMPLEMENTADO` (D-108)** | Escopo final de Wave B2B-11 (Responsibility + Notifications) â€” quinta aplicaÃ§Ã£o de E-014 (GitHub/Linear, "assignee deve ser membro real e ativo"). `NotificationRecipientResolver` migrado de `UserProfile` (vestigial) para `Membership`+`GlobalUser` (2 condiÃ§Ãµes); `assigneeUserId`/`ItemWatch.userId` agora validados contra `Membership` real via `MemberEligibilityChecker` novo. **Nota**: nÃ£o inclui a supersessÃ£o de GTR-01 (`UserProfile.requesterDisplayName`â†’`Organization.displayName`), prevista em B2B-5 mas nunca debatida nas 3 rodadas reais desta wave â€” ver `multi-user-b2b-wave-tracker.md`. EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b11-scoping/` |
+| `multi-user-b2b-wave-b2b12-scope.md` | **`APPROVED` (D-110, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,2/Codex 9,1) â€” `IMPLEMENTADO` (D-111)** | Escopo final de Wave B2B-12 (Cutover de dev) â€” sexta aplicaÃ§Ã£o de E-014 (declaraÃ§Ã£o `NÃƒO`, polÃ­tica reset-vs-migraÃ§Ã£o jÃ¡ aprovada dentro do prÃ³prio `roadmap-evolution/17` Â§62-63). InventÃ¡rio real via `aws --profile claude-dev` confirma `dev` 100% sintÃ©tico/descartÃ¡vel; `scripts/reset-dev-data.ts` (Fase A inventÃ¡rio+snapshot sempre, Fase B delete real sÃ³ `--confirm`, allowlist de tabela/conta, verificaÃ§Ã£o final fail-loud) + remoÃ§Ã£o de `LEGACY_TENANT_ONLY` (backend+frontend+teste). Fase A verificada de fato contra `dev` (nÃ£o sÃ³ fakes). **ExecuÃ§Ã£o real destrutiva (`--confirm`/`--include-cognito`) pendente de confirmaÃ§Ã£o explÃ­cita do Marcelo.** EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b12-scoping/` |
+| `multi-user-b2b-wave-b2b13-scope.md` | **`APPROVED` (D-112, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,1/Codex 9,2, rÃ©gua E-014 9,3) â€” `IMPLEMENTADO` (D-113)** | Escopo final de Wave B2B-13 (E2E/Adversarial Security) â€” sÃ©tima aplicaÃ§Ã£o de E-014 (OWASP WSTG/Authorization Testing, SIM PARCIAL). Auditoria completa contra as 25 perguntas de `roadmap-evolution/17` Â§121 (matriz Qâ†’arquivo:linha completa): 20/25 jÃ¡ cobertas por testes reais de waves anteriores; 2 fecham com fix real (mesmo TOCTOU em `notification.ts`+`subject.ts` â€” entrega assÃ­ncrona nunca revalidava `Membership`, sÃ³ roteamento checava â€” corrigido reaproveitando `DynamoDbNotificationRecipientResolver` jÃ¡ testado, `ResolvedRecipient` ganha `email?: string`); 2 ganham teste novo (revogaÃ§Ã£o de Membership encadeada ponta-a-ponta; roles diferentes por Organization nunca vazam); 1 Ã© auditoria de fixture IDs (zero achado). A Rodada 1 do Codex achou um 6Âº achado real (mesmo TOCTOU em `document-chasing-dispatch`) que a proposta original nÃ£o tinha visto. EvidÃªncia das 3 rodadas em `reviews/multi-user-b2b-wave-b2b13-scoping/` |
+| `multi-user-b2b-wave-b2b0-inventory.md` | evidÃªncia de rodada (read-only, completo) | InventÃ¡rio verificado de Wave B2B-0 (Â§105 do documento acima): `tenantId=userId` em produÃ§Ã£o (3 pontos confirmados, 1 gap de fencing prÃ©-existente achado no login BFF), `IdentityMapping`/BFF session/`RequestContext`, stores tenant-scoped/S3 (3 prefixos reais, diverge de Â§68)/eventos/W3-07, frontend caches (zero isolamento tenant hoje) e contagem reproduzÃ­vel da suÃ­te de testes (122 arquivos/1092 casos, nÃ£o ~1104) |
+| `multi-user-b2b-physical-model.md` | **`APPROVED` (D-086, protocolo Claudeâ†”Codex 5 rodadas, Claude 9,3/Codex 9,5)** | Physical model final de Wave B2B-1 â€” `User`/`IdentityMapping`/`Organization`/`Membership` (3 estados, GSI4 `MembershipByUser` reaproveitado)/`Invitation`/`ownerCount`/`bootstrapUser()`/`DeviceSession`+`logoutAll`/`RequestContext`/BFF session, respostas finais Ã s 25 perguntas de `roadmap-evolution/17` Â§121. EvidÃªncia das 5 rodadas em `reviews/multi-user-b2b-physical-model/` |
+| `multi-user-b2b-wave-tracker.md` | registro vivo de backlog (nÃ£o normativo sobre arquitetura/design) | Status DONE/IN PROGRESS/BLOCKED/NOT STARTED por wave (B2B-0 a B2B-15), mesmo papel de `docs/engineering/pilot-readiness-program.md` â€” ponto de entrada para saber o que jÃ¡ foi feito antes de continuar a iniciativa |
+| `reviews/context-engineering-reconciliation/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 | ReconciliaÃ§Ã£o da arquitetura de contexto do repo (2026-08-29) â€” root cleanup (21â†’6 `.md`), `AGENTS.md`/`NEXT_SESSION_PROMPT.md` trimados (narrativa de milestone jÃ¡ duplicada em `decisions-log.md` removida), 2 guardrails novos em `check-doc-drift.ts` (root allowlist, size), READMEs stale corrigidos. 4 rodadas Codex (8,1â†’8,8â†’8,9â†’9,3/10, `APPROVED`), 3 achados reais de drift semÃ¢ntico prÃ©-existente corrigidos no processo |
+| `reviews/reminder-scan-control-plane/` | decisÃ£o Type 1 direta do owner (D-301, `APPROVED_BY_OWNER`) | EvoluÃ§Ã£o do ReminderScan apÃ³s o benchmark de 10k: plano de controle dedicado (tabela/stream/relay/SQS), sharding versionado, modelo de lease+outbox transacional, reconciliaÃ§Ã£o prÃ³pria, capacidade 10kâ†’1M e rollout/rollback por epoch. O protocolo Claudeâ†”Codex foi explicitamente dispensado pela escolha direta de Marcelo; alternativas e pesquisa oficial estÃ£o registradas na decisÃ£o. |
+| `reviews/reminder-scan-control-plane/AMENDMENT-001.md` | emenda Type 1 direta do owner (D-302, `APPROVED_BY_OWNER`) | Substitui GSI3 como fonte autoritativa por `ReminderDueWorkTable` sem stream, escrita atomicamente com occurrences e lida com consistÃªncia forte; fecha claim antecipado no minuto corrente, perda por consistÃªncia eventual, parser fail-open e demais gates da revisÃ£o tÃ©cnica. |
+| `reviews/bff-full-vs-session-design/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-053/D-054) | Full BFF como fronteira de sessÃ£o do browser â€” decide o mecanismo de autenticaÃ§Ã£o das chamadas de recurso que o "BFF de sessÃ£o" original (D-034) nunca cobriu. D-053 (Claude 9,2/Codex 9,3): browser nunca recebe token OAuth, cookie de sessÃ£o opaco, PKCE+`state`. D-054, amendment de auditoria adversarial de 16 pontos (Claude 9,2/Codex 9,4): rotaÃ§Ã£o nativa do Cognito no refresh (nÃ£o contador local â€” evita falso-positivo de invalidaÃ§Ã£o), tabela de sessÃ£o dedicada IAM-isolada, cookies login/sessÃ£o com `SameSite` diferenciado. **Implementado e `APPROVED AS FRONTEND PRODUCTION FOUNDATION`** (`src/modules/bff/`, `infra/modules/bff-*`) â€” ver `docs/frontend/frontend-production-foundation.md` para o registro completo da implementaÃ§Ã£o e do protocolo Claudeâ†”Codex (Rodada D: 6 passagens, 5 achados bloqueantes reais de seguranÃ§a de sessÃ£o corrigidos) |
+| `reviews/w3-07-purge-orchestrator-scoping/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-121) | Orquestrador real do purge pipeline W3-07 (Step Functions + EventBridge Scheduler) â€” decisÃ£o pendente desde D-083, fechada 3 rodadas (6,7â†’8,2â†’9,2/9,1 `APPROVED`). Design apenas â€” implementaÃ§Ã£o (novo mÃ³dulo Terraform, 2 Lambdas, `CloseOrganizationService`) fica para sessÃ£o dedicada futura |
+| `reviews/responsibility-reassignment-scoping/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-122) | ReatribuiÃ§Ã£o de responsabilidade quando um Membership Ã© removido/sai â€” precondiÃ§Ã£o bloqueante best-effort via GSI1 jÃ¡ existente (zero GSI novo), 3 rodadas (7,0â†’8,1â†’9,1/9,1 `APPROVED`). Design apenas â€” implementaÃ§Ã£o fica para sessÃ£o dedicada futura |
+| `reviews/data-export-scoping/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-123) | ExportaÃ§Ã£o de dados (CSV) de `ExpirationItem` â€” `item:export`/`ADMIN_ROLES`, handler sÃ­ncrono via `queryGsi1` com orÃ§amento decrescente + guard de 4 MB, `csv-export-writer.ts` (RFC4180+mitigaÃ§Ã£o de fÃ³rmula), 3 rodadas (6,2â†’8,1â†’9,1/9,1 `APPROVED`). Design apenas â€” implementaÃ§Ã£o fica para sessÃ£o dedicada futura |
+| `reviews/search-and-filters-scoping/` | decisÃ£o reconciliada via protocolo AGENTS.md Â§4 (D-194) | Busca e filtros documentais (roadmap P0.5) â€” uniÃ£o discriminada Subject/Requirement/ExpirationItem via GSI7/GSI1 jÃ¡ tenant-facing (zero GSI novo), `Requirement.assigneeUserId` (mecanismo completo transportado de D-122/D-125), `UnifiedValidityState` derivado read-time. RÃ©gua reconciliada na Rodada 2 (9,6/10 estÃ¡vel), 5 rodadas (design 4,8â†’6,2â†’8,1â†’8,8â†’9,2/9,3 `APPROVED`). Design apenas â€” implementaÃ§Ã£o fica para sessÃ£o dedicada futura |
+| `reviews/` | histÃ³rico/evidÃªncia de rodada (protocolo `AGENTS.md` Â§4, pÃ³s-M0) | Artefatos de revisÃ£o Claudeâ†”Codex de implementaÃ§Ã£o real, por milestone (ex. `reviews/m3.5-runtime-design/`) â€” mesmo papel de `history/` (evidÃªncia, nunca normativo), mas para rodadas ocorridas depois que cÃ³digo passou a existir, em vez das rodadas de design conceitual prÃ©-implementaÃ§Ã£o |
+| `history/` | histÃ³rico/supersedido | Artefatos de rodada (propostas, crÃ­ticas, red team) que produziram os documentos normativos acima â€” ver subseÃ§Ã£o |
+
+## `history/` â€” evidÃªncia de rodada, por tema
+
+Cada subpasta contÃ©m os artefatos de proposta/crÃ­tica/trÃ©plica que antecederam o documento normativo correspondente. Nunca tratar como fonte de decisÃ£o vigente â€” sÃ³ como prova de como o consenso foi alcanÃ§ado.
+
+| Subpasta | Documento normativo correspondente |
+|---|---|
+| `history/quality-criteria/` | `quality-criteria.md` |
+| `history/architecture-fase3/` | `architecture-fase3-consolidada.md` |
+| `history/data-model/` | `data-model.md` |
+| `history/slo/` | `slo.md` |
+| `history/disaster-recovery/` | `disaster-recovery.md` |
+| `history/privacy-lgpd/` | `privacy-lgpd.md` |
+| `history/cost-model/` | `cost-model.md` |
+| `history/threat-model/` | `threat-model.md` |
+| `history/implementation-blueprint/` | `implementation-blueprint.md` |
+# docs/engineering/ â€” Ãndice e Mapa de Autoridade
+
+```text
+Rubrica de qualidade:     CONGELADA (01-engineering-quality-criteria.md)
+Fitness functions:        ativas (02-engineering-fitness-functions.md), enforcement real em CI
+Full-audit 9 eixos:       CONCLUÃDO em 2026-08-20 (9/9 avaliados, sÃ³ Contexto bateu o gate â‰¥9.0 originalmente) â€” achados remediados/reavaliados em rodadas posteriores por eixo, ver decisions-log.md/pilot-readiness-program.md, nÃ£o re-enumerado aqui
+Programas posteriores:    test-engineering-standard.md (E-010, APPROVED), logging-observability-standard.md (E-011, APPROVED), definition-of-done.md (E-012, APPROVED â€” gate por item de todo list; emenda E-013 tornando a aplicaÃ§Ã£o de test-engineering-standard.md operacional, nÃ£o sÃ³ referencial), research-protocol.md (E-014, APPROVED â€” pesquisa externa exigida/checklist de nota antes de decisÃµes Type 1 que dependem de padrÃ£o de mercado), Consolidation + Pilot Readiness Program (pilot-readiness-program.md/pilot-readiness-assessment.md, CONDITIONAL GO)
+Last verified:            2026-09-08 (E-023 â€” full-audit round2, eixo Qualidade de Engenharia, reaberto (Round 1 fechou 2026-08-20 em 8,199/7,788); melhora real (Claude 8,199â†’8,32, Codex 7,788â†’8,341), gate â‰¥9,0 ainda nÃ£o atingido, convergido em 2 rodadas por acordo mÃºtuo explÃ­cito do Codex; achado real novo: suÃ­te completa rodou 2624/2625 nesta sessÃ£o por corrida intermitente entre 2 arquivos de teste de arquitetura (`system-mutation-allowlist.test.ts`/`tenant-fence-boundary.test.ts`) cuja mitigaÃ§Ã£o jÃ¡ tentada (fixtures movidas, `fileParallelism: false`) nÃ£o foi suficiente â€” causa raiz nÃ£o identificada, PENDENTE; achado do Round1 sobre logger sem `correlationId` automÃ¡tico confirmado corrigido de fato (`AsyncLocalStorage` real); 3 achados mecÃ¢nicos do Codex corrigidos nesta sessÃ£o (contagem desatualizada em `test-engineering-standard.md`, comentÃ¡rio do dependency-cruiser, CycloneDX sem versÃ£o pinada) â€” ver reviews/full-audit-round2-qualidade-summary.md. E-022 â€” full-audit round2, eixo Engenharia de Contexto, reaberto (Round 1 fechou 2026-08-20 em 9,08/9,09); gate â‰¥9,0 NÃƒO atingido, convergido em 3 rodadas, nota final 6,84/10 â€” achado central: `NEXT_SESSION_PROMPT.md` cumpre o guardrail de linhas mas nÃ£o sua intenÃ§Ã£o (~134 KB), guardrail mede sÃ³ linhas; 5 achados factuais mecÃ¢nicos corrigidos em `docs/architecture/README.md` no processo â€” ver reviews/full-audit-round2-contexto-summary.md. **Achado central CORRIGIDO, D-236, 2026-09-08**: `NEXT_SESSION_PROMPT.md` recompactado (299 linhas/~145.804 bytes â†’ 87 linhas/~12.304 bytes) e `scripts/check-doc-drift.ts` ganhou guardrail de densidade (bytes+palavras, independente de contagem de linhas) â€” ver `docs/engineering/decisions-log.md` E-022 e `docs/architecture/decisions-log.md` D-236; gate â‰¥9,0 nÃ£o reavaliado por rodada nova nesta correÃ§Ã£o. E-021 â€” full-audit round2, eixo Arquitetura, reaberto pelo volume de mudanÃ§a de escopo desde round1 (D-084 a D-231+: Multi-User B2B completo, Document Archive completo, ADR-0009 substitui CDK por Terraform); melhora real (Claude 7,966â†’8,55, Codex 8,743â†’8,782), gate â‰¥9,0 ainda nÃ£o atingido, convergido em 3 rodadas; achado real novo nÃ­vel 5 (nÃ£o corrigido, PENDENTE): `src/workers/guest-credential-delivery/deliver.ts` reivindica o marcador idempotente antes do envio SES â€” falha entre claim e send perde a entrega de credencial guest permanentemente e silenciosamente, sem alarme dedicado, redrive nativo neutralizado pelo prÃ³prio claim â€” ver reviews/full-audit-round2-arquitetura-summary.md. E-020 â€” full-audit round2, eixo OperaÃ§Ãµes/SRE e Continuidade de NegÃ³cio, reaberto por crescimento de escopo (32â†’61 Lambdas, rollback.yml novo); gate â‰¥9,0 nÃ£o atingido (Claude 5,18â†’4,36, Codex 4,36, convergido em 2 rodadas); achado real nÃ­vel 5: rollback.yml hardcoda "exatamente 13 funÃ§Ãµes" no manifesto mas o manifesto real tem 34 â€” rollback falha antes de reverter qualquer alias, bug estÃ¡tico nÃ£o dependente de incidente real â€” ver reviews/full-audit-round2-operacoes-summary.md. E-019 â€” full-audit round2, eixo GovernanÃ§a JurÃ­dica/Contratual/Terceiros, reaberto por D-231 (primeiro secret de vendor externo real, Meta Cloud API); gate â‰¥9.0 ainda nÃ£o atingido (Claude 4,73â†’5,247, Codex 5,163â†’5,275, convergido em 2 rodadas); E-018 â€” full-audit round2, eixo SeguranÃ§a da InformaÃ§Ã£o e AppSec, ver decisions-log.md)
+```
+
+Este diretÃ³rio trata de **como o trabalho de engenharia Ã© medido e revisado** (rubrica, critÃ©rios por eixo, protocolo de debate, achados de auditoria) â€” nÃ£o confundir com `docs/architecture/`, que trata do que o sistema Ã‰ (design, modelo de dados, decisÃµes de arquitetura). Se a dÃºvida for "o GSI3 Ã© consultÃ¡vel por quem", vÃ¡ para `docs/architecture/`; se for "que nota isso tira / que processo formal se aplica aqui", este diretÃ³rio Ã© o certo.
+
+## PrecedÃªncia de fontes (quando houver divergÃªncia)
+
+Mesma regra de `docs/architecture/README.md` â€” `AGENTS.md` (raiz) sempre vence sobre conteÃºdo deste diretÃ³rio; um achado de auditoria (`reviews/full-audit-*-summary.md`) Ã© evidÃªncia de uma rodada especÃ­fica, nunca redefine os pesos/critÃ©rios de `joint-review-criteria.md` (ele mesmo linka para lÃ¡ em vez de duplicar, ver seu prÃ³prio rodapÃ© "Como adicionar um novo eixo").
+
+## Quando carregar o quÃª (roteamento por tipo de tarefa)
+
+| Sua tarefa Ã©... | Carregue |
+|---|---|
+| Rodar o protocolo Claudeâ†”Codex num eixo especÃ­fico (`AGENTS.md` Â§4) | `joint-review-criteria.md` (seÃ§Ã£o do eixo) + o `full-audit-round1-<eixo>-summary.md` mais recente em `reviews/`, se existir (retomar em vez de reabrir do zero) |
+| Entender que nota um achado especÃ­fico do cÃ³digo tira / que critÃ©rio ele afeta | `joint-review-criteria.md` (nÃ£o precisa da rubrica congelada nem do bibliography) |
+| Julgar se um teste automatizado ou drill operacional Ã© vÃ¡lido/de qualidade suficiente (gate binÃ¡rio, critÃ©rio ponderado, nota mÃ­nima) | `test-engineering-standard.md` â€” rÃ©gua concreta que `joint-review-criteria.md`'s critÃ©rio "Test Effectiveness & Coverage Discipline" passa a referenciar |
+| Decidir se uma mudanÃ§a precisa de ADR/protocolo formal ou Ã© correÃ§Ã£o mecÃ¢nica | `change-risk-scale.md` (a rÃ©gua concreta) â€” `AGENTS.md` Â§4 sÃ³ distingue os dois extremos de forma binÃ¡ria |
+| Marcar um item de todo list de cÃ³digo como `completed` | `definition-of-done.md` â€” gate por item (nÃ£o por PR/wave inteira): unidade de conclusÃ£o, gate por nÃ­vel de risco, registro mÃ­nimo de evidÃªncia |
+| Fechar QUALQUER tarefa (checklist rÃ¡pida, nÃ£o substitui os documentos-fonte) | `task-completion-checklist.md` â€” versÃ£o checkbox de `definition-of-done.md`+`change-risk-scale.md`+`quality-gate-tiers.md`+`joint-review-criteria.md`; uso obrigatÃ³rio antes de marcar algo concluÃ­do |
+| Decidir se uma proposta Type 1 precisa de pesquisa externa antes da Rodada 1, e como isso vira critÃ©rio de nota | `research-protocol.md` â€” critÃ©rio decidÃ­vel (nÃ­vel 5-6 + padrÃ£o externo estabelecido), declaraÃ§Ã£o `SIM`/`SIM PARCIAL`/`NÃƒO`, checklist de critÃ©rios derivado da pesquisa, fluxo de reconciliaÃ§Ã£o se o Codex contestar o checklist |
+| Saber que comando roda em qual gate (PR vs. deploy) | `quality-gate-tiers.md` â€” mapeia Tier A/B/C (CI `guardrails`, `dynamodb-integration`, Camada 3 ainda pendente) aos comandos reais de `package.json` |
+| Entender uma exceÃ§Ã£o/vulnerabilidade aceita (ex. EX-001) e seu prazo de revisÃ£o | `exceptions.md` |
+| Ver o histÃ³rico completo de decisÃµes de engenharia (nÃ£o de arquitetura) com motivo | `decisions-log.md` â€” E-000 em diante, mesmo padrÃ£o de `docs/architecture/decisions-log.md` mas para decisÃµes de processo/qualidade, nÃ£o de sistema |
+| Ver onde Claude e Codex genuinamente discordaram e como foi resolvido | `disagreement-log.md` |
+| Entender a origem da rubrica de 12 critÃ©rios/gates G1-G6 (histÃ³rico, prÃ© full-audit) | `01-engineering-quality-criteria.md` (CONGELADA â€” mudanÃ§a exige nova rodada formal, nÃ£o ediÃ§Ã£o direta) + `00-research-bibliography.md` para as fontes que a fundamentam |
+| Ver o estado exato do repositÃ³rio no inÃ­cio da Engineering Maturity Review (checkpoint 0) | `03-repository-baseline.md` â€” histÃ³rico, nÃ£o estado atual (ver aviso no prÃ³prio arquivo) |
+| Consultar o resultado de uma auditoria especÃ­fica dos 9 eixos formalizados | `reviews/full-audit-round1-<eixo>-summary.md` (ver convenÃ§Ã£o de nomenclatura abaixo) |
+| Consultar evidÃªncia bruta de uma rodada especÃ­fica (nota cega, prompt do Codex, saÃ­da bruta) | `reviews/full-audit-round1-<eixo>-{claude,codex-prompt,codex-output-roundN}.{md,txt}` â€” evidÃªncia, nunca ponto de entrada; leia o `-summary.md` primeiro |
+| Rodar o checker de drift determinÃ­stico entre docs | `npm run check-docs` (`scripts/check-doc-drift.ts`) â€” link relativo quebrado + referÃªncia `AGENTS.md Â§N` desatualizada, bloqueante no CI (`guardrails`) |
+
+## Ãndice por documento (nÃ­vel raiz de `docs/engineering/`)
+
+| Documento | ClassificaÃ§Ã£o | Do que trata |
+|---|---|---|
+| `principles.md` | normativo atual | PrincÃ­pios de engenharia adotados (proporcionalidade, evidÃªncia antes de mecanismo) |
+| `change-risk-scale.md` | normativo atual | Escala de risco de mudanÃ§a NÃ­vel 1-6, rÃ©gua concreta para "isso precisa de protocolo formal?" |
+| `quality-gate-tiers.md` | normativo atual | Tiers de gate (PR vs. deploy), mapeados aos comandos reais |
+| `definition-of-done.md` | normativo atual (APPROVED, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,1/Codex 9,2, E-012; emenda E-013) | Definition of Done por item de todo list â€” granularidade ("unidade de conclusÃ£o"), gate por nÃ­vel de risco, classificaÃ§Ã£o de risco na prÃ¡tica, registro mÃ­nimo de evidÃªncia; complementa `quality-gate-tiers.md`/`change-risk-scale.md` sem substituÃ­-los. E-013 tornou a aplicaÃ§Ã£o de `test-engineering-standard.md` operacional (G-V3 mutaÃ§Ã£o nomeada por escrito), nÃ£o sÃ³ referencial |
+| `task-completion-checklist.md` | normativo atual (2026-09-18, Marcelo pediu explicitamente que fosse persistido e indispensÃ¡vel daqui em diante) | Checklist em formato checkbox aplicada ao final de toda tarefa â€” deriva de `definition-of-done.md`/`change-risk-scale.md`/`quality-gate-tiers.md`/`joint-review-criteria.md` sem duplicar seu conteÃºdo; em divergÃªncia, o documento-fonte vence |
+| `research-protocol.md` | normativo atual (APPROVED, protocolo Claudeâ†”Codex 3 rodadas, Claude 9,2/Codex 9,2, E-014) | Pesquisa externa antes de decisÃµes Type 1 â€” gatilho acoplado a `change-risk-scale.md` nÃ­vel 5-6 + Rodada 1 do protocolo (nunca uma disciplina paralela para lembrar); declaraÃ§Ã£o `SIM`/`SIM PARCIAL`/`NÃƒO` com fonte+data+representatividade; checklist de critÃ©rios de nota derivado da pesquisa, sub-rubrica subordinada a `joint-review-criteria.md`; fluxo de reconciliaÃ§Ã£o quando o Codex contesta o checklist em si |
+| `joint-review-criteria.md` | normativo atual | CritÃ©rios/pesos por eixo das revisÃµes conjuntas Claudeâ†”Codex (9 eixos formalizados + FinOps pendente) |
+| `test-engineering-standard.md` | normativo atual (APPROVED, protocolo Claudeâ†”Codex 8 rodadas, gate elevado 9,5/10) | PadrÃ£o de validade/qualidade para teste automatizado e drill operacional (chaos/DiRT) â€” gates binÃ¡rios (G-V1..G-V6, G-C1), critÃ©rios ponderados, fÃ³rmula de agregaÃ§Ã£o, auditoria retroativa da Wave 2 (2026-08-28) |
+| `logging-observability-standard.md` | normativo atual (APPROVED, protocolo Claudeâ†”Codex 3 rodadas, gate elevado 9,5/10) | RÃ©gua concreta de qualidade para logging/tracing/taxonomia de erro (`src/shared/observability/**`, `app-error.ts`, wiring Terraform de detecÃ§Ã£o) â€” 8 critÃ©rios ponderados, Ã¢ncoras de pontuaÃ§Ã£o, gate de auditoria 9,0/10, escrita em resposta a achados reais de uma rodada Codex de 2026-08-29 |
+| `exceptions.md` | normativo atual (registro vivo) | ExceÃ§Ãµes/vulnerabilidades aceitas com owner e prazo |
+| `decisions-log.md` | decisÃ£o (log vivo) | DecisÃµes de engenharia/processo, E-000 em diante |
+| `disagreement-log.md` | histÃ³rico/registro vivo | DivergÃªncias materiais Claudeâ†”Codex e como foram resolvidas |
+| `ai-governance.md` | normativo atual (registro vivo) | Matriz de autoridade por agente, regra de quando `AGENTS.md` Â§4 pode ser dispensado, inventÃ¡rio de casos de uso de IA, registro de modelo/fornecedor, incidentes causados pelo prÃ³prio agente (distinto de `exceptions.md`) |
+| `01-engineering-quality-criteria.md` | histÃ³rico (CONGELADA) | Rubrica original de 12 critÃ©rios/gates G1-G6 da Engineering Maturity Review â€” antecessora conceitual de `joint-review-criteria.md`, nÃ£o superseded formalmente mas escopo majoritariamente absorvido pelos 9 eixos |
+| `02-engineering-fitness-functions.md` | normativo atual | VerificaÃ§Ãµes executÃ¡veis derivadas da rubrica CONGELADA |
+| `00-research-bibliography.md` | histÃ³rico/fundamentaÃ§Ã£o | Fontes de pesquisa que embasam a rubrica original |
+| `03-repository-baseline.md` | histÃ³rico | Estado do repositÃ³rio no inÃ­cio da Engineering Maturity Review â€” nunca estado atual |
+| `pilot-readiness-program.md` | registro vivo de backlog (nÃ£o normativo sobre arquitetura/design) | Backlog item-a-item do "Consolidation + Pilot Readiness Program" (`docs/project/handoffs/expiration-tracker-next-days-master-plan-and-ai-prompt.md`, movido da raiz em 2026-08-29) â€” DONE/PARTIAL/BLOCKED/DEFERRED/NOT STARTED por Wave 0-6, atualizado a cada milestone |
+| `pilot-readiness-assessment.md` | sÃ­ntese/recomendaÃ§Ã£o (entregÃ¡vel final do programa, prompt mestre Â§42) | GO/CONDITIONAL GO/NO-GO por escopo de piloto, consolidando a evidÃªncia de `pilot-readiness-program.md` â€” nÃ£o repete achado, sÃ³ aponta; nÃ£o Ã© aprovaÃ§Ã£o final, Ã© insumo para a decisÃ£o do Marcelo |
+| `reviews/` | histÃ³rico/evidÃªncia de rodada | Artefatos de toda rodada Claudeâ†”Codex de processo/qualidade â€” ver seÃ§Ã£o prÃ³pria abaixo |
+
+## `reviews/` â€” convenÃ§Ã£o de nomenclatura e classificaÃ§Ã£o
+
+EvidÃªncia de rodada, mesmo papel que `docs/architecture/history/` tem para decisÃµes de arquitetura: nunca normativo, sÃ³ prova de como uma nota/decisÃ£o foi alcanÃ§ada. TrÃªs geraÃ§Ãµes de conteÃºdo coexistem aqui, nesta ordem cronolÃ³gica:
+
+1. **Checkpoints da Engineering Maturity Review** (`checkpoint-01-rubric/`, `checkpoint-02-09-consolidated/`, `checkpoint-12-redteam/`, e os arquivos soltos `_codex-*-checkpoint1-*.txt` no nÃ­vel raiz de `reviews/`) â€” produziram a rubrica CONGELADA (`01-engineering-quality-criteria.md`) e o red team que motivou G8. Prefixo `_` nos arquivos brutos Ã© intencional (agrupa antes de outros nomes em ordem alfabÃ©tica, sinaliza "transcript bruto, nÃ£o leia direto").
+2. **ConvergÃªncia dos critÃ©rios por eixo** (`joint-review-criteria-round1-*`, `security-axis-criteria-round1-*`, `remaining-axes-round1-*`, `audit-areas-*`) â€” produziram `joint-review-criteria.md`.
+3. **Full-audit dos 9 eixos formais** (`full-audit-round1-<eixo>-*`) â€” a rodada em andamento nesta sessÃ£o. PadrÃ£o de nomenclatura por eixo (`<eixo>` âˆˆ `arquitetura`, `qualidade`, `contexto`, `seguranca`, ...):
+   - `full-audit-round1-<eixo>-claude.md`, `-claude-round2.md`, `-claude-round3.md`, ... â€” nota cega do Claude, uma por rodada.
+   - `full-audit-round1-<eixo>-codex-prompt.txt` / `-codex-prompt-round2.txt`, ... â€” prompt enviado ao Codex CLI, um por rodada.
+   - `full-audit-round1-<eixo>-codex-output-round1.txt`, `-round2.txt`, ... â€” saÃ­da bruta do Codex CLI. Alguns trechos que ecoam saÃ­da de outros comandos de shell continham mojibake (encoding double/triple-decoded em algumas invocaÃ§Ãµes via PowerShell) â€” revertido deterministicamente para os arquivos anteriores a cada rodada (achado real de higiene, corrigido, nÃ£o sÃ³ mitigado); a saÃ­da de uma rodada em andamento pode ainda conter mojibake atÃ© a rodada seguinte revisÃ¡-la, por ser evidÃªncia datada do que o Codex realmente viu naquele momento â€” nunca editada retroativamente. Se precisar do conteÃºdo, prefira o `-summary.md` correspondente, que jÃ¡ extrai a informaÃ§Ã£o sem o ruÃ­do de encoding.
+   - `full-audit-round1-<eixo>-summary.md` â€” **o Ãºnico arquivo desta trinca que deveria ser lido diretamente.** Nota final por critÃ©rio (ambos os lados), achados corrigidos com commit real, achados restantes classificados em "impedimento externo real" vs. "escopo maior que correÃ§Ã£o pontual".
+
+4. **Reabertura de um eixo jÃ¡ fechado** (`full-audit-round2-<eixo>-*`, mesmo padrÃ£o de nomenclatura acima, "round2" substitui "round1" no prefixo, nÃ£o sufixo `-round2.md` isolado como o de uma nota Claude dentro da mesma rodada) â€” usada quando a recomendaÃ§Ã£o de fechamento de um `full-audit-round1-<eixo>-summary.md` cita uma condiÃ§Ã£o objetiva de reabertura (ex.: "reabrir quando X for implementado") e essa condiÃ§Ã£o se materializa. Casos reais: `full-audit-round2-privacidade-*` (E-015, 2026-09-07), reaberto porque a condiÃ§Ã£o nomeada no fechamento round1 (purge worker real) foi satisfeita por D-179/D-190; `full-audit-round2-produto-multitenant-*` (E-016, 2026-09-07), reaberto pelo volume de mudanÃ§a de escopo desde round1 (Document Archive D-143â€“D-226, WhatsApp, B2B-7 a B2B-14) â€” melhora real (4,65â†’7,1/7,8), gate ainda nÃ£o atingido, nenhum vazamento cross-tenant confirmado nesta rodada; `full-audit-round2-governanca-ia-*` (E-017, 2026-09-08); `full-audit-round2-seguranca-*` (E-018, 2026-09-08); `full-audit-round2-juridico-*` (E-019, 2026-09-08), reaberto por D-231 (primeiro secret de vendor externo real, Meta Cloud API) â€” gate ainda nÃ£o atingido (5,247/5,275), convergido em 2 rodadas; `full-audit-round2-arquitetura-*` (E-021, 2026-09-08), reaberto pelo volume de mudanÃ§a de escopo desde round1 (D-084 a D-231+) â€” melhora real (7,966/8,743â†’8,55/8,782), gate ainda nÃ£o atingido, convergido em 3 rodadas, achado novo real nÃ­vel 5 (claim-before-send em `guest-credential-delivery/deliver.ts`, perda silenciosa de entrega, PENDENTE para decisÃ£o de Marcelo).
+
+Arquivos de transcript bruto (`.txt`, prefixo `_`, ou os `full-audit-*-codex-output-*.txt`) nunca sÃ£o fonte de verdade por si sÃ³ â€” sempre prefira o `.md` de resumo/nota que os acompanha. **PolÃ­tica de proveniÃªncia/metadata**: os `.md` de nota/resumo carregam frontmatter (`status`/`owner`/`authority`, mais `Last verified` nos routers); os `.txt` brutos nÃ£o â€” exigir frontmatter em cada transcript violaria proporcionalidade (`principles.md` #1) sem ganho real, jÃ¡ que sua proveniÃªncia Ã© herdada do `.md` que os acompanha (mesmo prefixo de nome) e da posiÃ§Ã£o cronolÃ³gica descrita nesta seÃ§Ã£o. Isso Ã© uma decisÃ£o de design, nÃ£o uma lacuna: um transcript nunca Ã© lido isoladamente por convenÃ§Ã£o (ver acima), entÃ£o nÃ£o precisa carregar sua prÃ³pria metadata.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "git status --short; git branch --show-current; rg -n -A 90 -B 15 'never overwrites an existing NotificationPreferences record' test/unit/organization/accept-invitation.test.ts; Get-Content -Encoding UTF8 package.json; Get-Content -Encoding UTF8 frontend/package.json" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content -Encoding UTF8 frontend/src/routes/Overview.tsx; Get-Content -Encoding UTF8 frontend/test/routes/Overview.test.tsx' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'Get-Content -Encoding UTF8 docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-3-claude-revision.md; Get-Content -Encoding UTF8 .claude/skills/task-checklist/SKILL.md; Get-Content -Encoding UTF8 docs/engineering/task-completion-checklist.md' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 239ms:
+/**
+ * Overview — "o que precisa da minha atenção?" (mission §29).
+ *
+ * The query, the ACTIVE-only scope and the due-date ascending ordering are exactly what the
+ * approved Core Expiration Vertical Slice shipped. Decorative KPI tiles/donut charts remain
+ * rejected (mission §29's "KPI theater", VL-G14) — a count that is not a real link earns
+ * nothing. The attention row below answers D-08 of visual-language-and-design-system.md ("um
+ * contador acionável ajudaria a priorizar?") with exactly that: every count is a link into the
+ * group it counts, never a bare number.
+ *
+ * A separate "ver todos os vencimentos" affordance was dropped (2026-09-20, Marcelo): its target
+ * (`/items`) is identical to the "em acompanhamento" card's own link, so once that card carries a
+ * real count (pendência #14) the two become the exact same CTA twice. A future "ver todos" only
+ * earns its own affordance again if it covers a scope neither card does today (e.g. every status,
+ * not just ACTIVE).
+ *
+ * ADR-0015/pendência #14 (NEXT_SESSION_PROMPT.md, PENDING_PROTOCOL_REVIEW — decisions-log.md):
+ * the 3 attention counts now come from `useDashboardSummary()` (`GET /dashboard/summary`,
+ * `DashboardService.getSummary`'s `itemsOverdueCount`/`itemsExpiringSoonCount`/
+ * `activeItemsCount`), a real tenant-wide aggregate — never derived from `useItemsDashboardBounded`
+ * (only a bounded 30-item page, which would silently undercount past 30 active items).
+ */
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { useOrgPath } from "../routing/useOrgPath.js";
+import type { ExpirationItem } from "../api/types.js";
+import { formatAbsoluteDate, formatBytesAsGb, presentItemUrgency, sortByDueDateAscending } from "../api/presentation.js";
+import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { InlineNotice } from "../components/ui/InlineNotice.js";
+import { ApiError } from "../api/errors.js";
+import { AlertCircle, Clock, ClipboardList, Plus } from "lucide-react";
+import { PageHeader, Panel, AttentionRow, type AttentionItem } from "../components/ui/Layout.js";
+import { ButtonLink } from "../components/ui/Button.js";
+import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
+import { UrgencyIndicator } from "../components/ui/UrgencyIndicator.js";
+import { useItemsDashboardBounded, useDashboardSummary } from "../hooks/useItemsDashboard.js";
+import { useStorageQuota } from "../hooks/useStorageQuota.js";
+
+/**
+ * A03 (D-2xx addendum) conditional storage card — renders ONLY when `warningLevel` is
+ * WARNING/CRITICAL/OVER (>=80% of `limitBytes` committed); below that threshold this returns
+ * `null` and the card never appears at all (spec: "nunca aparece vazio ou desabilitado"). A
+ * failed/pending fetch also renders nothing here — this is a secondary, non-blocking signal on
+ * a page whose primary content (the items table below) must never wait on it.
+ */
+function StorageQuotaCard({ orgPath }: { orgPath: (path: string) => string }) {
+  const query = useStorageQuota();
+  if (!query.data) return null;
+  const usage = query.data.usage;
+  if (usage.warningLevel === "OK") return null;
+
+  const percent = Math.round(usage.usedPercent * 100);
+  return (
+    <Panel padded>
+      <p>
+        <strong>Armazenamento:</strong> {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
+      </p>
+      <progress value={Math.min(usage.usedPercent, 1)} max={1} aria-label="Percentual de armazenamento utilizado" style={{ width: "100%" }} />
+      {usage.warningLevel === "OVER" ? <p>Novos uploads bloqueados até liberar espaço — arquivos existentes não são afetados.</p> : null}
+      <p>
+        <Link to={orgPath("/settings")}>Gerenciar armazenamento</Link>
+      </p>
+    </Panel>
+  );
+}
+
+export function Overview() {
+  // Wave B2B-10: previously duplicated apiClient.get() call inline with an unscoped queryKey
+  // (["items","dashboard","ACTIVE"]) - the one org-scoping gap the Round 2 inventory found that
+  // wasn't already covered by a shared hook. Now goes through the same org-scoped hook family
+  // as the Items Collection screen (D-136/D-E split the hook in two - this screen wants a
+  // single bounded read, never the paginated "load more" the Collection needs).
+  const query = useItemsDashboardBounded("ACTIVE");
+  const summaryQuery = useDashboardSummary();
+  const now = useMemo(() => new Date(), []);
+  const orgPath = useOrgPath();
+
+  const columns: DataTableColumn<ExpirationItem>[] = [
+    {
+      key: "name",
+      header: "Vencimento",
+      primary: true,
+      render: (item) => <Link to={orgPath(`/items/${item.itemId}`)}>{item.name}</Link>,
+    },
+    {
+      key: "dueDate",
+      header: "Data",
+      numeric: true,
+      // Absolute date always available (mission §19) — the relative context lives in the
+      // urgency column right next to it, never replacing the real date.
+      render: (item) => formatAbsoluteDate(item.dueDate),
+    },
+    {
+      key: "urgency",
+      header: "Urgência",
+      // Urgency, not lifecycle status. This surface is scoped to ACTIVE items only (see the
+      // query above and the page description), so a "Situação" column here would read
+      // "Ativo" on every single row — noise, not signal. Both concepts remain
+      // representable and both ARE shown side by side on the Collection, where the status
+      // filter makes lifecycle status a real variable (mission §32).
+      render: (item) => <UrgencyIndicator urgency={presentItemUrgency(item, now)} />,
+    },
+  ];
+
+  const header = (
+    <PageHeader
+      title="Visão geral"
+      description="Seus vencimentos ativos, do mais para o menos urgente."
+      actions={
+        <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
+          Novo vencimento
+        </ButtonLink>
+      }
+    />
+  );
+
+  if (query.isPending) {
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <Panel>
+          <CollectionSkeleton label="Carregando seus vencimentos…" />
+        </Panel>
+      </>
+    );
+  }
+
+  if (query.isError) {
+    const message = query.error instanceof ApiError ? query.error.message : "Não foi possível carregar seus vencimentos.";
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <ErrorState message={message} onRetry={() => void query.refetch()} />
+      </>
+    );
+  }
+
+  const items = sortByDueDateAscending(query.data.items);
+
+  if (items.length === 0) {
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <EmptyState
+          kind="true-empty"
+          message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
+          action={
+            <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
+              Novo vencimento
+            </ButtonLink>
+          }
+        />
+      </>
+    );
+  }
+
+  // Real tenant-wide aggregate (D-308 pendência #14, D-332 revisão adversarial) - never gates
+  // the page's own loading state (removed from the `isPending` check above, D-332 achado real:
+  // this secondary widget was blocking the whole page, including the items table, contradicting
+  // this comment's own "nunca bloqueando a tabela principal") - pending OR errored both resolve
+  // to `summaryQuery.data` undefined here, degrading to the InlineNotice below either way.
+  // `approximate: true` (D-332 achado real: `Overview.tsx` computed `attention` but never read
+  // this field, so a truncated page-cap search could render a misleadingly exact "0") appends
+  // "(parcial)" to every label - the shared flag covers all 3 cards uniformly (a per-card
+  // breakdown would need per-sub-count tracking in `DashboardService`, out of proportion for
+  // this fix - see round-1-claude-proposal.md achado 3).
+  const attention: AttentionItem[] | undefined = summaryQuery.data
+    ? [
+        { count: summaryQuery.data.itemsOverdueCount, label: summaryQuery.data.approximate ? "vencidos (parcial)" : "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsExpiringSoonCount, label: summaryQuery.data.approximate ? "vencem em 7 dias (parcial)" : "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+        { count: summaryQuery.data.activeItemsCount, label: summaryQuery.data.approximate ? "em acompanhamento (parcial)" : "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+      ]
+    : undefined;
+
+  return (
+    <>
+      {header}
+      <StorageQuotaCard orgPath={orgPath} />
+      {attention ? (
+        <AttentionRow items={attention} />
+      ) : summaryQuery.isPending ? null : (
+        // D-332 achado real (Codex Rodada 2): antes desta mudança, `summaryQuery` ainda
+        // pendente (não errado, só mais lento que a tabela) já disparava este aviso de erro -
+        // um falso positivo enquanto os dados reais ainda estavam a caminho. `isPending` aqui
+        // nunca reintroduz o bloqueio da Rodada 1 (a tabela acima não depende disto).
+        <InlineNotice tone="warning" announce="none">
+          Não foi possível carregar os contadores de atenção agora.
+        </InlineNotice>
+      )}
+      <Panel>
+        <DataTable caption="Vencimentos ativos, do mais para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
+      </Panel>
+    </>
+  );
+}
+import { describe, expect, it, beforeEach, vi } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import { renderAtRoute } from "../testUtils.js";
+import { Overview } from "../../src/routes/Overview.js";
+import type { DashboardSummaryResponse, ExpirationItem, StorageQuotaUsage } from "../../src/api/types.js";
+
+const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+vi.mock("../../src/api/apiClient.js", () => ({
+  apiClient: { get: getMock, post: vi.fn() },
+}));
+
+function item(overrides: Partial<ExpirationItem>): ExpirationItem {
+  return {
+    itemId: "item-1",
+    tenantId: "t1",
+    name: "Item",
+    category: "Cat",
+    dueDate: "2026-09-01T00:00:00.000Z",
+    tags: [],
+    status: "ACTIVE",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 1,
+    ...overrides,
+  };
+}
+
+function usage(overrides: Partial<StorageQuotaUsage>): StorageQuotaUsage {
+  return {
+    limitBytes: 8 * 1024 * 1024 * 1024,
+    usedBytes: 0,
+    reservedBytes: 0,
+    availableBytes: 8 * 1024 * 1024 * 1024,
+    usedPercent: 0,
+    warningLevel: "OK",
+    ...overrides,
+  };
+}
+
+function summary(overrides: Partial<DashboardSummaryResponse>): DashboardSummaryResponse {
+  return {
+    overdueCount: 0,
+    expiringSoonCount: 0,
+    awaitingReviewCount: 0,
+    missingRequirementsCount: 0,
+    itemsOverdueCount: 0,
+    itemsExpiringSoonCount: 0,
+    activeItemsCount: 0,
+    approximate: false,
+    ...overrides,
+  };
+}
+
+function mockGet(byPath: { items?: ExpirationItem[]; usage?: StorageQuotaUsage; summary?: DashboardSummaryResponse }) {
+  getMock.mockImplementation((path: string) => {
+    if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: byPath.items ?? [] });
+    if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: byPath.usage ?? usage({}) });
+    if (path === "/dashboard/summary") return Promise.resolve({ summary: byPath.summary ?? summary({}) });
+    throw new Error(`unexpected path ${path}`);
+  });
+}
+
+beforeEach(() => {
+  getMock.mockReset();
+});
+
+describe("Overview", () => {
+  it("lists ACTIVE items and never shows the storage card when usage is OK", async () => {
+    mockGet({ items: [item({})], usage: usage({ warningLevel: "OK" }) });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
+    expect(screen.queryByText(/Armazenamento:/)).not.toBeInTheDocument();
+  });
+
+  // A03 (D-2xx addendum): the storage card is conditional on warningLevel, independent of the
+  // items table's own loading/error/success cycle - it must appear once the quota crosses 80%
+  // even though the primary content above it renders normally.
+  it("shows the storage card once usage crosses the WARNING threshold", async () => {
+    mockGet({
+      items: [item({})],
+      usage: usage({ warningLevel: "WARNING", usedBytes: 7 * 1024 * 1024 * 1024, usedPercent: 0.875 }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText(/Armazenamento:/)).toBeInTheDocument());
+    expect(screen.getByText(/88%/)).toBeInTheDocument();
+  });
+
+  it("shows the OVER-state upload-blocked notice", async () => {
+    mockGet({
+      items: [],
+      usage: usage({ warningLevel: "OVER", usedBytes: 8 * 1024 * 1024 * 1024, usedPercent: 1 }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText(/Armazenamento:/)).toBeInTheDocument());
+    expect(screen.getByText(/Novos uploads bloqueados/)).toBeInTheDocument();
+  });
+
+  it("shows the empty state when there are no ACTIVE items", async () => {
+    mockGet({ items: [], usage: usage({}) });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText(/Nenhum vencimento cadastrado ainda/)).toBeInTheDocument());
+  });
+
+  // D-308 pendência #14 (PENDING_PROTOCOL_REVIEW): mutation - reverting to the old hardcoded
+  // placeholder counts (3/4/items.length) would make these assertions fail, since the mocked
+  // summary here uses different, distinguishable numbers.
+  it("shows the 3 attention counts from the real GET /dashboard/summary aggregate, not a placeholder", async () => {
+    mockGet({
+      items: [item({})],
+      usage: usage({}),
+      summary: summary({ itemsOverdueCount: 7, itemsExpiringSoonCount: 5, activeItemsCount: 42 }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
+    expect(screen.getByText("vencidos")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("vencem em 7 dias")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("em acompanhamento")).toBeInTheDocument();
+  });
+
+  // Mutation: removing the `attention ? <AttentionRow /> : <InlineNotice />` fallback (or making
+  // `summaryQuery.isError` render nothing) would either crash rendering `undefined` counts or
+  // silently show no feedback at all - this asserts the degraded state is visible, not silent.
+  it("degrades gracefully (never blocks the items table) when the summary aggregate fails", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: [item({})] });
+      if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: usage({}) });
+      if (path === "/dashboard/summary") return Promise.reject(new Error("boom"));
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
+    expect(screen.getByText(/Não foi possível carregar os contadores de atenção/)).toBeInTheDocument();
+  });
+
+  // D-332 achado real (revisão adversarial de D-315/D-316): `summaryQuery.isPending` estava no
+  // MESMO gate de loading da tabela de itens, então a tabela (conteúdo primário) esperava a
+  // agregação secundária terminar mesmo com os itens já disponíveis - contradizia o próprio
+  // comentário do arquivo ("nunca bloqueando a tabela principal"). Mutação: devolver
+  // `summaryQuery.isPending` ao `if` do skeleton faria este teste falhar (a tabela ficaria presa
+  // no skeleton enquanto a Promise de summary abaixo não resolve).
+  it("renders the items table before the summary aggregate resolves, never blocking on it", async () => {
+    let resolveSummary: (value: { summary: DashboardSummaryResponse }) => void = () => {};
+    const summaryPromise = new Promise<{ summary: DashboardSummaryResponse }>((resolve) => {
+      resolveSummary = resolve;
+    });
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: [item({})] });
+      if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: usage({}) });
+      if (path === "/dashboard/summary") return summaryPromise;
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
+    expect(screen.queryByText("vencidos")).not.toBeInTheDocument();
+    // D-332 achado real (Codex Rodada 2): `summaryQuery` ainda pendente (nunca errado) não deve
+    // disparar o aviso de erro - só um resultado REALMENTE resolvido sem dado (erro) deve.
+    expect(screen.queryByText(/Não foi possível carregar os contadores/)).not.toBeInTheDocument();
+
+    resolveSummary({ summary: summary({ itemsOverdueCount: 3 }) });
+    await waitFor(() => expect(screen.getByText("vencidos")).toBeInTheDocument());
+  });
+
+  // D-332 achado real: `approximate: true` (busca truncada pelo teto de páginas do
+  // `DashboardService`) era computado mas nunca lido por `Overview.tsx` - a tela apresentava uma
+  // contagem parcial como se fosse exata. Mutação: remover o sufixo condicional em `Overview.tsx`
+  // faria este teste falhar.
+  it("marks the attention counts as partial when the aggregate hit its page cap", async () => {
+    mockGet({
+      items: [item({})],
+      usage: usage({}),
+      summary: summary({ itemsOverdueCount: 7, itemsExpiringSoonCount: 0, activeItemsCount: 125, approximate: true }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("vencidos (parcial)")).toBeInTheDocument());
+    expect(screen.getByText("vencem em 7 dias (parcial)")).toBeInTheDocument();
+    expect(screen.getByText("em acompanhamento (parcial)")).toBeInTheDocument();
+  });
+});
+
+ succeeded in 227ms:
+# D-315/D-316 — Rodada 3 (confirmação, nota Codex 9,0/10 na Rodada 2)
+
+A Rodada 2 já atingiu o gate de 9,0 (Codex 9,0, aceitando explicitamente a divisão de escopo
+proposta - corrigir achados 1/4/5, registrar 2/3/6 como pendência do worker M4), mas o protocolo
+exige mínimo 3 rodadas. Os únicos achados restantes eram 2 "Baixa" não-bloqueantes. Ambos aplicados:
+
+1. **Overview.tsx - aviso de erro disparando com o summary só pendente, não errado.** Ao remover
+   `summaryQuery.isPending` do gate de loading (Rodada 2, achado 5), o `InlineNotice` de erro
+   passou a aparecer também enquanto `summaryQuery` ainda estava em voo (não só quando
+   genuinamente falhava) - falso positivo temporário. Corrigido: `attention ? <AttentionRow /> :
+   summaryQuery.isPending ? null : <InlineNotice />` - nunca reintroduz o bloqueio da tabela (que
+   não depende disto), só distingue "ainda carregando" de "falhou de verdade". Teste reforçado
+   (`renders the items table before the summary aggregate resolves...`) agora também afirma que o
+   aviso de erro NÃO aparece enquanto pendente.
+
+2. **Teste de reativação mais estreito que o nome prometia.** O teste
+   `never overwrites an existing NotificationPreferences record...` só comparava
+   `emailEnabled`/`consentSource`, deixando `locale`/`quietHours`/`version`/timestamps
+   preserváveis-em-teoria mas nunca provados por um valor real e distinguível do default.
+   Corrigido: o registro pré-existente agora usa um valor diferente do default em TODOS os campos
+   (`locale: "en-US"`, `quietHours` um objeto real, `version: 2`, timestamps distintos), e a
+   asserção final é `toEqual(preExisting)` - uma comparação estrutural completa, não campo a campo.
+
+## Sugestão do Codex não aplicada (registrada, não obrigatória para o gate)
+
+Codex sugeriu um builder dedicado para "seed sem sobrescrita" centralizando o padrão
+`if_not_exists()`, reaproveitando `defaultNotificationPreferences()`, em vez de duplicar os
+literais na `UpdateExpression` hand-rolled. Julgamento consciente de não aplicar agora: o padrão
+`if_not_exists()` por campo já é usado exatamente uma vez neste arquivo (o `membershipEntry`
+acima, para `version`/`createdAt`) e agora uma segunda vez (o `notificationPreferencesEntry`) -
+não há um terceiro call site ainda para justificar extrair um builder genérico (3 estruturas
+similares é o limiar usual deste projeto para abstrair, não 2 - AGENTS.md/CLAUDE.md "don't add
+abstractions beyond what the task requires"). Também explicitamente confirmado como não-bloqueante
+pelo próprio Codex ("não recomendo tornar ConditionExpression opcional indiscriminadamente").
+
+## Nota cega (Claude), Rodada 3
+
+Ver `round-3-claude-selfgrade.md` (arquivo separado).
+---
+name: task-checklist
+description: Run the Expiration Tracker task-completion checklist (docs/engineering/task-completion-checklist.md) against the work just done in this session, before marking a task/todo item complete. Use at the end of any task that produced or changed real code, a recorded decision, or a normative document in this repo — not for read-only tasks (research, planning, pure Q&A). Invoke explicitly as /task-checklist, or reach for it proactively whenever you are about to report a task as finished.
+---
+
+# Task-completion checklist runner
+
+This project decided (Marcelo, 2026-09-18) to keep this checklist an agent-invoked skill, not a
+blocking hook — `docs/engineering/definition-of-done.md` §"O que isso NÃO é" explains why (it stays
+proportional: lowers the friction of applying the gate, without forcing automation the project
+hasn't yet seen evidence it needs). Running this skill is still something you choose to do, exactly
+like reading `definition-of-done.md` directly — this file just makes that fast and consistent.
+
+## What to do
+
+1. Read `docs/engineering/task-completion-checklist.md` in full — it is the actual checklist; this
+   skill does not duplicate its content, only drives applying it.
+2. Identify the real diff/decision this task produced (`git diff`/`git status`, the artifact
+   written, or the decision registered) — never evaluate against the task's original intent, only
+   against what was actually produced.
+3. Walk the checklist section by section, in order, against that real diff:
+   - §0: confirm this is a valid, coherent unit of completion (decompose first if it isn't).
+   - §1: classify the risk level, citing the concrete trigger from `change-risk-scale.md`.
+   - §2: run the gate commands the classified level requires — actually run them, read the real
+     output; never assume green.
+   - §3: for each of the 9 axes, mark N/A or evaluated — do not force axes the diff didn't touch,
+     do not skip evaluating ones it did.
+   - §4: only if this task closes a roadmap/backlog item — confirm end-to-end evidence is cited, not
+     just "each slice was green in isolation."
+   - §5: write the `DoD:` evidence line in the required format, in the best available location
+     (commit message > review artifact > response body).
+   - §6: only when concluding a phase/milestone, not every item.
+   - §7: confirm the task isn't ending because of an unstated blocker — if the next step needs
+     Marcelo's decision, that pending item is named and another independent thread continues.
+4. If any required gate is missing, failed, or wasn't actually run: do **not** report the task as
+   done. State plainly what's missing and leave the todo item `in_progress`/`pending` with the
+   finding recorded — never mark something `completed` "to fix later."
+5. Report the result concisely: the risk level, which gates ran (with real outcomes), which axes
+   were touched, and the final `DoD:` line. Don't restate the whole checklist back to the user —
+   only the parts that were actually evaluated and anything that failed.
+# Checklist de conclusão de tarefa
+
+> Uso obrigatório ao final de qualquer tarefa/item de todo list que produza ou altere código real,
+> decisão registrada, ou documento normativo. Uma tarefa não está concluída até passar por esta
+> checklist inteira — não é um resumo do que já foi feito, é o próprio gate. Operacionaliza em
+> formato de checkbox o que já é normativo em `definition-of-done.md` + `change-risk-scale.md` +
+> `quality-gate-tiers.md` + `joint-review-criteria.md` (nossos "pilares") — não os substitui, não
+> duplica o texto deles, só torna a aplicação rápida de verificar item a item. Em qualquer
+> divergência entre esta checklist e um dos quatro documentos-fonte, o documento-fonte vence.
+> Existe uma Skill (`/task-checklist`, `.claude/skills/task-checklist/SKILL.md`) que aplica este
+> arquivo de forma consistente — invocação do próprio agente, não hook bloqueante (`definition-of-
+> done.md` §"O que isso NÃO é").
+
+## 0. Isto é uma unidade válida de conclusão?
+
+- [ ] O diff tem escopo coeso e um único nível máximo de risco identificável (`definition-of-done.md`
+      §"Unidade de conclusão"). Se cruza mais de uma camada com gates diferentes (schema + handler +
+      teste) ou mais de um gatilho de risco — decompor antes de continuar, não aplicar esta checklist
+      a um item guarda-chuva.
+- [ ] Se for um item read-only (inventário, pesquisa, leitura de código, planejamento) — esta
+      checklist não se aplica; não há diff para avaliar.
+
+## 1. Classificar o risco real (`change-risk-scale.md`)
+
+- [ ] Nível classificado **pelo diff real produzido**, não pela intenção original do item, citando o
+      gatilho concreto (ex. "nível 5 porque criou GSI novo", nunca só "parece arriscado").
+- [ ] Em dúvida entre dois níveis adjacentes → usar o mais alto.
+- [ ] Se a implementação revelou um contrato/fronteira de módulo novo não visível no início →
+      reclassificar para 5-6 ANTES de fechar, não depois.
+
+Nível classificado: **___** (1 Cosmético / 2 Correção mecânica / 3 Implementação já aprovada /
+4 Judgment call reversível / 5 Contrato/chave/fronteira nova / 6 Decisão arquitetural formal)
+
+## 2. Gate mínimo pelo nível (`definition-of-done.md` + `quality-gate-tiers.md`)
+
+- [ ] **1-2**: `npm run typecheck` + `npm run lint` rodados e verdes.
+- [ ] Se o diff toca `frontend/src/**` (qualquer nível) → gates `FE-G1..FE-G5`
+      (`docs/frontend/frontend-engineering-quality-standard.md` §63) aplicados de fato, não só
+      citados — FAIL em qualquer um bloqueia independente do nível classificado em §1.
+- [ ] **3-4** (tudo do 1-2, mais): teste do módulo tocado roda e passa; `npm run check-boundaries` se
+      import/fronteira mudou; `npm run validate-schemas` se schema/contrato mudou; `npm run
+      build:lambdas` se handler/runtime mudou.
+- [ ] Se o diff toca `src/shared/observability/**`/`app-error.ts`/log novo →
+      `logging-observability-standard.md` aplicado, não só citado.
+- [ ] Se o diff adiciona/altera teste automatizado → **G-V3 aplicado de fato**: cada `it()`
+      novo/alterado tem comentário imediatamente acima nomeando uma mutação concreta que faria a
+      asserção falhar (não basta a suíte estar verde — verde prova que passa, não que detectaria um
+      bug real). G-V4 (nome/comentário declara a intenção) confirmado.
+- [ ] Se o diff adiciona/altera comentário de código ou anotação de doc (decisions-log, roadmap,
+      handoff) → revisão crítica de concisão aplicada (`AGENTS.md` §7): descreve só a realidade
+      atual, sem meta-narrativa de correção/processo de verificação, informação extra só se
+      indispensável para evitar repetir um erro real — nunca por completude/auditoria.
+- [ ] **5-6** (tudo do 3-4, mais): protocolo Claude↔Codex (`AGENTS.md` §4) completo, nota ≥9,0 de
+      ambos sem arredondar, artefato salvo em `docs/engineering/reviews/` ou
+      `docs/architecture/reviews/`. Nível 6 adicionalmente exige ADR formal em
+      `docs/architecture/adr/` + entrada em `decisions-log.md`.
+- [ ] Se nível 5-6 depende de um padrão que sistemas externos já resolveram (RBAC, invite, sessão
+      multi-tenant, etc.) → declaração `SIM`/`SIM PARCIAL`/`NÃO` de pesquisa externa registrada na
+      Rodada 1 (`research-protocol.md`), não omitida.
+- [ ] Se a decisão depende de comportamento específico de um serviço AWS → documentação oficial
+      consultada antes de propor solução (`AGENTS.md` §4), não só memória interna.
+
+## 3. Pilares/eixos de revisão — aplicar só os genuinamente tocados (`joint-review-criteria.md`)
+
+Não forçar os 9 eixos em toda tarefa (proporcionalidade, `principles.md` #1) — marcar cada um
+como **N/A** (não tocado) ou **avaliado** (com achado ou "sem achado"):
+
+- [ ] **Arquitetura** — mudou topologia, contrato entre componentes, ou reaproveitou padrão
+      existente em vez de generalizar prematuramente?
+- [ ] **Qualidade de engenharia** — cobertura de teste real (não só verde), duplicação, dívida
+      técnica introduzida vs. removida?
+- [ ] **Engenharia de contexto** — documentos de estado (`NEXT_SESSION_PROMPT.md`,
+      `docs/architecture/README.md`, decisions-log) continuam concordantes após esta mudança? Novo
+      `.md` (se houver) está indexado e dentro do allowlist/guardrails de `check-doc-drift.ts`?
+- [ ] **Segurança da informação/AppSec** — toca autenticação, autorização, segredo, superfície de
+      ataque nova?
+- [ ] **Privacidade/governança de dados** — toca PII, retenção, TTL, direito do titular?
+- [ ] **Operações/SRE** — toca alarme, runbook, capacidade, rollback, DLQ?
+- [ ] **Governança de IA** — envolveu delegação de subagente (checar limite de profundidade,
+      `definition-of-done.md` §"Limite de profundidade de redelegação"), ou decisão que dispensou o
+      protocolo Claude↔Codex (checar as 3 condições de `ai-governance.md` §2)?
+- [ ] **Governança jurídica/terceiros** — introduziu dependência de terceiro, secret de vendor
+      externo, ou termo contratual novo?
+- [ ] **Governança de produto/multi-tenant** — toca isolamento de tenant, RBAC, ou rota HTTP nova
+      (checar `authorize()` coverage, D-287)?
+
+## 4. Evidência de ponta a ponta, se este item fecha um item de ROADMAP
+
+- [ ] Se esta tarefa declara um item de `roadmap-competitivo-2026-09-01.md`/backlog P1/P2 como 🟢
+      concluído: a linha de fechamento cita explicitamente qual evidência prova o fluxo PONTA A
+      PONTA (teste de integração real, ou verificação ao vivo pós-deploy com comando/consulta
+      citado) — nunca só "cada fatia estava verde isoladamente" (achado real, D-227/D-228).
+- [ ] Se não há evidência ponta a ponta ainda disponível → o item fica 🟡, nomeando explicitamente o
+      que falta, nunca 🟢 com a lacuna só em prosa.
+
+## 5. Registro mínimo de evidência (obrigatório a partir do nível 3)
+
+- [ ] Linha registrada no formato:
+      `DoD: item=<nome curto>; risco=<nível + gatilho>; evidência=<comandos/rubricas e resultado>; lacunas=<nenhuma | pendência explícita>`
+- [ ] Registrada no lugar certo, em ordem de preferência: (1) mensagem de commit real; (2) artefato
+      de revisão em `reviews/` citando o arquivo real; (3) corpo da resposta da sessão, só se nenhum
+      dos dois anteriores existir para este item.
+- [ ] Gate falhou ou não rodou → item permanece `in_progress`/`pending` com o achado registrado,
+      nunca marcado `completed` "para corrigir depois".
+
+## 6. Manutenção de contexto, só ao concluir uma fase/marco (não todo item — `AGENTS.md` §6)
+
+- [ ] Estado e próxima ação concordam entre `ARCHITECTURE.md`, `docs/architecture/README.md` e
+      `NEXT_SESSION_PROMPT.md`.
+- [ ] Nenhum `.md` novo foi deixado solto na raiz do repo fora do allowlist.
+- [ ] `npm run check-docs` verde.
+
+## 7. Padrão de trabalho autônomo — antes de considerar a sessão "parada"
+
+- [ ] Se o próximo passo depende de decisão exclusiva do Marcelo (produto/arquitetura genuína,
+      credencial, ação física, custo não trivial) → pendência registrada em `NEXT_SESSION_PROMPT.md`/
+      `decisions-log.md`, e a sessão segue para outra frente independente em vez de ficar ociosa.
+- [ ] Nenhuma ação genuinamente destrutiva/irreversível foi tomada sem confirmação (force-push,
+      `terraform apply` local, deletar branch/dado real).
+
+ succeeded in 303ms:
+warning: unable to access 'C:\Users\Usuario/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\Usuario/.config/git/ignore': Permission denied
+ M frontend/src/routes/Overview.tsx
+ M frontend/test/routes/Overview.test.tsx
+ M src/modules/bff/application/bff-auth-service.ts
+ M src/modules/notification/application/notification-preferences-service.ts
+ M src/modules/notification/domain/notification-preferences.ts
+ M src/modules/organization/application/accept-invitation.ts
+ M src/modules/organization/application/create-organization.ts
+ M src/runtime/aws/handlers/email-delivery-handler.ts
+ M test/unit/organization/accept-invitation.test.ts
+ M test/unit/organization/create-organization.test.ts
+?? docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/
+?? "prototype/ET - SystemDesign.zip"
+develop
+223-    await service.accept({ token, userId: "user-fresh", callerVerifiedEmail: "fresh@example.com" });
+224-
+225-    const preferences = await store.get<NotificationPreferences>(notificationPreferencesKey(ORG_1, "user-fresh"));
+226-    expect(preferences).toBeDefined();
+227-    expect(preferences?.emailEnabled).toBe(true);
+228-    expect(preferences?.consentSource).toBe("ONBOARDING");
+229-  });
+230-
+231-  // D-332 achado real: diferente de `CreateOrganizationService` (sempre um item genuinamente
+232-  // novo), um convite pode reativar um membro REMOVED (mesmo cenário de "clears removedAt"
+233-  // acima) que já tinha uma `NotificationPreferences` real, configurada por ele mesmo antes da
+234-  // remoção (ex.: e-mail desabilitado). Um `Put` incondicional apagaria essa escolha real; a
+235-  // correção usa `if_not_exists()` por atributo. Mutação: trocar o Update por um `Put`
+236-  // incondicional (ou remover o `if_not_exists()`) faria este teste falhar, sobrescrevendo
+237-  // `emailEnabled: false` de volta para `true`.
+238:  it("never overwrites an existing NotificationPreferences record when a REMOVED member rejoins via invitation", async () => {
+239-    const store = new InMemoryOrganizationStore();
+240-    await seedOrganization(store);
+241-    store.forceUpdate({
+242-      ...membershipKey(ORG_1, "user-returning"),
+243-      entityType: "Membership",
+244-      membershipId: "membership-returning",
+245-      organizationId: "org-1",
+246-      userId: "user-returning",
+247-      role: "MEMBER",
+248-      status: "REMOVED",
+249-      joinedAt: "2026-01-01T00:00:00.000Z",
+250-      removedAt: "2026-03-01T00:00:00.000Z",
+251-      createdBy: "user-owner",
+252-      version: 3,
+253-      GSI4PK: "USER#user-returning",
+254-      GSI4SK: "ORG#org-1#MEMBERSHIP#membership-returning",
+255-    } satisfies Membership);
+256-    const preExisting: NotificationPreferences = {
+257-      ...notificationPreferencesKey(ORG_1, "user-returning"),
+258-      entityType: "NotificationPreferences",
+259-      tenantId: ORG_1,
+260-      userId: "user-returning",
+261-      emailEnabled: false,
+262-      // Every field below deliberately differs from `defaultNotificationPreferences()`'s
+263-      // seed value (locale "pt-BR", quietHours null, version 1) - Codex Rodada 2 achado: a
+264-      // asserção anterior só cobria emailEnabled/consentSource, deixando os outros campos
+265-      // preserváveis-em-teoria mas nunca provados por um valor distinguível.
+266-      locale: "en-US",
+267-      quietHours: { enabled: true, startLocal: "22:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" },
+268-      consentSource: "USER_SETTINGS",
+269-      version: 2,
+270-      createdAt: "2026-01-05T00:00:00.000Z",
+271-      updatedAt: "2026-01-06T00:00:00.000Z",
+272-    };
+273-    store.forceUpdate(preExisting);
+274-    const { token } = await issueInvite(store, "returning2@example.com", "MEMBER");
+275-    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+276-
+277-    await service.accept({ token, userId: "user-returning", callerVerifiedEmail: "returning2@example.com" });
+278-
+279-    const preferences = await store.get<NotificationPreferences>(notificationPreferencesKey(ORG_1, "user-returning"));
+280-    expect(preferences).toEqual(preExisting);
+281-  });
+282-
+283-  // D-179/D-181 slice 2: ACCEPTED is never a maintenance-due candidate - the PENDING-time GSI8
+284-  // pointer must be cleared atomically in the SAME Update as the status flip to ACCEPTED, never
+285-  // left to leak into a future invitation-purge GSI8 Query.
+286-  it("clears the Invitation's GSI8 MaintenanceDueIndex pointer on acceptance", async () => {
+287-    const store = new InMemoryOrganizationStore();
+288-    await seedOrganization(store);
+289-    const { token, invitation } = await issueInvite(store, "clear-gsi8@example.com", "MEMBER");
+290-    const preAccept = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
+291-    expect(preAccept?.GSI8PK).toBe("WORK#INVITATION_PURGE"); // sanity: creation stamped it
+292-
+293-    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+294-    await service.accept({ token, userId: "user-cleared", callerVerifiedEmail: "clear-gsi8@example.com" });
+295-
+296-    const accepted = await store.get<Invitation>(invitationKey(ORG_1,invitation.invitationId));
+297-    expect(accepted?.status).toBe("ACCEPTED");
+298-    expect(accepted?.GSI8PK).toBeUndefined();
+299-    expect(accepted?.GSI8SK).toBeUndefined();
+300-  });
+301-});
+{  },
+  "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+    "@tanstack/react-query": "^5.56.2",
+    "lucide-react": "^1.47.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.47.2",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@types/node": "^26.4.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
+    "@vitejs/plugin-basic-ssl": "^1.2.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "cross-env": "^10.1.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-jsx-a11y": "^6.10.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "jsdom": "^25.0.0",
+    "rollup-plugin-visualizer": "^7.1.1",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.6",
+    "vitest": "^1.6.0"
+  }
+}
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'npm test -- test/unit/organization/accept-invitation.test.ts' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'npm test -- test/routes/Overview.test.tsx' in C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Encoding UTF8 frontend/src/routes/Overview.tsx | Select-Object -Skip 80 -First 130; Get-Content -Encoding UTF8 frontend/src/hooks/useItemsDashboard.ts; rg -n 'forceUpdate|structuredClone|async get|if_not_exists' test/helpers/in-memory-organization-store.ts; rg --files docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 311ms:
+      header: "Vencimento",
+      primary: true,
+      render: (item) => <Link to={orgPath(`/items/${item.itemId}`)}>{item.name}</Link>,
+    },
+    {
+      key: "dueDate",
+      header: "Data",
+      numeric: true,
+      // Absolute date always available (mission §19) — the relative context lives in the
+      // urgency column right next to it, never replacing the real date.
+      render: (item) => formatAbsoluteDate(item.dueDate),
+    },
+    {
+      key: "urgency",
+      header: "Urgência",
+      // Urgency, not lifecycle status. This surface is scoped to ACTIVE items only (see the
+      // query above and the page description), so a "Situação" column here would read
+      // "Ativo" on every single row — noise, not signal. Both concepts remain
+      // representable and both ARE shown side by side on the Collection, where the status
+      // filter makes lifecycle status a real variable (mission §32).
+      render: (item) => <UrgencyIndicator urgency={presentItemUrgency(item, now)} />,
+    },
+  ];
+
+  const header = (
+    <PageHeader
+      title="Visão geral"
+      description="Seus vencimentos ativos, do mais para o menos urgente."
+      actions={
+        <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
+          Novo vencimento
+        </ButtonLink>
+      }
+    />
+  );
+
+  if (query.isPending) {
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <Panel>
+          <CollectionSkeleton label="Carregando seus vencimentos…" />
+        </Panel>
+      </>
+    );
+  }
+
+  if (query.isError) {
+    const message = query.error instanceof ApiError ? query.error.message : "Não foi possível carregar seus vencimentos.";
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <ErrorState message={message} onRetry={() => void query.refetch()} />
+      </>
+    );
+  }
+
+  const items = sortByDueDateAscending(query.data.items);
+
+  if (items.length === 0) {
+    return (
+      <>
+        {header}
+        <StorageQuotaCard orgPath={orgPath} />
+        <EmptyState
+          kind="true-empty"
+          message="Nenhum vencimento cadastrado ainda. Cadastre o primeiro para começar a acompanhar prazos."
+          action={
+            <ButtonLink to={orgPath("/items/new")} variant="primary" icon={Plus}>
+              Novo vencimento
+            </ButtonLink>
+          }
+        />
+      </>
+    );
+  }
+
+  // Real tenant-wide aggregate (D-308 pendência #14, D-332 revisão adversarial) - never gates
+  // the page's own loading state (removed from the `isPending` check above, D-332 achado real:
+  // this secondary widget was blocking the whole page, including the items table, contradicting
+  // this comment's own "nunca bloqueando a tabela principal") - pending OR errored both resolve
+  // to `summaryQuery.data` undefined here, degrading to the InlineNotice below either way.
+  // `approximate: true` (D-332 achado real: `Overview.tsx` computed `attention` but never read
+  // this field, so a truncated page-cap search could render a misleadingly exact "0") appends
+  // "(parcial)" to every label - the shared flag covers all 3 cards uniformly (a per-card
+  // breakdown would need per-sub-count tracking in `DashboardService`, out of proportion for
+  // this fix - see round-1-claude-proposal.md achado 3).
+  const attention: AttentionItem[] | undefined = summaryQuery.data
+    ? [
+        { count: summaryQuery.data.itemsOverdueCount, label: summaryQuery.data.approximate ? "vencidos (parcial)" : "vencidos", tone: "critical", icon: AlertCircle, to: orgPath("/items") },
+        { count: summaryQuery.data.itemsExpiringSoonCount, label: summaryQuery.data.approximate ? "vencem em 7 dias (parcial)" : "vencem em 7 dias", tone: "warning", icon: Clock, to: orgPath("/items") },
+        { count: summaryQuery.data.activeItemsCount, label: summaryQuery.data.approximate ? "em acompanhamento (parcial)" : "em acompanhamento", tone: "accent", icon: ClipboardList, to: orgPath("/items") },
+      ]
+    : undefined;
+
+  return (
+    <>
+      {header}
+      <StorageQuotaCard orgPath={orgPath} />
+      {attention ? (
+        <AttentionRow items={attention} />
+      ) : summaryQuery.isPending ? null : (
+        // D-332 achado real (Codex Rodada 2): antes desta mudança, `summaryQuery` ainda
+        // pendente (não errado, só mais lento que a tabela) já disparava este aviso de erro -
+        // um falso positivo enquanto os dados reais ainda estavam a caminho. `isPending` aqui
+        // nunca reintroduz o bloqueio da Rodada 1 (a tabela acima não depende disto).
+        <InlineNotice tone="warning" announce="none">
+          Não foi possível carregar os contadores de atenção agora.
+        </InlineNotice>
+      )}
+      <Panel>
+        <DataTable caption="Vencimentos ativos, do mais para o menos urgente" columns={columns} rows={items} rowKey={(item) => item.itemId} />
+      </Panel>
+    </>
+  );
+}
+/**
+ * D-136/D-E (performance hot-path): the dashboard endpoint has two genuinely different
+ * consumers - Overview wants a single small, always-fresh-enough bounded read; ItemsCollection
+ * wants the full set, paginated, never a single unbounded response. They used to share one
+ * query key/hook (`useItemsDashboard`), which the D-136/D-E protocol found was a real cache
+ * collision risk once one side started passing `limit` and the other didn't. Split into two
+ * hooks, two distinct query keys (queryKeys.items.dashboardBounded/dashboardPage) - both still
+ * extend the same `dashboardAll(orgId)` prefix, so existing invalidations after create/renew
+ * keep working against both without any call-site change.
+ */
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { fetchDashboard, fetchDashboardSummary } from "../api/items.js";
+import { queryKeys } from "../api/queryKeys.js";
+import { retryPolicyFor } from "../api/retryPolicy.js";
+import { STALE_TIME } from "../lib/queryConfig.js";
+import type { DashboardResponse, DashboardSummaryResponse, ExpirationItemStatus } from "../api/types.js";
+import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
+
+const OVERVIEW_LIMIT = 30;
+
+/** Overview: one bounded page, no "load more" - the 30 nearest-due ACTIVE items is the entire
+ * point of this screen (mission §29's attention summary), never a partial view of a larger list
+ * the user is expected to page through. PERF-10: OPERATIONAL - day-to-day renewal activity. */
+export function useItemsDashboardBounded(status: ExpirationItemStatus, limit: number = OVERVIEW_LIMIT) {
+  const { organizationId, switching } = useActiveOrganization();
+  return useQuery<DashboardResponse, unknown>({
+    queryKey: queryKeys.items.dashboardBounded(organizationId ?? "", status, limit),
+    queryFn: ({ signal }) => fetchDashboard(status, { signal, limit }),
+    enabled: Boolean(organizationId) && !switching,
+    retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
+  });
+}
+
+/** Overview's attention row (PENDING_PROTOCOL_REVIEW, D-308 pendência #14) - real tenant-wide
+ * aggregate counts (`GET /dashboard/summary`), replacing the hardcoded placeholder numbers
+ * `Overview.tsx` used before this existed. Separate query from the bounded page above (different
+ * endpoint, no `limit`/`status` param), same OPERATIONAL staleness. */
+export function useDashboardSummary() {
+  const { organizationId, switching } = useActiveOrganization();
+  return useQuery<DashboardSummaryResponse, unknown>({
+    queryKey: queryKeys.items.summary(organizationId ?? ""),
+    queryFn: ({ signal }) => fetchDashboardSummary({ signal }),
+    enabled: Boolean(organizationId) && !switching,
+    retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
+  });
+}
+
+/** ItemsCollection: real cursor pagination via TanStack Query's own `pageParam` - never fetches
+ * more than one page ahead of what the user asked to see ("Carregar mais"), and never re-derives
+ * "how many pages exist" from anything but the server's own `nextCursor`. PERF-10: OPERATIONAL,
+ * same reasoning as the bounded view above. */
+export function useItemsDashboardPage(status: ExpirationItemStatus) {
+  const { organizationId, switching } = useActiveOrganization();
+  return useInfiniteQuery<DashboardResponse, unknown>({
+    queryKey: queryKeys.items.dashboardPage(organizationId ?? "", status),
+    queryFn: ({ signal, pageParam }) => fetchDashboard(status, { signal, cursor: pageParam as string | undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: Boolean(organizationId) && !switching,
+    retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
+  });
+}
+rg: test/helpers/in-memory-organization-store.ts: IO error for operation on test/helpers/in-memory-organization-store.ts: O sistema não pode encontrar o caminho especificado. (os error 3)
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-3-codex-prompt.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-3-codex-output.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-3-claude-selfgrade.md
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-2-claude-selfgrade.md
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-3-claude-revision.md
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-2-codex-prompt.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-2-claude-revision.md
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-1-codex-prompt.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-1-claude-proposal.md
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-2-codex-output.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-1-codex-output.txt
+docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review\round-1-claude-selfgrade.md
+
+ exited 1 in 1012ms:
+
+> expiration-tracker@0.0.0 test
+> vitest run test/unit/organization/accept-invitation.test.ts
+
+X [ERROR] Cannot read directory "../../..": Access is denied.
+
+X [ERROR] Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\vitest.config.ts"
+
+failed to load config from C:\Users\Usuario\Desktop\projects\expiration-tracker\vitest.config.ts
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: Build failed with 2 errors:
+error: Cannot read directory "../../..": Access is denied.
+error: Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\vitest.config.ts"
+    at failureErrorWithLog (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:943:7)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:970:16
+    at responseCallbacks.<computed> (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+
+
+
+
+ exited 1 in 1005ms:
+
+> expiration-tracker-frontend@0.0.0 test
+> vitest run test/routes/Overview.test.tsx
+
+X [ERROR] Cannot read directory "../../../..": Access is denied.
+
+X [ERROR] Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\frontend\\vite.config.ts"
+
+failed to load config from C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\vite.config.ts
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: Build failed with 2 errors:
+error: Cannot read directory "../../../..": Access is denied.
+error: Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\frontend\\vite.config.ts"
+    at failureErrorWithLog (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:943:7)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:970:16
+    at responseCallbacks.<computed> (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\Users\Usuario\Desktop\projects\expiration-tracker\frontend\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+
+
+
+
+codex
+Os dois resíduos foram corrigidos no código e nas asserções. Encontrei apenas um comentário desatualizado que ainda diz que o estado pendente exibe o aviso. Os testes não chegaram a executar: o esbuild falhou por acesso negado ao carregar as configurações. Vou aplicar a skill `/task-checklist` ao fechamento desta revisão somente de leitura.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg -n 'InMemoryOrganizationStore' test/unit/organization/accept-invitation.test.ts; rg --files test | rg 'organization-store'; Get-Content -Encoding UTF8 docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-2-claude-revision.md; rg -n -A 52 -B 5 'notificationPreferencesEntry' src/modules/organization/application/accept-invitation.ts; rg -n 'pending OR|either way' frontend/src/routes/Overview.tsx" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 205ms:
+5:import { InMemoryOrganizationStore } from "./in-memory-store.js";
+38:async function seedOrganization(store: InMemoryOrganizationStore, organizationId = "org-1"): Promise<void> {
+69:async function issueInvite(store: InMemoryOrganizationStore, email: string, role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER" = "MEMBER") {
+79:    const store = new InMemoryOrganizationStore();
+95:    const store = new InMemoryOrganizationStore();
+111:    const store = new InMemoryOrganizationStore();
+125:    const store = new InMemoryOrganizationStore();
+139:    const store = new InMemoryOrganizationStore();
+155:    const store = new InMemoryOrganizationStore();
+168:    const store = new InMemoryOrganizationStore();
+205:    const store = new InMemoryOrganizationStore();
+218:    const store = new InMemoryOrganizationStore();
+239:    const store = new InMemoryOrganizationStore();
+287:    const store = new InMemoryOrganizationStore();
+# D-315/D-316 — Rodada 2 (correções aplicadas aos achados reais da Rodada 1, nota Codex 7,0/10)
+
+Verifiquei cada um dos 6 achados do Codex diretamente no código antes de decidir o que corrigir
+agora vs. registrar para depois. Todos os 6 são reais (nenhum contestado) - a diferença está em
+qual é proporcional a este escopo (D-315/D-316: seed de entitlement/preference + agregação do
+dashboard) vs. estrutural ao worker de entrega (M4, sistema já existente e não tocado por
+D-315/D-316).
+
+## Corrigidos nesta rodada
+
+### Achado 1 (Alta) - `NotificationPreferences` nunca provisionado em nenhum caminho real de onboarding
+
+Confirmado por leitura direta: `notification-router-workflow.ts` lê `NotificationPreferences` via
+`store.get()` puro (sem fallback de criação); a única criação real do registro era
+`NotificationPreferencesService.getOrCreatePreferences()`, chamada só pelo endpoint HTTP de
+configurações (GET/PUT) - o próprio comentário do serviço já dizia isso: "was previously never
+called anywhere in src/... onboarding wiring for it is still a documented gap, not real code."
+Confirmado também que nem `CreateOrganizationService` nem `AcceptInvitationService` seedavam esse
+registro. Resultado real: um usuário novo (owner OU convidado) que nunca abriu a tela de
+configurações de notificação tinha `preference.emailEnabled === undefined`, e o router
+(`notification-router.ts` linha 161) falha fechado com `RETRY` infinito
+(`PREFERENCE_UNAVAILABLE`) - o MESMO sintoma "lembrete nunca sai" que D-315 resolveu para o
+entitlement, mas reaberto pelo preference. Isto está diretamente dentro do escopo desta revisão
+(é a mesma classe de bug que D-315 existe para fechar), então foi corrigido agora, não só
+registrado:
+
+- `CreateOrganizationService.buildCreateEntries()`: 6º entry, `defaultNotificationPreferences()`
+  seedado via `Put`/`attribute_not_exists(PK)` (item genuinamente novo, mesmo padrão dos outros 5
+  entries) para o OWNER criador.
+- `AcceptInvitationService.accept()`: novo entry via `Update` com `if_not_exists()` por atributo
+  (nunca `Put`/`attribute_not_exists(PK)`) - diferente do caso acima, um convite pode REATIVAR um
+  Membership REMOVED (mesmo cenário que "clears removedAt" já testava), e esse usuário pode ter
+  uma `NotificationPreferences` real e já customizada por ele mesmo antes da remoção. Um `Put`
+  condicionado falharia a transação inteira (bloqueando a própria reativação); um `Put`
+  incondicional apagaria a escolha real do usuário. `if_not_exists()` resolve ambos: cria o
+  default se ausente, nunca sobrescreve se já existir. `ConditionExpression` do próprio `Update` é
+  uma tautologia (`attribute_exists(PK) OR attribute_not_exists(PK)`) porque o tipo
+  `DynamoUpdateCommandInput` deste código exige o campo, mas o gating real está inteiramente nos
+  `if_not_exists()` por atributo.
+- Comentários corrigidos em 3 lugares que ainda descreviam isso como gap aberto:
+  `notification-preferences.ts` (doc do módulo + doc de `defaultNotificationPreferences()`),
+  `notification-preferences-service.ts` (doc da classe), `bff-auth-service.ts` (contagem de
+  entries de 5 para 6).
+- Testes novos: `create-organization.test.ts` (seed do owner), `accept-invitation.test.ts` (seed
+  de convidado novo + preservação de preferência real numa reativação).
+
+### Achado 4 (Média) - `approximate` computado mas nunca lido por `Overview.tsx`
+
+Confirmado por leitura de `Overview.tsx`: o `attention` array usava as 3 contagens cruas, sem
+nenhuma referência a `summaryQuery.data.approximate`. Corrigido: cada label ganha o sufixo
+"(parcial)" quando `approximate === true`, cobrindo as 3 métricas uniformemente (uma quebra por
+métrica exigiria rastrear `scanLimitReached` por sub-busca no `DashboardService` - fora de
+proporção para esta correção, registrado na Rodada 1 achado 3 como aceitável). Teste novo:
+`marks the attention counts as partial when the aggregate hit its page cap`.
+
+### Achado 5 (Média) - agregação bloqueando a tabela principal
+
+Confirmado por leitura: `if (query.isPending || summaryQuery.isPending)` incluía a query
+secundária no MESMO gate da tabela principal, contradizendo o próprio comentário do arquivo
+("nunca bloqueando a tabela principal"). Corrigido: o gate de loading agora depende só de
+`query.isPending`; `summaryQuery` pendente ou com erro convergem para o mesmo fallback
+(`attention` undefined → `InlineNotice`), que já existia e já era testado para o caso de erro.
+Teste novo: `renders the items table before the summary aggregate resolves, never blocking on it`
+(usa uma Promise controlada manualmente para provar que a tabela aparece ANTES do summary
+resolver).
+
+## Registrados, não corrigidos nesta rodada (fora de proporção - sistema M4 pré-existente, não tocado por D-315/D-316)
+
+### Achado 2 (Alta) - `DEFERRED`/quiet hours nunca é realmente reagendado
+
+Verifiquei e confirmei: o comentário em `email-delivery-handler.ts` afirma "o router já agendou um
+reenvio via EventBridge Scheduler one-shot (design §5.3)", mas `grep` por
+`SchedulerClient`/`CreateScheduleCommand`/`@aws-sdk/client-scheduler` em todo `src/` não encontra
+NADA - esse mecanismo nunca foi implementado, só desenhado. Uma notificação diferida por quiet
+hours é removida da fila (SQS batch success) e nunca mais processada - perda silenciosa e
+permanente, não um atraso. **Achado real, comentário do código está FALSO** (não só desatualizado
+- afirma algo que nunca existiu). Não corrigido agora: implementar o reagendamento real exige
+decisão de design (EventBridge Scheduler one-shot vs. requeue com delay vs. outro mecanismo) fora
+do escopo de D-315/D-316 (que são sobre entitlement/preference/dashboard, não sobre a máquina de
+estados do worker de entrega). Registrado como pendência CRÍTICA para uma rodada de protocolo
+dedicada ao worker de e-mail (M4).
+
+### Achado 3 (Alta) - `FAILED_RETRYABLE` confirmado como sucesso pelo handler SQS
+
+Confirmado: `decideSendAction()`/`nextStatusAfterSendAttempt()` classificam corretamente, mas
+`email-delivery-handler.ts` não adiciona a mensagem a `batchItemFailures` quando o outcome é
+`FAILED_RETRYABLE` - só quando uma exceção é lançada. Uma falha classificada como retryable (ex.
+throttling do SES) fica persistida como `FAILED_RETRYABLE` no `NotificationAttempt`, mas a mensagem
+SQS é removida da fila como se tivesse sucedido, e nenhum reconciliador identificado retoma esse
+estado. Mesma categoria de "perda silenciosa" do Achado 2. Registrado, não corrigido - mesmo
+raciocínio de proporcionalidade (bug estrutural do worker M4, não do escopo D-315/D-316).
+
+### Achado 6 (Média) - entrega não revalida preference/entitlement/policy antes do envio real
+
+Confirmado: entre o roteamento (que lê preference/entitlement) e o envio real pelo worker, um PUT
+de preferências revogando consentimento não é revisto - o worker só relê item e elegibilidade do
+destinatário. Registrado, não corrigido - mesma razão de proporcionalidade.
+
+## Nota cega (Claude), Rodada 2
+
+Ver `round-2-claude-selfgrade.md` (arquivo separado).
+150-    // remoção - um `Put` condicionado a `attribute_not_exists(PK)` falharia a transação inteira
+151-    // (bloqueando a própria reativação do Membership), e um `Put` incondicional apagaria a
+152-    // preferência real do usuário. `if_not_exists()` por atributo (mesmo idioma já usado no
+153-    // `membershipEntry` acima para `version`/`createdAt`) resolve os dois: cria o default se
+154-    // ausente, nunca sobrescreve se já existir.
+155:    const notificationPreferencesEntry: TransactWriteEntry = {
+156-      Update: {
+157-        TableName: this.tableName,
+158-        Key: notificationPreferencesKey(tenantId, input.userId),
+159-        UpdateExpression:
+160-          "SET entityType = if_not_exists(entityType, :entityType), tenantId = if_not_exists(tenantId, :tenantId), userId = if_not_exists(userId, :userId), emailEnabled = if_not_exists(emailEnabled, :emailEnabled), locale = if_not_exists(locale, :locale), quietHours = if_not_exists(quietHours, :quietHours), consentSource = if_not_exists(consentSource, :consentSource), version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now), updatedAt = if_not_exists(updatedAt, :now)",
+161-        // Tautology, never a real gate (DynamoUpdateCommandInput.ConditionExpression is
+162-        // mandatory in this codebase's type, occ.ts, but this Update itself must succeed
+163-        // whether the item already exists or not - the if_not_exists() calls above are the
+164-        // only actual gating, per attribute).
+165-        ConditionExpression: "attribute_exists(PK) OR attribute_not_exists(PK)",
+166-        ExpressionAttributeValues: {
+167-          ":entityType": "NotificationPreferences",
+168-          ":tenantId": tenantId,
+169-          ":userId": input.userId,
+170-          ":emailEnabled": true,
+171-          ":locale": "pt-BR",
+172-          ":quietHours": null,
+173-          ":consentSource": "ONBOARDING",
+174-          ":one": 1,
+175-          ":now": nowIso,
+176-        },
+177-      },
+178-    };
+179-
+180:    const entries: TransactWriteEntry[] = [membershipEntry, invitationEntry, tokenEntry, dedupEntry, notificationPreferencesEntry];
+181-    appendMembershipAuditToTransaction(
+182-      entries,
+183-      this.tableName,
+184-      buildMembershipAuditEvent({
+185-        auditEventId: this.ids.newAuditEventId(),
+186-        organizationId: tenantId,
+187-        resourceType: "Membership",
+188-        resourceId: newMembershipId,
+189-        action: "INVITATION_ACCEPTED",
+190-        actor: { type: "USER", userId: input.userId },
+191-        newVersion: 1,
+192-        changes: { role: invitation.role, invitationId: invitation.invitationId },
+193-        occurredAt: nowIso,
+194-        correlationId: `accept-invitation-${invitation.invitationId}`,
+195-      }),
+196-    );
+197-
+198-    // Incrementa ownerCount só quando o convite promove diretamente a OWNER - reaproveita o
+199-    // caminho de incremento que o physical model §8 já previa para "promover um segundo membro
+200-    // a OWNER", nunca exercitado até B2B-8 (nenhum writer real produzia isso antes).
+201-    if (invitation.role === "OWNER") {
+202-      entries.push({
+203-        Update: {
+204-          TableName: this.tableName,
+205-          Key: organizationKey(tenantId),
+206-          UpdateExpression: "SET ownerCount = ownerCount + :one",
+207-          ConditionExpression: "attribute_exists(PK)",
+208-          // Wave B2B-14 (D-119): see tokenEntry's comment above - omitted, never `{}`.
+209-          ExpressionAttributeValues: { ":one": 1 },
+210-        },
+211-      });
+212-    }
+213-
+214-    try {
+215-      await this.store.transactWrite(entries);
+216-    } catch (err) {
+217-      if (isTransactionCanceled(err)) {
+218-        const reasons = getCancellationReasonCodes(err);
+219-        if (reasons?.[0] === "ConditionalCheckFailed") {
+220-          throw new ConflictError("You are already a member of this organization.", { organizationId: invitation.organizationId });
+221-        }
+222-        throw new InvitationTokenUnavailableError();
+223-      }
+224-      throw err;
+225-    }
+226-
+227-    return { organizationId: invitation.organizationId, membershipId: newMembershipId, role: invitation.role };
+228-  }
+229-}
+163:  // this comment's own "nunca bloqueando a tabela principal") - pending OR errored both resolve
+164:  // to `summaryQuery.data` undefined here, degrading to the InlineNotice below either way.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg -n -A 14 -B 4 'forceUpdate|async get|structuredClone|const updated|const next' test/unit/organization/in-memory-store.ts" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 55ms:
+22-  private k(key: EntityKey): string {
+23-    return `${key.PK}#${key.SK}`;
+24-  }
+25-
+26:  async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
+27-    return this.items.get(this.k(key)) as T | undefined;
+28-  }
+29-
+30-  async putIfAbsent<T extends EntityKey>(item: T): Promise<boolean> {
+31-    const key = this.k(item);
+32-    if (this.items.has(key)) return false;
+33-    this.items.set(key, item as unknown as Record<string, unknown> & EntityKey);
+34-    return true;
+35-  }
+36-
+37-  async updateConditional<T extends EntityKey>(item: T, expected: { count: number; resetAt: string }): Promise<boolean> {
+38-    const key = this.k(item);
+39-    const existing = this.items.get(key) as unknown as { count?: number; resetAt?: string } | undefined;
+40-    if (existing && (existing.count !== expected.count || existing.resetAt !== expected.resetAt)) return false;
+--
+190-        const item = entry.Put.Item as unknown as Record<string, unknown> & EntityKey;
+191-        this.items.set(this.k(item), item);
+192-      } else if ("Update" in entry) {
+193-        const existing = this.items.get(this.k(entry.Update.Key));
+194:        const updated = this.applyUpdate(entry.Update.UpdateExpression, existing, entry.Update.Key, entry.Update.ExpressionAttributeNames, entry.Update.ExpressionAttributeValues);
+195-        this.items.set(this.k(entry.Update.Key), updated);
+196-      } else if ("Delete" in entry) {
+197-        this.items.delete(this.k(entry.Delete.Key));
+198-      }
+199-    }
+200-  }
+201-
+202-  async queryByPk<T extends EntityKey = Record<string, unknown> & EntityKey>(pk: string, skPrefix?: string): Promise<T[]> {
+203-    const matches = [...this.items.values()].filter((item) => item["PK"] === pk && (!skPrefix || String(item["SK"]).startsWith(skPrefix)));
+204-    matches.sort((a, b) => String(a["SK"]).localeCompare(String(b["SK"])));
+205-    return matches as unknown as T[];
+206-  }
+207-
+208-  async queryGsi4<T extends EntityKey = Record<string, unknown> & EntityKey>(input: Gsi4QueryInput): Promise<T[]> {
+--
+213-  }
+214-
+215-  /** Test-only: unconditional overwrite, for simulating a state transition the module's real
+216-   * writers don't have a call site for yet. Never a stand-in for a real OCC-conditioned write. */
+217:  forceUpdate<T extends EntityKey>(item: T): void {
+218-    this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
+219-  }
+220-
+221-  allItems(): (Record<string, unknown> & EntityKey)[] {
+222-    return [...this.items.values()];
+223-  }
+224-}
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "rg -n -A 24 'private applyUpdate' test/unit/organization/in-memory-store.ts" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 70ms:
+86:  private applyUpdate(expression: string, existing: Record<string, unknown> | undefined, key: EntityKey, names?: Record<string, string>, values?: Record<string, unknown>): Record<string, unknown> & EntityKey {
+87-    const removeSplit = /^(SET .+?)(?: REMOVE (.+))?$/.exec(expression.trim());
+88-    if (!removeSplit) throw new Error(`InMemoryOrganizationStore: unsupported UpdateExpression "${expression}" (only SET [, REMOVE] is supported).`);
+89-    const [, setExpression, removeExpression] = removeSplit;
+90-    const setMatch = /^SET (.+)$/.exec(setExpression!.trim());
+91-    if (!setMatch) throw new Error(`InMemoryOrganizationStore: unsupported UpdateExpression "${expression}" (only SET is supported).`);
+92-    const result: Record<string, unknown> = { ...key, ...existing };
+93-
+94-    // Split top-level clauses on commas that are not inside if_not_exists(...) parens.
+95-    const clauses: string[] = [];
+96-    let depth = 0;
+97-    let current = "";
+98-    for (const char of setMatch[1]!) {
+99-      if (char === "(") depth += 1;
+100-      if (char === ")") depth -= 1;
+101-      if (char === "," && depth === 0) {
+102-        clauses.push(current);
+103-        current = "";
+104-      } else {
+105-        current += char;
+106-      }
+107-    }
+108-    if (current.trim()) clauses.push(current);
+109-
+110-    for (const rawClause of clauses) {
+
+codex
+**Nota final: 9.1/10.** Os dois resíduos foram genuinamente corrigidos:
+
+- O summary pendente não dispara mais o aviso nem bloqueia a tabela. O teste verifica essa ausência e a posterior apresentação dos contadores; o cenário de erro continua coberto.
+- A reativação compara o registro completo com `toEqual(preExisting)`, usando valores distinguíveis dos defaults nos campos mutáveis. O store cria outro objeto ao aplicar o Update, evitando uma comparação enganosa por mutação da própria referência esperada.
+
+Não encontrei regressão funcional. Há uma inconsistência documental **baixa, não bloqueante** em [Overview.tsx:163](C:/Users/Usuario/Desktop/projects/expiration-tracker/frontend/src/routes/Overview.tsx:163): o comentário ainda afirma que pending e erro exibem igualmente o `InlineNotice`. Convém removê-lo ou atualizá-lo.
+
+Aceito manter o builder dedicado como sugestão registrada, sem obrigatoriedade nesta rodada.
+
+Tentei executar ambas as suítes específicas, mas o esbuild recebeu `Access is denied` ao carregar as configurações; portanto, esta confirmação é por inspeção, sem execução bem-sucedida dos testes.
+
+**Convergência do lado Codex confirmada**, com três rodadas e notas ≥9.0 nas duas últimas. Preservando a nota cega, a convergência bilateral fica condicionada à confirmação de Claude ≥9.0 nesta rodada e na anterior. Os achados **2/3/6 permanecem abertos** para a rodada dedicada ao worker M4.
+
+NOTA_CODEX: 9.1
+tokens used
+49.537
+**Nota final: 9.1/10.** Os dois resíduos foram genuinamente corrigidos:
+
+- O summary pendente não dispara mais o aviso nem bloqueia a tabela. O teste verifica essa ausência e a posterior apresentação dos contadores; o cenário de erro continua coberto.
+- A reativação compara o registro completo com `toEqual(preExisting)`, usando valores distinguíveis dos defaults nos campos mutáveis. O store cria outro objeto ao aplicar o Update, evitando uma comparação enganosa por mutação da própria referência esperada.
+
+Não encontrei regressão funcional. Há uma inconsistência documental **baixa, não bloqueante** em [Overview.tsx:163](C:/Users/Usuario/Desktop/projects/expiration-tracker/frontend/src/routes/Overview.tsx:163): o comentário ainda afirma que pending e erro exibem igualmente o `InlineNotice`. Convém removê-lo ou atualizá-lo.
+
+Aceito manter o builder dedicado como sugestão registrada, sem obrigatoriedade nesta rodada.
+
+Tentei executar ambas as suítes específicas, mas o esbuild recebeu `Access is denied` ao carregar as configurações; portanto, esta confirmação é por inspeção, sem execução bem-sucedida dos testes.
+
+**Convergência do lado Codex confirmada**, com três rodadas e notas ≥9.0 nas duas últimas. Preservando a nota cega, a convergência bilateral fica condicionada à confirmação de Claude ≥9.0 nesta rodada e na anterior. Os achados **2/3/6 permanecem abertos** para a rodada dedicada ao worker M4.
+
+NOTA_CODEX: 9.1

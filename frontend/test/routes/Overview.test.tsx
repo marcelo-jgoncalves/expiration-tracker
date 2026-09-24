@@ -145,4 +145,52 @@ describe("Overview", () => {
     await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
     expect(screen.getByText(/Não foi possível carregar os contadores de atenção/)).toBeInTheDocument();
   });
+
+  // D-332 achado real (revisão adversarial de D-315/D-316): `summaryQuery.isPending` estava no
+  // MESMO gate de loading da tabela de itens, então a tabela (conteúdo primário) esperava a
+  // agregação secundária terminar mesmo com os itens já disponíveis - contradizia o próprio
+  // comentário do arquivo ("nunca bloqueando a tabela principal"). Mutação: devolver
+  // `summaryQuery.isPending` ao `if` do skeleton faria este teste falhar (a tabela ficaria presa
+  // no skeleton enquanto a Promise de summary abaixo não resolve).
+  it("renders the items table before the summary aggregate resolves, never blocking on it", async () => {
+    let resolveSummary: (value: { summary: DashboardSummaryResponse }) => void = () => {};
+    const summaryPromise = new Promise<{ summary: DashboardSummaryResponse }>((resolve) => {
+      resolveSummary = resolve;
+    });
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/items/dashboard")) return Promise.resolve({ items: [item({})] });
+      if (path === "/document-archive/storage-usage") return Promise.resolve({ usage: usage({}) });
+      if (path === "/dashboard/summary") return summaryPromise;
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("Item")).toBeInTheDocument());
+    expect(screen.queryByText("vencidos")).not.toBeInTheDocument();
+    // D-332 achado real (Codex Rodada 2): `summaryQuery` ainda pendente (nunca errado) não deve
+    // disparar o aviso de erro - só um resultado REALMENTE resolvido sem dado (erro) deve.
+    expect(screen.queryByText(/Não foi possível carregar os contadores/)).not.toBeInTheDocument();
+
+    resolveSummary({ summary: summary({ itemsOverdueCount: 3 }) });
+    await waitFor(() => expect(screen.getByText("vencidos")).toBeInTheDocument());
+  });
+
+  // D-332 achado real: `approximate: true` (busca truncada pelo teto de páginas do
+  // `DashboardService`) era computado mas nunca lido por `Overview.tsx` - a tela apresentava uma
+  // contagem parcial como se fosse exata. Mutação: remover o sufixo condicional em `Overview.tsx`
+  // faria este teste falhar.
+  it("marks the attention counts as partial when the aggregate hit its page cap", async () => {
+    mockGet({
+      items: [item({})],
+      usage: usage({}),
+      summary: summary({ itemsOverdueCount: 7, itemsExpiringSoonCount: 0, activeItemsCount: 125, approximate: true }),
+    });
+
+    renderAtRoute("/dashboard", <Overview />, "/dashboard");
+
+    await waitFor(() => expect(screen.getByText("vencidos (parcial)")).toBeInTheDocument());
+    expect(screen.getByText("vencem em 7 dias (parcial)")).toBeInTheDocument();
+    expect(screen.getByText("em acompanhamento (parcial)")).toBeInTheDocument();
+  });
 });

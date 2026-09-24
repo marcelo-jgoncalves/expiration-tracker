@@ -769,8 +769,8 @@ export class BffAuthService {
    * hasCreatedOrganization` is set via a `Update` (`buildAttributeOnceUpdate`, tenantless -
    * `GlobalUser` has no `tenantId` for `buildVersionedUpdate`'s reserved condition to check)
    * inside the SAME `TransactWriteItems` as the `Put`s `CreateOrganizationService.
-   * buildCreateEntries()` builds (5 as of the NotificationEntitlements addition,
-   * PENDING_PROTOCOL_REVIEW - see decisions-log.md) - committed atomically. The cap entry is
+   * buildCreateEntries()` builds (6 as of D-332's NotificationPreferences addition - see
+   * decisions-log.md) - committed atomically. The cap entry is
    * index 0, prepended via spread regardless of how many entries `buildCreateEntries()` returns
    * - only ITS `ConditionalCheckFailed` means "already created an organization"; any other index
    * failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as a

@@ -80,10 +80,19 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
             const outcome = await processEmailDelivery(deps, command);
             logger.info("email-delivery outcome", { messageId: record.messageId, attemptId: command.attemptId, outcome: outcome.kind });
             if (outcome.kind === "DEFERRED") {
-              // Quiet hours not over yet - never discard. The router already scheduled a
-              // one-shot EventBridge Scheduler re-delivery (design §5.3); reporting THIS
-              // delivery as a batch item failure would just requeue it needlessly before that
-              // fires. No action needed here beyond the log above.
+              // Quiet hours not over yet. ACHADO REAL NÃO CORRIGIDO (D-332, revisão adversarial
+              // de D-315/D-316, achado do Codex Rodada 1): este comentário afirmava que "o router
+              // já agendou um reenvio via EventBridge Scheduler one-shot (design §5.3)" - `grep`
+              // por SchedulerClient/CreateScheduleCommand em todo `src/` confirma que esse
+              // mecanismo NUNCA foi implementado, só desenhado. Reportar batch item failure aqui
+              // faria SQS reentregar de novo em pouco tempo (não resolve quiet hours, só spam de
+              // reprocessamento); NÃO reportar (como hoje) remove a mensagem da fila
+              // PERMANENTEMENTE sem nenhum reagendamento real - perda silenciosa de notificação,
+              // não um atraso. Nenhuma das duas opções é correta; a correção real exige decisão
+              // de design (EventBridge Scheduler real vs. requeue com delay do SQS
+              // `visibilityTimeout` vs. outro mecanismo), fora do escopo de D-315/D-316 - registrada
+              // como pendência crítica para uma rodada de protocolo dedicada ao worker de e-mail
+              // (M4), ver docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/.
               return;
             }
           } catch (err) {

@@ -12,8 +12,8 @@
  *
  * Fluxo em 2 fases: (1) resolução do token FORA da transação (parse/lookup/timing-safe match/
  * expiração/consumo-ainda-não-marcado) — qualquer falha aqui é anti-enumeration, erro genérico;
- * (2) transação atômica de 6 itens (5 + o incremento condicional de `ownerCount` só quando
- * `role === "OWNER"`).
+ * (2) transação atômica de 7 itens (5 + `NotificationPreferences` seed via `if_not_exists()`,
+ * D-332 + o incremento condicional de `ownerCount` só quando `role === "OWNER"`).
  */
 import { isTransactionCanceled, getCancellationReasonCodes, type TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
 import { ConflictError, InvitationTokenUnavailableError } from "../../../shared/errors/app-error.js";
@@ -28,6 +28,7 @@ import {
 import { appendMembershipAuditToTransaction, buildMembershipAuditEvent } from "../domain/audit-event.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import { organizationKey } from "../domain/organization.js";
+import { notificationPreferencesKey } from "../../notification/domain/notification-preferences.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
 import type { OrganizationIdGenerator } from "./id-generator.js";
@@ -138,7 +139,45 @@ export class AcceptInvitationService {
       Delete: { TableName: this.tableName, Key: invitationDedupKey(tenantId, invitation.emailNormalized) },
     };
 
-    const entries: TransactWriteEntry[] = [membershipEntry, invitationEntry, tokenEntry, dedupEntry];
+    // D-315/D-316 revisão adversarial (D-332): mesmo achado do `create-organization.ts` -
+    // `NotificationPreferences` nunca era seedado neste fluxo, então um convidado que nunca abriu
+    // a tela de configurações ficava com `preference.emailEnabled === undefined` e o router
+    // falha fechado com `RETRY` infinito (`PREFERENCE_UNAVAILABLE`). Diferente de
+    // `create-organization.ts` (item genuinamente novo, `Put`/`attribute_not_exists(PK)` seguro):
+    // aqui o membro pode estar sendo REATIVADO após remoção (mesmo `membershipEntry` acima,
+    // `ConditionExpression: attribute_not_exists(PK) OR #status = :removed`), e uma reativação
+    // pode ter uma `NotificationPreferences` real e já configurada por ele mesmo antes da
+    // remoção - um `Put` condicionado a `attribute_not_exists(PK)` falharia a transação inteira
+    // (bloqueando a própria reativação do Membership), e um `Put` incondicional apagaria a
+    // preferência real do usuário. `if_not_exists()` por atributo (mesmo idioma já usado no
+    // `membershipEntry` acima para `version`/`createdAt`) resolve os dois: cria o default se
+    // ausente, nunca sobrescreve se já existir.
+    const notificationPreferencesEntry: TransactWriteEntry = {
+      Update: {
+        TableName: this.tableName,
+        Key: notificationPreferencesKey(tenantId, input.userId),
+        UpdateExpression:
+          "SET entityType = if_not_exists(entityType, :entityType), tenantId = if_not_exists(tenantId, :tenantId), userId = if_not_exists(userId, :userId), emailEnabled = if_not_exists(emailEnabled, :emailEnabled), locale = if_not_exists(locale, :locale), quietHours = if_not_exists(quietHours, :quietHours), consentSource = if_not_exists(consentSource, :consentSource), version = if_not_exists(version, :one), createdAt = if_not_exists(createdAt, :now), updatedAt = if_not_exists(updatedAt, :now)",
+        // Tautology, never a real gate (DynamoUpdateCommandInput.ConditionExpression is
+        // mandatory in this codebase's type, occ.ts, but this Update itself must succeed
+        // whether the item already exists or not - the if_not_exists() calls above are the
+        // only actual gating, per attribute).
+        ConditionExpression: "attribute_exists(PK) OR attribute_not_exists(PK)",
+        ExpressionAttributeValues: {
+          ":entityType": "NotificationPreferences",
+          ":tenantId": tenantId,
+          ":userId": input.userId,
+          ":emailEnabled": true,
+          ":locale": "pt-BR",
+          ":quietHours": null,
+          ":consentSource": "ONBOARDING",
+          ":one": 1,
+          ":now": nowIso,
+        },
+      },
+    };
+
+    const entries: TransactWriteEntry[] = [membershipEntry, invitationEntry, tokenEntry, dedupEntry, notificationPreferencesEntry];
     appendMembershipAuditToTransaction(
       entries,
       this.tableName,

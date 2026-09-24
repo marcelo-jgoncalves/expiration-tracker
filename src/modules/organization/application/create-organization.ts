@@ -34,6 +34,7 @@ import { ValidationError } from "../../../shared/errors/app-error.js";
 import { tenantLifecycleKey, TENANT_ACTIVE_STATUS, type TenantLifecycleRecord } from "../../../shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { defaultEntitlement } from "../../subject/domain/entitlement.js";
 import { defaultNotificationEntitlements } from "../../notification/domain/notification-entitlements.js";
+import { defaultNotificationPreferences } from "../../notification/domain/notification-preferences.js";
 import { organizationKey, pickDefaultReminderLocalTime, type Organization } from "../domain/organization.js";
 import { membershipGsi4Keys, membershipKey, type Membership } from "../domain/membership.js";
 import type { OrganizationStore } from "../ports/organization-store.js";
@@ -132,6 +133,19 @@ export class CreateOrganizationService {
     // (`routeNotificationIntent`'s fail-closed RETRY on a missing record) and never reached a
     // delivery attempt. Seeded atomically here, same discipline as `TenantEntitlement` above.
     const notificationEntitlements = defaultNotificationEntitlements(tenantId, now);
+    // D-315/D-316 revisão adversarial (D-332): `NotificationPreferences` tinha o MESMO problema
+    // que `NotificationEntitlements` tinha antes de D-315 - `notification-preferences.ts`'s
+    // próprio comentário já documentava a intenção ("the record is created automatically at
+    // onboarding") mas nenhum código real em `src/` jamais chamava `defaultNotificationPreferences()`
+    // no caminho de criação de Organization - só `getOrCreatePreferences()` (lazy, só no GET/PUT
+    // de configurações) cobria isso. Um usuário novo que nunca visitou a tela de configurações
+    // ficava com `preference.emailEnabled === undefined`, e o router falha fechado com `RETRY`
+    // infinito (`PREFERENCE_UNAVAILABLE`) - o mesmo sintoma de "lembrete nunca sai" que D-315
+    // resolveu para o entitlement, mas reaberto pelo preference. Seedado aqui como 6º entry,
+    // mesmo padrão do entitlement acima (item genuinamente novo - `attribute_not_exists(PK)` via
+    // `buildVersionedCreate` é seguro, nunca colide com um Membership reativado como
+    // `AcceptInvitationService` precisa considerar).
+    const notificationPreferences = defaultNotificationPreferences({ tenantId, userId: input.creatorUserId, locale: "pt-BR", now, consentSource: "ONBOARDING" });
 
     const entries: TransactWriteEntry[] = [
       { Put: buildVersionedCreate(this.tableName, organization as unknown as Record<string, unknown> & { PK: string; SK: string }) },
@@ -139,6 +153,7 @@ export class CreateOrganizationService {
       { Put: buildVersionedCreate(this.tableName, lifecycle as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, entitlement as unknown as Record<string, unknown> & { PK: string; SK: string }) },
       { Put: buildVersionedCreate(this.tableName, notificationEntitlements as unknown as Record<string, unknown> & { PK: string; SK: string }) },
+      { Put: buildVersionedCreate(this.tableName, notificationPreferences as unknown as Record<string, unknown> & { PK: string; SK: string }) },
     ];
 
     return { entries, organization, membership };

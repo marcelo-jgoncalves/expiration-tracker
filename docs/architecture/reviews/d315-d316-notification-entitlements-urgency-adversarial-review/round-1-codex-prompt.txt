@@ -1,0 +1,43 @@
+Protocolo Claude-Codex (AGENTS.md secao 4), Rodada 1 de revisao adversarial retroativa. Duas
+decisoes relacionadas (item 20 da fila), ambas ja implementadas e em producao (dev), nunca
+revisadas formalmente porque o protocolo estava suspenso quando foram tomadas:
+
+- D-315: NotificationEntitlements nunca provisionado para nenhum tenant - agora seedado
+  atomicamente na criacao da Organization (5o entry de uma TransactWriteItems ja existente de 4
+  entries).
+- D-316: 3 campos aditivos novos em DashboardSummary (itemsOverdueCount/itemsExpiringSoonCount/
+  activeItemsCount), reaproveitando dado ja buscado, sem novo endpoint/leitura/GSI.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-1-claude-proposal.md
+2. src/modules/notification/domain/notification-entitlements.ts
+3. src/modules/organization/application/create-organization.ts
+4. src/modules/notification/application/notification-router-workflow.ts
+5. src/modules/notification/application/notification-router.ts
+6. src/modules/dashboard/application/dashboard-service.ts
+7. test/unit/organization/create-organization.test.ts
+8. test/unit/dashboard/dashboard-service.test.ts
+9. As linhas D-315 e D-316 em docs/architecture/decisions-log.md (grep por "D-315" e "D-316")
+
+NAO leia round-1-claude-selfgrade.md - nota cega, arquivo separado.
+
+Foco pedido:
+- Existe algum caminho onde um tenant fica permanentemente sem NotificationEntitlements alem do
+  gap ja nomeado (tenants pre-existentes)? Ex: alguma outra rota de criacao de tenant que nao passa
+  por CreateOrganizationService.buildCreateEntries()?
+- A trilha completa entitlement -> router -> worker de entrega esta correta? Verifique tambem o
+  worker de entrega (grep por "notification-delivery" ou onde NotificationAttempt e processado) -
+  eu (Claude) nao segui essa trilha ate o fim nesta rodada, registrado como lacuna da minha propria
+  revisao.
+- A decisao de produto de D-315 (email sempre habilitado sem monthlyLimit, whatsapp sempre
+  desabilitado) tem algum caso real que quebra (ex: downgrade de plano, tenant suspenso, etc)?
+- O approximate compartilhado de D-316 (achado 3 da minha proposta) e um problema real ou aceitavel
+  como esta?
+- Qualquer outro achado real que eu tenha perdido.
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada (ja
+esta oculta do seu lado - eu nao inclui `round-1-claude-selfgrade.md` na lista de leitura). Termine
+com uma linha no formato exato:
+
+NOTA_CODEX: X.X
