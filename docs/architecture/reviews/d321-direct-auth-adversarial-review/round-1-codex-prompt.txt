@@ -1,0 +1,53 @@
+Você é o revisor adversarial independente (Codex) no protocolo Claude-Codex deste repositório
+(AGENTS.md secao 4). Uma decisao de nivel 5-6 (nova superficie de autenticacao) foi implementada
+sem o protocolo formal (suspenso na epoca, autorizado diretamente pelo dono do produto) e agora
+precisa da revisao adversarial completa, retroativa, antes de ser considerada fechada.
+
+Regra do protocolo: minimo 3 rodadas (proposta - critica - treplica), nota minima 9.0 de AMBOS
+antes de considerar concluido, sem arredondar (8.99 nao vira 9). Protocolo de nota cega: voce
+ainda NAO viu a nota do Claude para esta rodada (ela existe, registrada separadamente, mas nao
+esta neste prompt) - de a sua propria nota independente, sem tentar adivinhar ou ancorar na dele.
+
+Leia estes arquivos do repositorio (voce esta rodando com working dir na raiz do projeto,
+c:\Users\Usuario\Desktop\projects\expiration-tracker):
+
+1. docs/architecture/reviews/d321-direct-auth-adversarial-review/round-1-claude-proposal.md
+   (a proposta/defesa do Claude para esta rodada - contexto, arquitetura, gaps ja admitidos)
+2. src/modules/bff/persistence/cognito-idp-auth-client.ts (implementacao real do adapter Cognito)
+3. src/modules/bff/application/bff-auth-service.ts (metodos loginWithPassword, signUp,
+   confirmSignUp, resendConfirmationCode, startForgotPassword, confirmForgotPassword,
+   establishSession - o resto do arquivo e sessao/refresh, ja fora de escopo desta rodada)
+4. src/modules/bff/http/bff-handlers.ts (handlers handleLoginPassword, handleSignUp,
+   handleConfirmSignUp, handleResendConfirmationCode, handleForgotPassword,
+   handleConfirmForgotPassword)
+5. infra/modules/cognito/main.tf (password_policy, explicit_auth_flows,
+   prevent_user_existence_errors - confirme se existe ou nao advanced_security_mode/
+   user_pool_add_ons)
+6. infra/modules/bff-api-gateway/main.tf (throttle da stage - confirme os numeros reais)
+
+Sua tarefa: critique adversarialmente esta superficie de autenticacao nova como um engenheiro de
+seguranca senior faria numa revisao de codigo real, procurando bugs de correcao E gaps de
+seguranca genuinos - nao apenas polimento cosmetico. Considere especificamente (mas nao se limite
+a):
+
+- O calculo/uso do SECRET_HASH esta correto e nunca vaza para o cliente?
+- A postura anti-enumeracao esta implementada corretamente em TODOS os caminhos (login, signup,
+  confirm, resend, forgot-password, confirm-forgot-password) ou existe algum caminho que ainda
+  distingue "conta existe" de "conta nao existe" sem necessidade?
+- O gap de rate-limiting dedicado que a propria proposta do Claude admite (throttle agregado de
+  toda a API, nao por conta/IP, sem AdvancedSecurityMode no Cognito) - isso e aceitavel para a
+  fase atual do projeto (AGENTS.md secao 1: sem usuario real, sem producao) ou e um bloqueador
+  real antes de considerar D-321 fechado? De uma recomendacao concreta, nao so uma bandeira.
+- Existe algum vetor de enumeracao de usuario, timing attack, ou vazamento de informacao pelos
+  codigos de status HTTP/formato de erro que a proposta nao considerou?
+- O tratamento de erro "UNKNOWN_OUTCOME"/"TRANSIENT_FAILURE" em cada metodo esta correto (nunca
+  finge sucesso quando o resultado e genuinamente desconhecido)?
+- Algum problema real na integracao entre CognitoIdpAuthClient e BffAuthService (mapeamento de
+  outcome incompleto, exception nao tratada, etc)?
+
+De sua nota final (0-10, pode usar uma casa decimal, nunca arredondada) para esta rodada nesta
+superficie de autenticacao como ela existe HOJE no repositorio, e liste cada achado real
+separadamente (bug de correcao vs. gap de seguranca vs. sugestao de polimento - categorize).
+Termine sua resposta com uma linha no formato exato:
+
+NOTA_CODEX: X.X

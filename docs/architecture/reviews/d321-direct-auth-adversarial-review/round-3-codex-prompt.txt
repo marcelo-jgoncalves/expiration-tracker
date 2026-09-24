@@ -1,0 +1,36 @@
+Rodada 3, protocolo Claude-Codex sobre D-321. Rodada 2 voce deu 8.4/10. Nota cega desta rodada:
+voce ainda nao viu a nota do Claude (arquivo separado, nao esta na lista abaixo).
+
+Leia:
+
+1. docs/architecture/reviews/d321-direct-auth-adversarial-review/round-3-claude-revision.md
+
+Depois verifique contra o codigo real:
+
+2. infra/modules/cognito/main.tf (device_configuration deve estar REMOVIDO por completo agora -
+   confirme, e leia o comentario que explica a decisao e o risco residual nomeado)
+3. infra/modules/cognito/tests/cognito.tftest.hcl (nova asserção de device_configuration ausente)
+4. test/unit/bff/cognito-idp-auth-client.test.ts (arquivo novo - adapter real testado contra
+   excecoes reais do SDK, nao mais so o fake de HTTP)
+5. test/unit/bff/bff-handlers.test.ts (teste do guard de login-CSRF reescrito para provar ordem;
+   teste de corpo malformado ganhou o caso "null")
+6. docs/architecture/decisions-log.md (nova entrada D-329, e D-328 tambem foi adicionada
+   retroativamente - o item 26/WhatsApp que estava fora do escopo desta revisao mas tambem estava
+   sem entrada no log)
+7. NEXT_SESSION_PROMPT.md item 23 (confirme que a pendencia de rate-limiting e a decisao do signup
+   409 estao de fato registradas ali agora, nao so prometidas)
+
+Foco especifico nesta rodada:
+- A remocao do device_configuration resolve genuinamente o problema que voce identificou na
+  Rodada 2, ou ha algum detalhe que ainda deixa a incompatibilidade em aberto?
+- O raciocinio de por que NAO reescrever para InitiateAuth/REFRESH_TOKEN_AUTH (a descoberta da
+  decisao D-054 que exclui esse auth flow deliberadamente) esta correto e bem fundamentado?
+- Os testes novos do adapter real (cognito-idp-auth-client.test.ts) realmente fecham a lacuna que
+  voce apontou (o teste antigo nao alcancava o adapter que pretendia proteger)?
+- Alguma regressao nova introduzida pelas mudancas desta rodada?
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Se chegar a pelo menos 9.0, diga
+isso explicitamente e se este e um bom ponto de convergencia (minimo 3 rodadas ja atingido). Se
+nao, liste exatamente o que falta. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

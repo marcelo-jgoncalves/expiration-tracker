@@ -210,6 +210,15 @@ export class BffAuthService {
   async loginWithPassword(input: { email: string; password: string }): Promise<{ sessionToken: string; csrfToken: string }> {
     const username = input.email.trim().toLowerCase();
     const outcome = await this.deps.cognitoAuthClient.authenticateWithPassword({ username, password: input.password });
+    // Round-1 Codex finding (d321-direct-auth-adversarial-review): TRANSIENT_FAILURE/
+    // UNKNOWN_OUTCOME used to fold into the SAME "invalid credentials" as a real wrong password -
+    // a genuine Cognito outage/throttling would falsely tell the user they mistyped their
+    // password. Mapped to DependencyUnavailableError instead, same posture every other method in
+    // this file already uses - this reveals nothing about account existence, only "the system
+    // could not complete this request right now", which is not an anti-enumeration regression.
+    if (outcome.kind === "TRANSIENT_FAILURE" || outcome.kind === "UNKNOWN_OUTCOME") {
+      throw new DependencyUnavailableError("Não foi possível autenticar agora - tente novamente.");
+    }
     if (outcome.kind !== "SUCCESS") {
       throw new AuthenticationError("E-mail ou senha inválidos.");
     }

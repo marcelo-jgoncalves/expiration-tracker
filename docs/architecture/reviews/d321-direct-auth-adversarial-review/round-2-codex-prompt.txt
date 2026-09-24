@@ -1,0 +1,54 @@
+Continuando o protocolo Claude-Codex (AGENTS.md secao 4) sobre D-321 (superficie de autenticacao
+direta). Rodada 1 voce deu nota 6.8/10 com 8 achados. Nota cega desta rodada: voce ainda NAO viu a
+nota do Claude para a Rodada 2 (existe, registrada em arquivo separado que voce NAO precisa ler).
+
+IMPORTANTE sobre a Rodada 1: sua propria critica apontou, corretamente, que a rodada nao foi
+estritamente cega porque a auto-nota do Claude estava dentro do MESMO arquivo que voce leu
+(round-1-claude-proposal.md). Isso foi corrigido a partir de agora - a auto-nota do Claude vive
+sempre num arquivo separado (round-N-claude-selfgrade.md) que nao esta na lista de leitura abaixo.
+
+Leia, nesta ordem:
+
+1. docs/architecture/reviews/d321-direct-auth-adversarial-review/round-2-claude-revision.md
+   (a revisao do Claude respondendo a cada um dos seus 8 achados da Rodada 1 - correcao aplicada,
+   pendencia registrada, decisao explicita mantida, ou treplica com evidencia contestando)
+
+Depois, verifique o codigo REAL contra cada resposta da revisao (nao aceite a palavra do Claude
+sem checar):
+
+2. src/modules/bff/http/bff-handlers.ts (achados 1 e 8 - requireSameSiteFetch() e
+   parseJsonObjectBody() novos, aplicados as 6 rotas)
+3. src/modules/bff/persistence/cognito-idp-auth-client.ts (achados 2 e 3 - forgotPassword
+   dobrando InvalidParameterException, confirmSignUp/resendConfirmationCode com
+   looksAlreadyConfirmed())
+4. src/modules/bff/application/bff-auth-service.ts (achado 4 - loginWithPassword mapeando
+   TRANSIENT_FAILURE/UNKNOWN_OUTCOME para DependencyUnavailableError)
+5. test/unit/bff/bff-handlers.test.ts (testes novos cobrindo os achados 1, 4, 8 - confira se
+   realmente exercitam o comportamento, nao so existem)
+6. docs/engineering/performance/traces/perf-04-auth.mjs (fix do smoke test k6 para nao quebrar
+   com o novo guard de Sec-Fetch-Site)
+
+Para o achado 5 (device-remembering) especificamente, a revisao contesta sua conclusao da Rodada 1
+com evidencia (grep de zero ocorrencias de ConfirmDevice/UpdateDeviceStatus/DEVICE_SRP_AUTH/
+NewDeviceMetadata em todo src/, historico do commit que introduziu device_configuration em
+2026-08-20 - um mes antes de D-321, aplicando-se igualmente ao fluxo OIDC/PKCE original que usa o
+MESMO endpoint /oauth2/token ha semanas sem incidente relatado). Avalie esse contra-argumento com
+rigor - ele esta correto? A citacao da documentacao AWS sobre "remembered devices... active"
+realmente exige confirmacao de dispositivo por sessao (ConfirmDevice chamado), ou a mera presenca
+da configuracao no user pool basta para ativar o modo incompativel? Se a evidencia do Claude for
+sólida, diga isso explicitamente - nao mantenha um achado so por inercia. Se ainda houver duvida
+real, diga exatamente que evidencia adicional fecharia a questao.
+
+Para o achado 6 (signup como oraculo de existencia), a revisao optou por MANTER o 409 com
+justificativa (UX real do frontend, e sua propria Rodada 1 ja ofereceu isso como saida aceitavel
+se documentado). Avalie se a documentacao esta adequada e se essa decisao e razoavel dado o
+estagio do projeto (AGENTS.md secao 1: sem usuario real).
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada) para esta rodada, avaliando se os 8
+achados foram genuinamente resolvidos (corrigido/pendencia registrada explicitamente/decisao
+justificada/treplica com evidencia real - qualquer um desses conta como resolvido para efeito de
+nota, uma pendencia REGISTRADA nao e a mesma coisa que um gap ignorado) ou se algum ainda esta mal
+resolvido. Aponte qualquer achado NOVO que a mudanca de codigo desta rodada tenha introduzido.
+Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X
