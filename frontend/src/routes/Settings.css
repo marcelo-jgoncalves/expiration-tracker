@@ -15,7 +15,7 @@
 .ov-settings .ui-panel--padded { padding:25px 27px; }
 .ov-storage-summary { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; }
 .ov-storage-summary strong { font-size:14px; }
-.ov-storage-summary span { font-size:11px; color:#4c1d95; background:#f1ebff; border-radius:20px; padding:7px 11px; }
+.ov-storage-summary span { font-size:10px; font-weight:800; color:#4c1d95; background:#f1ebff; border-radius:7px; padding:7px 10px; }
 .ov-settings progress { width:100%; height:9px; display:block; margin:19px 0 13px; border:0; border-radius:8px; overflow:hidden; background:#eeeaf5; }
 .ov-settings progress::-webkit-progress-bar { background:#eeeaf5; } .ov-settings progress::-webkit-progress-value { background:#7c3aed; border-radius:8px; } .ov-settings progress::-moz-progress-bar { background:#7c3aed; }
 .ov-settings progress + p { font-size:11px; color:#55507a; margin:0; }
@@ -28,6 +28,11 @@
 .ov-organization-action-grid h3 { font-size:15px; margin-bottom:8px; }
 .ov-organization-action-grid p { font-size:11px; line-height:1.65; color:#55507a; margin-bottom:18px; }
 .ov-organization-action-grid .ui-button { color:#b91c1c; border:1px solid #fecaca; background:white; font-size:11px; }
+/* `.ui-button--secondary:hover` (Button.css) turns this neutral gray on hover, losing the
+   destructive-action identity the prototype's `.outline-danger:hover` keeps (red tint, red
+   text) - these two buttons are styled as outline-danger regardless of the shared `secondary`
+   variant they use underneath. */
+.ov-organization-action-grid .ui-button:hover:not(:disabled) { background:#fff2f1; border-color:#f1b5b1; color:#b91c1c; }
 .ov-organization-actions code { overflow-wrap:anywhere; }
 @media(max-width:1100px) { .ov-settings-fields, .ov-organization-action-grid { grid-template-columns:1fr; } }
 @media(max-width:650px) { .ov-settings-fields, .ov-settings .ui-panel--padded, .ov-organization-action-grid article { padding:22px 18px; } .ov-settings-save { flex-direction:column; align-items:stretch; padding:15px 18px; } }
