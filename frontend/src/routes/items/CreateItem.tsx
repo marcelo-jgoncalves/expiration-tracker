@@ -1,20 +1,12 @@
-/**
- * Create Expiration (mission §26-35/§92): the smallest correct path to put something under
- * tracking - only name/category/dueDate are required, matching CreateItemInput exactly.
- *
- * Session-interruption recovery (mission §49): the draft (sessionStorage, useFormDraft) and
- * the idempotency key (sessionStorage, useIdempotentMutation's persistenceKey) are both keyed
- * independently but rehydrate together on remount - a user who gets redirected through a BFF
- * reauthentication mid-submission lands back on this same form, values intact, ready to
- * resubmit under the SAME key (mission §29: a retry of the same logical submission never gets
- * a fresh key) - safe either way per CREATE-IDEMPOTENCY-01, whether the original attempt
- * never reached the backend or already succeeded.
- */
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useCreateItem } from "../../hooks/useCreateItem.js";
-import { useFormDraft } from "../../hooks/useFormDraft.js";
+import { useMembers } from "../../hooks/useMembers.js";
+import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
+import { SelectField } from "../../components/forms/SelectField.js";
+import { EmptyState } from "../../components/AsyncStates.js";
+import { UnsavedChangesGuard } from "../../components/UnsavedChangesGuard.js";
 import { ApiError, isUnknownOutcome } from "../../api/errors.js";
 import {
   EMPTY_CREATE_ITEM_DRAFT,
@@ -31,7 +23,7 @@ import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import "./CreateItem.css";
 
-const DRAFT_STORAGE_KEY = "expiration-tracker:create-item:draft";
+
 
 /** Stable control ids so the ErrorSummary can link straight to the offending field
  * (mission §40), plus the human label the summary quotes. Keyed by the same field name the
@@ -63,13 +55,18 @@ function toSummaryFieldErrors(fieldErrors: Record<string, string>): SummaryField
 export function CreateItem() {
   const navigate = useNavigate();
   const orgPath = useOrgPath();
-  const { draft, update, clear } = useFormDraft<CreateItemDraft>(DRAFT_STORAGE_KEY, EMPTY_CREATE_ITEM_DRAFT);
+  const [draft, update] = useState<CreateItemDraft>(EMPTY_CREATE_ITEM_DRAFT);
+  const [saved, setSaved] = useState(false);
+  const members = useMembers();
+  const role = useCurrentMembershipRole();
+  useEffect(() => { document.title = "Novo vencimento ? OmniVence"; }, []);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
   const mutation = useCreateItem();
 
   function setField<K extends keyof CreateItemDraft>(field: K, value: CreateItemDraft[K]) {
     update({ ...draft, [field]: value });
+    setFieldErrors(previous => { const next = { ...previous }; delete next[field]; return next; });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -79,7 +76,8 @@ export function CreateItem() {
     const clientErrors = validateCreateItemDraft(draft);
     if (Object.keys(clientErrors.fields).length > 0) {
       setFieldErrors(clientErrors.fields);
-      setGeneralErrors([]);
+      setGeneralErrors(["Preencha os campos obrigat?rios para continuar."]);
+      document.getElementById(fieldId(Object.keys(clientErrors.fields)[0]!))?.focus();
       return;
     }
 
@@ -87,7 +85,7 @@ export function CreateItem() {
     setGeneralErrors([]);
     try {
       const response = await mutation.mutateAsync(draftToCreateItemInput(draft));
-      clear();
+      setSaved(true);
       mutation.newIntent();
       navigate(orgPath(`/items/${response.item.itemId}`), { state: { justCreated: true } });
     } catch (err) {
@@ -107,8 +105,11 @@ export function CreateItem() {
     }
   }
 
+  if (role === "VIEWER") return <EmptyState kind="permission-limited" action={<ButtonLink to={orgPath("/items")}>Voltar para Vencimentos</ButtonLink>} />;
+
   return (
-    <div>
+    <div className="ov-create-item">
+      <UnsavedChangesGuard dirty={!saved && Object.values(draft).some(value => value !== "")} />
       <PageHeader
         above={<Link to={orgPath("/items")}>← Voltar para Vencimentos</Link>}
         title="Novo vencimento"
@@ -119,7 +120,7 @@ export function CreateItem() {
         <Panel padded>
           <Section heading="O essencial" headingId="create-item-essential" description="O que é, de que tipo é, e quando vence." icon={Plus}>
             <div className="create-item__grid">
-              <TextField id={fieldId("name")} label="Nome" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
+              <TextField id={fieldId("name")} label="Nome" placeholder="Ex.: Licen?a Ambiental ? Unidade Norte" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
               <TextField
                 id={fieldId("category")}
                 label="Categoria"
@@ -155,7 +156,7 @@ export function CreateItem() {
                   multiline
                 />
               </div>
-              <TextField id={fieldId("issuer")} label="Emissor" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
+              <TextField id={fieldId("issuer")} label="Emissor" placeholder="Ex.: Secretaria de Meio Ambiente" value={draft.issuer} onChange={(value) => setField("issuer", value)} error={fieldErrors["issuer"]} maxLength={200} />
               <TextField id={fieldId("number")} label="Número" value={draft.number} onChange={(value) => setField("number", value)} error={fieldErrors["number"]} maxLength={100} />
               <TextField
                 id={fieldId("periodicity")}
@@ -173,14 +174,12 @@ export function CreateItem() {
                 onChange={(value) => setField("issueDate", value)}
                 error={fieldErrors["issueDate"]}
               />
-              <TextField
-                id={fieldId("assigneeUserId")}
-                label="Responsável"
-                value={draft.assigneeUserId}
-                onChange={(value) => setField("assigneeUserId", value)}
-                error={fieldErrors["assigneeUserId"]}
-                maxLength={100}
-              />
+              <div>
+                <SelectField id={fieldId("assigneeUserId")} label="Respons?vel" value={draft.assigneeUserId} onChange={value => setField("assigneeUserId", value)} disabled={members.isPending || members.isError}
+                  options={[{ value: "", label: members.isPending ? "Carregando membros?" : "Selecione, se aplic?vel" }, ...(members.data?.members.filter(member => member.status === "ACTIVE").map(member => ({ value: member.userId, label: member.displayName || member.email || member.userId })) ?? [])]} />
+                {members.isError && <p role="alert">N?o foi poss?vel carregar os respons?veis. <button type="button" onClick={() => void members.refetch()}>Tentar novamente</button></p>}
+                {fieldErrors["assigneeUserId"] && <p role="alert">{fieldErrors["assigneeUserId"]}</p>}
+              </div>
               <TextField id={fieldId("priority")} label="Prioridade" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />
               <div className="create-item__grid-full">
                 <TextField

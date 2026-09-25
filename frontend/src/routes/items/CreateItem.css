@@ -42,3 +42,23 @@
     grid-template-columns: 1fr;
   }
 }
+.ov-create-item { max-width:1450px; margin:0 auto; }
+.ov-create-item .ui-page-header__back > a { margin-bottom:19px; font-size:12px; font-weight:700; }
+.ov-create-item .ui-panel--padded { padding:28px 31px 31px; margin-bottom:18px; border-radius:16px; box-shadow:0 4px 20px #291c5106; }
+.ov-create-item .ui-section__heading { margin:0 0 5px; font-size:17px; font-weight:700; gap:13px; }
+.ov-create-item .ui-section__icon { box-sizing:content-box; width:18px; height:18px; padding:9px; background:#f1ebff; border-radius:10px; color:#6d28d9; }
+.ov-create-item .ui-section__description { margin:0 0 25px 49px; font-size:11px; }
+.ov-create-item .create-item__grid { gap:19px 20px; }
+.ov-create-item .create-item__grid > * { margin-bottom:0; min-width:0; }
+.ov-create-item .ui-field { margin-bottom:0; }
+.ov-create-item .ui-field__label { font-size:12px; font-weight:700; margin-bottom:9px; }
+.ov-create-item .ui-field__control { height:49px; min-height:49px; border:1px solid #d7d2e3; border-radius:10px; padding:0 14px; font-size:12px; background:white; }
+.ov-create-item textarea.ui-field__control { height:96px; padding:13px 14px; resize:vertical; }
+.ov-create-item .ui-field__control:focus { border-color:#7c3aed; box-shadow:0 0 0 4px #7c3aed22; }
+.ov-create-item .ui-field__control[aria-invalid=true] { border-color:#b91c1c; }
+.ov-create-item .ui-field__hint { font-size:10px; }
+.ov-create-item .ui-form__actions { margin-top:24px; gap:22px; }
+.ov-create-item .ui-form__actions .ui-button { min-height:47px; font-size:12px; }
+.ov-create-optional { margin-left:auto; font-size:10px; background:#f8f7fc; border-radius:20px; padding:7px 11px; color:#55507a; }
+@media(min-width:651px) { .ov-create-item .create-item__grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:650px) { .ov-create-item .ui-panel--padded { padding:23px 19px; } .ov-create-item .create-item__grid { grid-template-columns:1fr; gap:18px; } .ov-create-optional { display:none; } .ov-create-item .ui-form__actions { flex-wrap:wrap; } }
