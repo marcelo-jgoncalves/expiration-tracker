@@ -413,7 +413,12 @@ const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
  * single source for anywhere else (e.g. the sidebar identity card) that needs to display a
  * role, so the two never drift apart. */
 export function presentMembershipRole(role: MembershipRole): string {
-  return MEMBERSHIP_ROLE_LABEL[role];
+  switch (role) {
+    case "OWNER": return "Propriet?rio";
+    case "ADMIN": return "Administrador";
+    case "MEMBER": return "Membro";
+    case "VIEWER": return "Leitor";
+  }
 }
 
 /** #15 redesign (2026-09-21) - `Members.tsx`'s active-members table previously rendered the raw
