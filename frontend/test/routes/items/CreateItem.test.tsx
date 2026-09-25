@@ -131,8 +131,8 @@ describe("CreateItem", () => {
     expect(keyAfterReload).toBe(keyBeforeReload);
   });
 
-  // A genuinely NEW submission (a fresh draft, sessionStorage cleared - e.g. after a completed
-  // create, or a brand-new tab) must never carry over stale field values from an unrelated one.
+  // Mutation: seeding the draft state with a stale/leftover value instead of reading (empty)
+  // sessionStorage would fail this case.
   it("starts with an empty draft when nothing was persisted yet", () => {
     renderAtRoute("/items/new", <CreateItem />, "/items/new");
     expect(screen.getByLabelText(/^Nome/)).toHaveValue("");
