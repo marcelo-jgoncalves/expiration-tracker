@@ -38,8 +38,12 @@
   background: var(--color-status-neutral-bg);
 }
 .ui-badge--info {
-  color: var(--color-status-info-fg);
-  background: var(--color-status-info-bg);
+  /* Marcelo, 2026-09-25: pills specifically use the brand lilac here (matching
+     `prototype/novasTelas`'s own "later/no urgency" chip), not the shared blue
+     `--color-status-info-*` tokens InlineNotice/IconButton keep using for "info" elsewhere -
+     scoped to this component on purpose. */
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
 }
 .ui-badge--success {
   color: var(--color-status-success-fg);
