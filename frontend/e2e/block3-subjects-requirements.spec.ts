@@ -128,7 +128,12 @@ test("E2E-B3-03: MEMBER can archive but NOT delete (no Excluir button) - RBAC ve
 
   await page.goto("/subjects");
   await expect(page.getByRole("button", { name: "Excluir" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Arquivar" }).click();
+  await page.getByRole("button", { name: "Arquivar Fornecedor Alfa Ltda" }).click();
+  // Both archive and delete now go through the same irreversible-action confirmation dialog
+  // (SubjectsCollection.tsx) - never fire-and-forget from the row button itself.
+  const dialog = page.getByRole("alertdialog", { name: "Arquivar cadastro?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Arquivar" }).click();
   await expect.poll(() => archiveCalled).toBe(true);
 });
 
@@ -143,9 +148,13 @@ test("E2E-B3-04: ADMIN can delete a subject (subject:delete, ADMIN_ROLES) with c
   });
 
   await page.goto("/subjects");
-  await page.getByRole("button", { name: "Excluir" }).click();
-  await expect(page.getByRole("alertdialog", { name: /Excluir Fornecedor Alfa/ })).toBeVisible();
-  await page.getByRole("button", { name: "Confirmar exclusão" }).click();
+  await page.getByRole("button", { name: "Excluir Fornecedor Alfa Ltda" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Excluir cadastro?" });
+  await expect(dialog).toBeVisible();
+  // A typed confirmation (the record's own name) gates the destructive button - guards against
+  // a stray/misclick delete, never just a plain "are you sure" button.
+  await dialog.getByLabel("Digite o nome do cadastro para confirmar").fill("Fornecedor Alfa Ltda");
+  await dialog.getByRole("button", { name: "Excluir" }).click();
   await expect.poll(() => deleteCalled).toBe(true);
 });
 

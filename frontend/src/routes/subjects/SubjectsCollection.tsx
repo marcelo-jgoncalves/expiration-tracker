@@ -171,7 +171,10 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
     <IconButtonLink size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} to={orgPath(`/subjects/${subject.subjectId}/edit`)}><Pencil size={16} aria-hidden="true" /></IconButtonLink>
     {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><FolderArchive size={16} aria-hidden="true" /></IconButton>}
     {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
-    {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} onClose={() => { if (!pending) setAction(undefined); }}>
+    {/* alertdialog, not the default "dialog" - both actions here are irreversible ("O serviço
+        atual não oferece restauração" / no undo in this interface), same destructive-confirmation
+        posture as every other Dialog usage in this codebase (Reports.tsx, Tracking.tsx, ...). */}
+    {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} variant="alertdialog" onClose={() => { if (!pending) setAction(undefined); }}>
       <p>{action === "archive" ? `O cadastro de ${subject.displayName} sair? da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} ser? marcado como excluído e deixar? de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
       <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
       {action === "delete" && <TextField label="Digite o nome do cadastro para confirmar" value={confirmation} onChange={setConfirmation} />}
