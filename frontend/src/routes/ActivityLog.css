@@ -6,11 +6,15 @@
 .activity-filter input:disabled{background:#f8f7fc;color:#55507a}
 .activity-limitations{font-size:11px;color:#55507a;line-height:1.7}
 .activity-actor,.activity-resource{display:flex;align-items:flex-start;gap:12px;min-width:0;overflow-wrap:anywhere}
-.activity-actor__avatar{display:grid;place-items:center;width:37px;height:37px;flex-shrink:0;background:#f1eafb;color:#4c1d95;border-radius:11px}
+.activity-actor__avatar{display:grid;place-items:center;width:37px;height:37px;flex-shrink:0;background:#f1ebff;color:#4c1d95;border-radius:11px}
 .activity-actor>div,.activity-date{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px}
 .activity-actor span:not(.activity-actor__avatar),.activity-date span{font-size:10px;color:#55507a}
 .activity-actor small{font-size:9px;color:#55507a;overflow-wrap:anywhere}
-.activity-action{font-size:11px;font-weight:800;color:#4c1d95;overflow-wrap:anywhere}
+/* Not a link (plain <span>, ActivityLog.tsx) - purple here would falsely read as clickable,
+   the same convention every other non-link label in this design system follows. Prototype's
+   `.event-title` carries no color override either, only the resource name (an actual link,
+   `.resource strong`) is purple. */
+.activity-action{font-size:11px;font-weight:800;overflow-wrap:anywhere}
 .activity-resource{font-size:11px}
 @media(max-width:1250px){.activity-filters__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.activity-filters__grid{grid-template-columns:1fr}.activity-filter>span{height:auto}}
