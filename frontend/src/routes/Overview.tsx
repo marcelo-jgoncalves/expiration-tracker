@@ -48,7 +48,6 @@ export function Overview() {
       <div className="ov-overview-list-heading"><div><h2 id="attention-heading">O que precisa de atenção</h2><p>Vencimentos ordenados pela data mais próxima</p></div>
         <div className="ov-overview-controls">
           <input type="search" aria-label="Buscar vencimento" placeholder="Buscar vencimento" value={search} onChange={e => setSearch(e.target.value)} />
-          <select aria-label="Filtrar vencimentos" value={filter} onChange={e => setFilter(e.target.value)}><option value="">Todos</option><option value="VENCIDO">Vencidos</option><option value="VENCENDO">Próximos 7 dias</option></select>
         </div>
       </div>
       <div className="ov-overview-list" aria-busy={query.isFetching}>

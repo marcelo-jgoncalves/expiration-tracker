@@ -6,8 +6,9 @@
 .ov-overview-hero button { flex:none; display:flex; gap:8px; align-items:center; border:0; border-radius:9px; background:white; color:#4c1d95; padding:12px 16px; min-height:44px; font:700 11px var(--font-family-sans); cursor:pointer; z-index:1; }
 .ov-overview-section-title { font-size:14px; font-weight:800; margin:29px 0 14px; }
 .ov-overview-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
-.ov-overview-metric { display:flex; align-items:center; gap:14px; text-align:left; border:1px solid #e8e4f1; border-radius:15px; padding:20px; min-height:116px; background:white; font-family:inherit; cursor:pointer; color:#14121f; }
-.ov-overview-metric[aria-pressed=true] { border-color:#7c3aed; }
+.ov-overview-metric { display:flex; align-items:center; gap:14px; text-align:left; border:1px solid #e8e4f1; border-radius:15px; padding:20px; min-height:116px; background:white; font-family:inherit; cursor:pointer; color:#14121f; box-shadow:0 3px 18px #291c5105; transition:transform .15s,border-color .15s; }
+.ov-overview-metric:hover { transform:translateY(-2px); border-color:#c4b5fd; }
+.ov-overview-metric[aria-pressed=true] { border-color:#7c3aed; box-shadow:0 0 0 3px #7c3aed16; }
 .ov-overview-metric-icon { display:flex; align-items:center; justify-content:center; flex:none; width:48px; height:48px; border-radius:13px; background:#f1ebff; color:#4c1d95; }
 .ov-overview-metric.critical .ov-overview-metric-icon { background:#fff2f1; color:#b91c1c; }
 .ov-overview-metric.warning .ov-overview-metric-icon { background:#fff7e8; color:#a94a05; }
@@ -18,9 +19,10 @@
 .ov-overview-list-heading p { font-size:11px; color:#55507a; margin:5px 0 0; }
 .ov-overview-controls { display:flex; gap:9px; flex-wrap:wrap; }
 .ov-overview-controls input, .ov-overview-controls select { min-height:44px; border:1px solid #e8e4f1; border-radius:9px; padding:10px 12px; background:white; color:#55507a; font:500 11px var(--font-family-sans); max-width:100%; min-width:0; }
-.ov-overview-list { border:1px solid #e8e4f1; border-radius:15px; background:white; overflow:hidden; }
+.ov-overview-list { border:1px solid #e8e4f1; border-radius:15px; background:white; overflow:hidden; box-shadow:0 3px 18px #291c5105; }
 .ov-overview-list table { width:100%; border-collapse:collapse; text-align:left; }
 .ov-overview-list th { font-size:10px; text-transform:uppercase; color:#55507a; background:#fbfafe; padding:15px 22px; font-weight:800; }
+.ov-overview-list tbody tr:hover { background:#fcfaff; }
 .ov-overview-list td { border-top:1px solid #f0edf6; padding:12px 22px; height:72px; font-size:11px; font-weight:700; }
 .ov-overview-list td:first-child { width:52%; }
 .ov-overview-list td a { color:#4c1d95; font-size:12px; font-weight:800; text-decoration:none; display:inline-flex; align-items:center; min-height:32px; overflow-wrap:anywhere; }
