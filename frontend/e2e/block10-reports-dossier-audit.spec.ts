@@ -122,7 +122,10 @@ function activityEntry(overrides: Record<string, unknown> = {}) {
     partition: "expiration",
     occurredAt: "2026-09-10T12:00:00.000Z",
     actor: { type: "USER", userId: "user-1" },
-    action: "item:renew",
+    // Real backend contract (audit-event.ts's own `AuditAction` union): uppercase enum values,
+    // never the earlier "item:renew"-style colon-separated string this fixture used before the
+    // contract solidified.
+    action: "RENEW",
     resourceType: "ExpirationItem",
     resourceId: "item-1",
     changes: {},
@@ -130,12 +133,17 @@ function activityEntry(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("E2E-B10-06: ADMIN sees the activity feed as a real DataTable with the action in <code>, and 'Todos os eventos foram carregados.' once exhausted", async ({ page }) => {
+test("E2E-B10-06: ADMIN sees the activity feed as a real DataTable with a friendly action label (real action in its title attribute), and 'Todos os eventos foram carregados.' once exhausted", async ({ page }) => {
   await mockOrganizations(page, "ADMIN");
   await page.route("**/bff/api/activity**", (route) => route.fulfill({ json: { entries: [activityEntry()], cursor: null, hasMore: false } }));
 
   await page.goto("/activity");
-  await expect(page.locator("code", { hasText: "item:renew" })).toBeVisible();
+  // ActivityLog.tsx's ActionBadge renders a human-friendly verb+resource label ("Renovou
+  // vencimento"), never the raw enum action - the real value is still available, in the
+  // element's `title` attribute, for anyone who needs the exact backend action.
+  const action = page.locator(".activity-action", { hasText: "Renovou vencimento" });
+  await expect(action).toBeVisible();
+  await expect(action).toHaveAttribute("title", "RENEW");
   await expect(page.getByText("Todos os eventos foram carregados.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Carregar mais" })).toHaveCount(0);
 });
