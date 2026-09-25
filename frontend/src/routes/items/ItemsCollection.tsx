@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, RefreshCw, RotateCw, CalendarClock } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
@@ -23,6 +23,7 @@ import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { DataTable, CellSecondary, type DataTableColumn, type DataTableGroup } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
+import { RenewItemDialog } from "./RenewItem.js";
 
 const STATUS_TABS: { value: ExpirationItemStatus; label: string }[] = [
   { value: "ACTIVE", label: "Ativos" },
@@ -39,7 +40,7 @@ interface RowEntry {
   urgency: UrgencyPresentation;
 }
 
-function buildColumns(now: Date, orgPath: (path: string) => string, canRenew: boolean): DataTableColumn<RowEntry>[] {
+function buildColumns(now: Date, orgPath: (path: string) => string, canRenew: boolean, onRenew: (itemId: string) => void): DataTableColumn<RowEntry>[] {
   return [
     {
       key: "name",
@@ -86,9 +87,9 @@ function buildColumns(now: Date, orgPath: (path: string) => string, canRenew: bo
       actions: true,
       render: ({ item }) =>
         item.status === "ACTIVE" && canRenew ? (
-          <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="secondary" size="sm" icon={RefreshCw} aria-label={`Renovar ${item.name}, ${formatAbsoluteDate(item.dueDate)}`}>
+          <Button onClick={() => onRenew(item.itemId)} variant="secondary" size="sm" icon={RefreshCw} aria-label={`Renovar ${item.name}, ${formatAbsoluteDate(item.dueDate)}`}>
             Renovar
-          </ButtonLink>
+          </Button>
         ) : null,
     },
   ];
@@ -109,7 +110,11 @@ export function ItemsCollection() {
   // Computed once per render, not re-derived per row - a long-lived tab drifting a few
   // minutes stale between renders is an accepted trade-off (Overview.tsx's existing pattern).
   const now = useMemo(() => new Date(), []);
-  const columns = useMemo(() => buildColumns(now, orgPath, role !== "VIEWER"), [now, orgPath, role]);
+  const [renewingItemId, setRenewingItemId] = useState<string | null>(null);
+  const columns = useMemo(
+    () => buildColumns(now, orgPath, role !== "VIEWER", (itemId) => setRenewingItemId(itemId)),
+    [now, orgPath, role],
+  );
 
   function selectStatus(next: ExpirationItemStatus) {
     setSearchParams(previous => { const params = new URLSearchParams(previous); params.set("status", next); params.delete("urgency"); return params; });
@@ -215,6 +220,7 @@ export function ItemsCollection() {
     <div className="ov-items">
       {header}
       {filters}
+      {renewingItemId ? <RenewItemDialog itemId={renewingItemId} onClose={() => setRenewingItemId(null)} /> : null}
       <Panel>
         {query.isError && <ErrorState message="Não foi possível atualizar os resultados. Os registros carregados foram mantidos." onRetry={() => void (query.isFetchNextPageError ? query.fetchNextPage() : query.refetch())} />}
         {query.hasNextPage && <p className="ov-items-partial">Contagens de grupos referentes aos registros carregados.</p>}

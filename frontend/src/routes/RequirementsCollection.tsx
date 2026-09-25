@@ -60,7 +60,8 @@ import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
-import { Button, ButtonLink } from "../components/ui/Button.js";
+import { Button } from "../components/ui/Button.js";
+import { RequirementDetail } from "./subjects/RequirementDetail.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
@@ -88,6 +89,7 @@ export function RequirementsCollection() {
   const [statusTab, setStatusTab] = useState<"ALL" | RequirementStatus>("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [viewingRequirement, setViewingRequirement] = useState<{ subjectId: string; requirementId: string } | null>(null);
   const role = useCurrentMembershipRole();
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
 
@@ -156,6 +158,9 @@ export function RequirementsCollection() {
         </InlineNotice>
       ) : null}
       {showCreate ? <CreateRequirementForm defaultSubjectId={filterSubjectId} onClose={() => setShowCreate(false)} /> : null}
+      {viewingRequirement ? (
+        <RequirementDetail subjectId={viewingRequirement.subjectId} requirementId={viewingRequirement.requirementId} onClose={() => setViewingRequirement(null)} />
+      ) : null}
       {filterSubjectId ? null : (
         <div className="requirements-metrics" role="group" aria-label="Filtrar por status">
           <button
@@ -232,9 +237,9 @@ export function RequirementsCollection() {
               header: "",
               actions: true,
               render: (r) => (
-                <ButtonLink variant="tertiary" size="sm" to={orgPath(`/subjects/${r.subjectId}/requirements/${r.requirementId}`)}>
+                <Button variant="tertiary" size="sm" onClick={() => setViewingRequirement({ subjectId: r.subjectId, requirementId: r.requirementId })}>
                   Ver
-                </ButtonLink>
+                </Button>
               ),
             },
             {

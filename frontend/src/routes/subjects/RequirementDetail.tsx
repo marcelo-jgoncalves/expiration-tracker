@@ -13,19 +13,22 @@
  *  - Chip de status de cada solicitação usa `presentGuestLinkState` (texto simples), o MESMO
  *    tratamento que SubjectRequests.tsx já usa pra essa coluna - nunca um StatusBadge decorativo
  *    novo só pra bater com o chip do protótipo, que aqui quebraria a convenção já aprovada.
- *  - "Nova solicitação" é uma versão reduzida do `CreateAvulsoDialog` de SubjectRequests.tsx -
- *    aqui o requisito já é fixo (vem da URL), então o formulário pede só o e-mail do
- *    destinatário, nunca reconstrói o Combobox de seleção de requisito que não faz sentido aqui.
+ *  - "Nova solicitação" pede só o e-mail do destinatário (o requisito já é fixo, vem de props).
+ *
+ * Modal conversion (2026-09-25): single entry point (RequirementsCollection's "Ver" row action),
+ * no deep-link need of its own - reuses the existing `Dialog`. The "Nova solicitação" form used
+ * to be a second, nested `Dialog` on top of this whole screen's own `Dialog` - now that the
+ * screen itself IS a Dialog, that would stack two `role="dialog"` panels, so the form collapses
+ * into an inline section on the same surface instead (`showNewRequestForm`), never a second
+ * overlay.
  */
 import { useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useOrgPath } from "../../routing/useOrgPath.js";
+import { useCreateDocumentRequest } from "../../hooks/useCreateDocumentRequest.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
 import { useDocumentRequestsForSubject } from "../../hooks/useDocumentRequestsForSubject.js";
-import { useCreateDocumentRequest } from "../../hooks/useCreateDocumentRequest.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
-import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
+import { Section, Panel } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
@@ -39,7 +42,7 @@ import "./RequirementDetail.css";
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
 
-function NewRequestDialog({ subjectId, requirementId, onClose }: { subjectId: string; requirementId: string; onClose: () => void }) {
+function NewRequestForm({ subjectId, requirementId, onDone }: { subjectId: string; requirementId: string; onDone: () => void }) {
   const mutation = useCreateDocumentRequest(subjectId);
   const [email, setEmail] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
@@ -53,75 +56,83 @@ function NewRequestDialog({ subjectId, requirementId, onClose }: { subjectId: st
     setErrors([]);
     try {
       await mutation.mutateAsync({ subjectId, requirementId, recipientEmail: email.trim() });
-      onClose();
+      onDone();
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar a solicitação."]);
     }
   }
 
   return (
-    <Dialog title="Nova solicitação" onClose={onClose}>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <FormErrorSummary errors={errors} />
-        <TextField id="new-request-email" label="Destinatário" type="text" value={email} onChange={setEmail} required hint="E-mail que receberá o link de convidado." />
-        <InlineNotice tone="neutral">
-          Um link de convidado sem login será gerado e enviado a este e-mail. O envio é confirmado apenas como aceito pelo provedor — não como recebido.
-        </InlineNotice>
-        <Button type="submit" variant="primary" pending={mutation.isPending}>
-          {mutation.isPending ? "Criando…" : "Criar solicitação"}
-        </Button>{" "}
-        <Button type="button" variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
-      </form>
-    </Dialog>
+    <Panel padded>
+      <Section heading="Nova solicitação" headingId="requirement-new-request">
+        <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+          <FormErrorSummary errors={errors} />
+          <TextField id="new-request-email" label="Destinatário" type="text" value={email} onChange={setEmail} required hint="E-mail que receberá o link de convidado." />
+          <InlineNotice tone="neutral">
+            Um link de convidado sem login será gerado e enviado a este e-mail. O envio é confirmado apenas como aceito pelo provedor — não como recebido.
+          </InlineNotice>
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Criando…" : "Criar solicitação"}
+          </Button>{" "}
+          <Button type="button" variant="secondary" onClick={onDone}>
+            Cancelar
+          </Button>
+        </form>
+      </Section>
+    </Panel>
   );
 }
 
-export function RequirementDetail() {
-  const { subjectId, requirementId } = useParams<{ subjectId: string; requirementId: string }>();
-  const orgPath = useOrgPath();
+export function RequirementDetail({ subjectId, requirementId, onClose }: { subjectId: string; requirementId: string; onClose: () => void }) {
   const role = useCurrentMembershipRole();
   const canWrite = role !== undefined && WRITE_ROLES.has(role);
-  const [showNewRequest, setShowNewRequest] = useState(false);
+  const [showNewRequestForm, setShowNewRequestForm] = useState(false);
 
-  const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
-  const requestsQuery = useDocumentRequestsForSubject(subjectId ?? "");
-
-  if (!subjectId || !requirementId) return null; // unreachable - the route always supplies both
+  const requirementsQuery = useRequirementsForSubject(subjectId);
+  const requestsQuery = useDocumentRequestsForSubject(subjectId);
 
   if (requirementsQuery.isPending) {
-    return <InitialLoading label="Carregando requisito…" />;
+    return (
+      <Dialog title="Requisito" onClose={onClose}>
+        <InitialLoading label="Carregando requisito…" />
+      </Dialog>
+    );
   }
   if (requirementsQuery.isError) {
     const message = requirementsQuery.error instanceof ApiError ? requirementsQuery.error.message : "Não foi possível carregar este requisito.";
-    return <ErrorState message={message} onRetry={() => void requirementsQuery.refetch()} />;
+    return (
+      <Dialog title="Requisito" onClose={onClose}>
+        <ErrorState message={message} onRetry={() => void requirementsQuery.refetch()} />
+      </Dialog>
+    );
   }
 
   const requirement = requirementsQuery.data.requirements.find((r) => r.requirementId === requirementId);
   if (!requirement) {
-    return <EmptyState kind="unavailable" message="Este requisito não foi encontrado." action={<Link to={orgPath(`/subjects/${subjectId}`)}>Voltar para o fornecedor</Link>} />;
+    return (
+      <Dialog title="Requisito" onClose={onClose}>
+        <EmptyState kind="unavailable" message="Este requisito não foi encontrado." />
+      </Dialog>
+    );
   }
 
   const requests = (requestsQuery.data?.documentRequests ?? []).filter((r) => r.requirementId === requirementId);
   const now = new Date();
 
   return (
-    <div>
-      <PageHeader
-        above={<Link to={orgPath(`/subjects/${subjectId}`)}>← Voltar para o fornecedor</Link>}
-        title={requirement.name}
-        description={<StatusBadge presentation={presentRequirementDocStatus(requirement.status)} />}
-        actions={
-          canWrite ? (
-            <Button variant="primary" onClick={() => setShowNewRequest(true)}>
-              Nova solicitação
-            </Button>
-          ) : undefined
-        }
-      />
+    <Dialog title={requirement.name} onClose={onClose}>
+      <p>
+        <StatusBadge presentation={presentRequirementDocStatus(requirement.status)} />
+      </p>
       {!requirement.evidenceVersionId ? <InlineNotice tone="warning">Ainda não há documento vinculado a este requisito.</InlineNotice> : null}
-      {showNewRequest ? <NewRequestDialog subjectId={subjectId} requirementId={requirementId} onClose={() => setShowNewRequest(false)} /> : null}
+      {canWrite && !showNewRequestForm ? (
+        <p>
+          <Button variant="primary" onClick={() => setShowNewRequestForm(true)}>
+            Nova solicitação
+          </Button>
+        </p>
+      ) : null}
+      {showNewRequestForm ? <NewRequestForm subjectId={subjectId} requirementId={requirementId} onDone={() => setShowNewRequestForm(false)} /> : null}
 
       <Section heading="Solicitações enviadas" headingId="requirement-requests">
         <Panel padded>
@@ -149,6 +160,6 @@ export function RequirementDetail() {
           )}
         </Panel>
       </Section>
-    </div>
+    </Dialog>
   );
 }

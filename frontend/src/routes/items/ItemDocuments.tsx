@@ -10,11 +10,14 @@
  * `document:read` is READ_ONLY_ROLES (authorization.ts:279, verified directly - NOT the same
  * tier as the spec's looser prose grouping it with `reserve-upload`) - every role can see this
  * screen and its file list; only WRITE_ROLES can upload, only ADMIN_ROLES can delete.
+ *
+ * Modal conversion (2026-09-25): single entry point (ItemDetail's "Arquivos" card), no deep-link
+ * need of its own - reuses the existing `Dialog` rather than a dedicated route/Drawer (a Drawer
+ * would fit this list+upload shape better, but building a new overlay component is explicitly
+ * out of scope here, deferred to Wave 1b).
  */
 import { useRef, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
 import { FileText } from "lucide-react";
-import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
 import { useDocuments } from "../../hooks/useDocuments.js";
 import { useUploadDocument } from "../../hooks/useUploadDocument.js";
@@ -24,10 +27,11 @@ import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.j
 import { presentDocumentStatus, formatAbsoluteDate } from "../../api/presentation.js";
 import { InitialLoading, CollectionSkeleton, ErrorState, EmptyState } from "../../components/AsyncStates.js";
 import { ApiError } from "../../api/errors.js";
-import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
+import { Section, Panel } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import { Dialog } from "../../components/ui/Dialog.js";
 import type { ItemDocument, MembershipRole } from "../../api/types.js";
 import "./ItemDocuments.css";
 
@@ -149,26 +153,32 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
   );
 }
 
-export function ItemDocuments() {
-  const { itemId } = useParams<{ itemId: string }>();
-  const orgPath = useOrgPath();
+export function ItemDocumentsDialog({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const role = useCurrentMembershipRole();
-  const itemQuery = useItem(itemId ?? "");
-  const documentsQuery = useDocuments(itemId ?? "");
-
-  if (!itemId) {
-    return <EmptyState kind="unavailable" message="Vencimento não identificado." />;
-  }
+  const itemQuery = useItem(itemId);
+  const documentsQuery = useDocuments(itemId);
 
   if (itemQuery.isPending) {
-    return <InitialLoading label="Carregando vencimento…" />;
+    return (
+      <Dialog title="Arquivos" onClose={onClose}>
+        <InitialLoading label="Carregando vencimento…" />
+      </Dialog>
+    );
   }
   if (itemQuery.isError) {
     if (itemQuery.error instanceof ApiError && itemQuery.error.category === "AUTHORIZATION") {
-      return <EmptyState kind="permission-limited" />;
+      return (
+        <Dialog title="Arquivos" onClose={onClose}>
+          <EmptyState kind="permission-limited" />
+        </Dialog>
+      );
     }
     const message = itemQuery.error instanceof ApiError ? itemQuery.error.message : "Não foi possível carregar este vencimento.";
-    return <ErrorState message={message} onRetry={() => void itemQuery.refetch()} />;
+    return (
+      <Dialog title="Arquivos" onClose={onClose}>
+        <ErrorState message={message} onRetry={() => void itemQuery.refetch()} />
+      </Dialog>
+    );
   }
 
   const item = itemQuery.data.item;
@@ -176,8 +186,7 @@ export function ItemDocuments() {
   const canDelete = role !== undefined && ADMIN_ROLES.has(role);
 
   return (
-    <div>
-      <PageHeader above={<Link to={orgPath(`/items/${item.itemId}`)}>← Voltar para {item.name}</Link>} title="Arquivos" description={item.name} />
+    <Dialog title={`Arquivos - ${item.name}`} onClose={onClose}>
       {canUpload ? (
         <Section heading="Anexar novo arquivo" headingId="documents-upload">
           <Panel padded>
@@ -209,6 +218,6 @@ export function ItemDocuments() {
           </ul>
         )}
       </Section>
-    </div>
+    </Dialog>
   );
 }

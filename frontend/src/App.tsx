@@ -41,21 +41,13 @@ const ItemsCollection = lazy(() =>
 );
 const ItemDetail = lazy(() => import("./routes/items/ItemDetail.js").then((m) => ({ default: m.ItemDetail })));
 const CreateItem = lazy(() => import("./routes/items/CreateItem.js").then((m) => ({ default: m.CreateItem })));
-const RenewItem = lazy(() => import("./routes/items/RenewItem.js").then((m) => ({ default: m.RenewItem })));
-const ItemDocuments = lazy(() =>
-  import("./routes/items/ItemDocuments.js").then((m) => ({ default: m.ItemDocuments })),
-);
 const ItemReminderPolicy = lazy(() =>
   import("./routes/items/ItemReminderPolicy.js").then((m) => ({ default: m.ItemReminderPolicy })),
 );
 const SubjectsCollection = lazy(() =>
   import("./routes/subjects/SubjectsCollection.js").then((m) => ({ default: m.SubjectsCollection })),
 );
-const SubjectForm = lazy(() => import("./routes/subjects/SubjectForm.js").then((m) => ({ default: m.SubjectForm })));
 const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
-const RequirementDetail = lazy(() =>
-  import("./routes/subjects/RequirementDetail.js").then((m) => ({ default: m.RequirementDetail })),
-);
 const RequirementsCollection = lazy(() =>
   import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
 );
@@ -184,21 +176,14 @@ export function App() {
                 <Route path="items" element={<ItemsCollection />} />
                 <Route path="items/new" element={<CreateItem />} />
                 <Route path="items/:itemId" element={<ItemDetail />} />
-                <Route path="items/:itemId/renew" element={<RenewItem />} />
-                <Route path="items/:itemId/documents" element={<ItemDocuments />} />
                 <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
-                <Route path="subjects/new" element={<SubjectForm />} />
-                <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId" element={<SubjectHub />} />
                 {/* A14 (Block 6, D-2xx) - Solicitações e recorrência, `docarchive:series-read`
                     (all roles, incl. VIEWER). Same component for both routes - the seriesId
                     route opens the series detail overlay on top of the same two panels. */}
                 <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
-                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - reached from A09's card ("Requisitos
-                    documentais") and A11's table row ("Ver"), no top-level nav entry of its own. */}
-                <Route path="subjects/:subjectId/requirements/:requirementId" element={<RequirementDetail />} />
                 {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
                     top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
                 <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
@@ -257,19 +242,12 @@ export function App() {
                 <Route path="items" element={null} />
                 <Route path="items/new" element={null} />
                 <Route path="items/:itemId" element={null} />
-                <Route path="items/:itemId/renew" element={null} />
                 <Route path="subjects" element={null} />
-                <Route path="subjects/new" element={null} />
-                <Route path="subjects/:subjectId/edit" element={null} />
                 <Route path="subjects/:subjectId" element={null} />
                 {/* A14 (Block 6, D-2xx) - added here from the start, same healing-forward
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requests" element={null} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={null} />
-                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - added here from the start, same
-                    healing-forward discipline as A10/A13/A14/A17/A20/A21/A22, not a repeat of
-                    A11's real gap (D-260). */}
-                <Route path="subjects/:subjectId/requirements/:requirementId" element={null} />
                 {/* A17 (Block 10, D-2xx) - added here from the start, same healing-forward
                     discipline as A10/A13/A20/A21/A22, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/dossier" element={null} />

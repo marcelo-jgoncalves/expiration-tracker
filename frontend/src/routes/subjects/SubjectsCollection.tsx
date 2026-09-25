@@ -10,12 +10,13 @@ import { InitialLoading, ErrorState, EmptyState, BackgroundRefreshIndicator } fr
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
-import { Button, ButtonLink } from "../../components/ui/Button.js";
-import { IconButton, IconButtonLink } from "../../components/ui/IconButton.js";
+import { Button } from "../../components/ui/Button.js";
+import { IconButton } from "../../components/ui/IconButton.js";
 import { PageHeader, Panel, StatusFilter, Toolbar } from "../../components/ui/Layout.js";
 import { OmniHero } from "../../components/OmniHero.js";
 import { Dialog } from "../../components/ui/Dialog.js";
 import { TextField } from "../../components/forms/TextField.js";
+import { SubjectFormDialog } from "./SubjectForm.js";
 import type { TrackedSubject, TrackedSubjectStatus } from "../../api/types.js";
 import "./SubjectsCollection.css";
 
@@ -43,6 +44,7 @@ export function SubjectsCollection() {
   useEffect(() => { document.title = "Fornecedores · OmniVence"; }, []);
   const statusParam = searchParams.get("status");
   const status: TrackedSubjectStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
+  const [formTarget, setFormTarget] = useState<"new" | { subjectId: string } | null>(null);
   const query = useSubjectsDashboard(status);
   const activeQuery = useSubjectsDashboard("ACTIVE");
   const archivedQuery = useSubjectsDashboard("ARCHIVED");
@@ -87,7 +89,7 @@ export function SubjectsCollection() {
         title="Fornecedores"
         above={<span className="ov-eyebrow">Relacionamentos e conformidade</span>}
         description="Terceiros que precisam manter documentação em dia com você."
-        actions={canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+        actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget("new")}>Novo fornecedor</Button> : undefined}
       />
       <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um s? lugar." description="Encontre rapidamente quem precisa da sua atenção e mantenha cada cadastro organizado."
         summary={<><strong>{activeQuery.data?.subjects.length.toLocaleString("pt-BR") ?? "?"}</strong><span>cadastros ativos carregados</span></>} />
@@ -103,7 +105,7 @@ export function SubjectsCollection() {
         <EmptyState
           kind={status === "ACTIVE" ? "true-empty" : "filtered-empty"}
           message={status === "ACTIVE" ? "Nenhum fornecedor cadastrado ainda. Cadastre o primeiro fornecedor para começar a acompanhar a documentação dele." : "Nenhum fornecedor neste status."}
-          action={status === "ACTIVE" && canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+          action={status === "ACTIVE" && canWrite ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget("new")}>Novo fornecedor</Button> : undefined}
         />
       ) : filtered.length === 0 ? (
         <EmptyState kind="filtered-empty" message="Nenhum resultado encontrado. Tente buscar por outro nome ou identificador." action={<Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar busca</Button>} />
@@ -135,18 +137,24 @@ export function SubjectsCollection() {
                 key: "actions",
                 header: "Ações",
                 actions: true,
-                render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} orgPath={orgPath} />,
+                render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} onEdit={() => setFormTarget({ subjectId: s.subjectId })} />,
               },
             ]}
           />
           <p className="ov-subjects-footer" aria-live="polite">{filtered.length} {filtered.length === 1 ? "cadastro" : "cadastros"} nesta visualização</p>
         </Panel>
       )}
+      {formTarget ? (
+        <SubjectFormDialog
+          subjectId={formTarget === "new" ? undefined : formTarget.subjectId}
+          onClose={() => setFormTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: TrackedSubject; canWrite: boolean; canDelete: boolean; orgPath: (p: string) => string }) {
+function RowActions({ subject, canWrite, canDelete, onEdit }: { subject: TrackedSubject; canWrite: boolean; canDelete: boolean; onEdit: () => void }) {
   const archiveMutation = useArchiveSubject(subject.subjectId);
   const deleteMutation = useDeleteSubject(subject.subjectId);
   const [action, setAction] = useState<"archive" | "delete">();
@@ -168,7 +176,7 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
   }
 
   return <span className="ov-subject-actions">
-    <IconButtonLink size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} to={orgPath(`/subjects/${subject.subjectId}/edit`)}><Pencil size={16} aria-hidden="true" /></IconButtonLink>
+    <IconButton size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></IconButton>
     {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><FolderArchive size={16} aria-hidden="true" /></IconButton>}
     {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
     {/* alertdialog, not the default "dialog" - both actions here are irreversible ("O serviço

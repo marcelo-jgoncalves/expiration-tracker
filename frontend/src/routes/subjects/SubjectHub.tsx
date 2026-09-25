@@ -33,6 +33,7 @@ import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
+import { SubjectFormDialog } from "./SubjectForm.js";
 import "./SubjectHub.css";
 
 export function SubjectHub() {
@@ -50,6 +51,7 @@ export function SubjectHub() {
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
+  const [showEdit, setShowEdit] = useState(false);
 
   if (!subjectId) return null; // unreachable - the route always supplies :subjectId
 
@@ -130,7 +132,7 @@ export function SubjectHub() {
         description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
         actions={
           <>
-            {canWrite ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/edit`)}>Editar fornecedor</ButtonLink> : null}{" "}
+            {canWrite ? <Button variant="secondary" onClick={() => setShowEdit(true)}>Editar fornecedor</Button> : null}{" "}
             {canAdmin ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/dossier`)}>Exportar dossiê</ButtonLink> : null}{" "}
             {canAdmin ? (
               <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
@@ -143,6 +145,7 @@ export function SubjectHub() {
       {subject.status === "ARCHIVED" ? (
         <InlineNotice tone="neutral">Este fornecedor está arquivado. Novas evidências não são solicitadas automaticamente.</InlineNotice>
       ) : null}
+      {showEdit ? <SubjectFormDialog subjectId={subjectId} onClose={() => setShowEdit(false)} /> : null}
       {confirmingDelete ? (
         <DeleteConfirmDialog
           subjectName={subject.displayName}
