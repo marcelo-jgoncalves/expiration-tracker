@@ -126,7 +126,9 @@ test("E2E-04: renew -> new cycle visible", async ({ page }) => {
   await page.route("**/bff/api/items/item-1/renew", (route) => route.fulfill({ status: 201, json: { item: activeItem({ itemId: "item-2", dueDate: "2027-09-01T00:00:00.000Z", renewedFromId: "item-1" }) } }));
   await page.route("**/bff/api/items/item-2", (route) => route.fulfill({ json: { item: activeItem({ itemId: "item-2", dueDate: "2027-09-01T00:00:00.000Z", renewedFromId: "item-1" }) } }));
 
-  await page.goto("/items/item-1/renew");
+  await page.goto("/items/item-1");
+  await page.getByRole("button", { name: "Renovar" }).click();
+  await expect(page.getByRole("dialog", { name: "Renovar vencimento" })).toBeVisible();
   await expect(page.getByText(/não é o mesmo que editar a data/)).toBeVisible();
   await page.getByLabel(/^Nova data de vencimento/).fill("2027-09-01");
   await page.getByRole("button", { name: "Confirmar renovação" }).click();
@@ -151,7 +153,8 @@ test("E2E-05: OCC conflict -> recovery", async ({ page }) => {
   });
   await page.route("**/bff/api/items/item-2", (route) => route.fulfill({ json: { item: activeItem({ itemId: "item-2" }) } }));
 
-  await page.goto("/items/item-1/renew");
+  await page.goto("/items/item-1");
+  await page.getByRole("button", { name: "Renovar" }).click();
   await page.getByLabel(/^Nova data de vencimento/).fill("2027-09-01");
   await page.getByRole("button", { name: "Confirmar renovação" }).click();
 

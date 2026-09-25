@@ -94,8 +94,8 @@ test("E2E-B3-01: MEMBER creates a subject -> lands on the Hub", async ({ page })
 
   await page.goto("/subjects");
   await expect(page.getByRole("heading", { name: "Fornecedores" })).toBeVisible();
-  await page.getByRole("link", { name: "Novo fornecedor" }).first().click();
-  await expect(page).toHaveURL(/\/subjects\/new$/);
+  await page.getByRole("button", { name: "Novo fornecedor" }).first().click();
+  await expect(page.getByRole("dialog", { name: "Novo fornecedor" })).toBeVisible();
 
   await page.getByLabel(/^Nome/).fill("Fornecedor Alfa Ltda");
   await page.getByRole("button", { name: "Salvar" }).click();
@@ -111,8 +111,8 @@ test("E2E-B3-02: VIEWER sees the collection with no write actions (no 'Novo forn
 
   await page.goto("/subjects");
   await expect(page.getByRole("heading", { name: "Fornecedores" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Novo fornecedor" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Editar" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Novo fornecedor" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Editar/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Arquivar|Excluir/ })).toHaveCount(0);
 });
 
@@ -208,7 +208,7 @@ test("E2E-B3-08: only ADMIN sees 'Excluir fornecedor' and 'Pré-visualizar dossi
   await page.goto("/subjects/subj-1");
   await expect(page.getByRole("button", { name: "Excluir fornecedor" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Pré-visualizar dossiê" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Editar fornecedor" })).toBeVisible(); // subject:update, WRITE_ROLES
+  await expect(page.getByRole("button", { name: "Editar fornecedor" })).toBeVisible(); // subject:update, WRITE_ROLES
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -564,7 +564,10 @@ test.describe("A11Y-forced-colors - Block 3 screens: badges/status stay identifi
 test("A11Y-forms: A08's create form has full label/error association", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockOrganizations(page, "ADMIN");
-  await page.goto("/subjects/new");
+  await page.route("**/bff/api/subjects/dashboard**", (route) => route.fulfill({ json: { subjects: [] } }));
+  await page.goto("/subjects");
+  await page.getByRole("button", { name: "Novo fornecedor" }).first().click();
+  await expect(page.getByRole("dialog", { name: "Novo fornecedor" })).toBeVisible();
 
   const unlabelled = await page.evaluate(() =>
     Array.from(document.querySelectorAll("input, textarea, select")).filter((control) => {
