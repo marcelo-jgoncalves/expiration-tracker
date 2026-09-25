@@ -173,7 +173,7 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
     {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
     {/* alertdialog, not the default "dialog" - both actions here are irreversible ("O serviço
         atual não oferece restauração" / no undo in this interface), same destructive-confirmation
-        posture as every other Dialog usage in this codebase (Reports.tsx, Tracking.tsx, ...). */}
+        posture as every other Dialog usage in this codebase (Reports.tsx, ...). */}
     {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} variant="alertdialog" onClose={() => { if (!pending) setAction(undefined); }}>
       <p>{action === "archive" ? `O cadastro de ${subject.displayName} sair? da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} ser? marcado como excluído e deixar? de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
       <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>

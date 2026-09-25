@@ -1,28 +1,14 @@
 /**
- * Subject/Requirement/DocumentSubmission data access - BLOCKER-C review queue (Variante B).
- * Same one-layer convention as items.ts: every call site goes through these functions, never
- * apiClient inline, so the real backend paths (src/modules/subject/http/{subject,requirement}
- * -handlers.ts, allowlisted in src/modules/bff/domain/proxy-allowlist.ts) exist in exactly
- * one place.
+ * TrackedSubject data access. Same one-layer convention as items.ts: every call site goes
+ * through these functions, never apiClient inline, so the real backend paths
+ * (src/runtime/aws/handlers/subjects-handler.ts, allowlisted in
+ * src/modules/bff/domain/proxy-allowlist.ts) exist in exactly one place. ADR-0016 Decision A
+ * (2026-09-25) retired this file's own RequirementAssignment/DocumentSubmission/legacy
+ * DocumentRequest functions (M9/M10) - A14's document-archive equivalents live in
+ * documentRequests.ts, and A22's delivery-preference functions moved there too (Decision B).
  */
 import { apiClient } from "./apiClient.js";
-import type {
-  AssignRequirementInput,
-  CreateLegacyDocumentRequestInput,
-  CreatedLegacyDocumentRequest,
-  CreateSubjectInput,
-  DocumentChasingOccurrence,
-  DocumentRequestDeliveryMode,
-  DocumentSubmissionsResponse,
-  LegacyDocumentRequest,
-  RequirementAssignmentResponse,
-  RequirementAssignmentsResponse,
-  SubjectResponse,
-  SubjectsDashboardResponse,
-  TrackedSubjectStatus,
-  UpdateRequirementAssignmentInput,
-  UpdateSubjectInput,
-} from "./types.js";
+import type { CreateSubjectInput, SubjectResponse, SubjectsDashboardResponse, TrackedSubjectStatus, UpdateSubjectInput } from "./types.js";
 
 export function fetchSubjectsDashboard(status: TrackedSubjectStatus, options?: { signal?: AbortSignal }): Promise<SubjectsDashboardResponse> {
   return apiClient.get<SubjectsDashboardResponse>(`/subjects/dashboard?status=${encodeURIComponent(status)}`, { signal: options?.signal });
@@ -52,99 +38,4 @@ export function deleteSubject(subjectId: string, expectedVersion: number): Promi
 
 export function fetchSubject(subjectId: string, options?: { signal?: AbortSignal }): Promise<SubjectResponse> {
   return apiClient.get<SubjectResponse>(`/subjects/${encodeURIComponent(subjectId)}`, { signal: options?.signal });
-}
-
-export function fetchRequirementAssignments(subjectId: string, options?: { signal?: AbortSignal }): Promise<RequirementAssignmentsResponse> {
-  return apiClient.get<RequirementAssignmentsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements`, { signal: options?.signal });
-}
-
-export function fetchDocumentSubmissions(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<DocumentSubmissionsResponse> {
-  return apiClient.get<DocumentSubmissionsResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/submissions`, { signal: options?.signal });
-}
-
-/** BLOCKER-C's actual review action: the operator, having seen the uploaded evidence, links
- * an already-existing ExpirationItem to satisfy the requirement (backend re-confirms the
- * item exists via ExpirationItemLookup, never trusts itemId blindly). */
-export function linkExpirationItem(subjectId: string, assignmentId: string, itemId: string, expectedVersion: number): Promise<RequirementAssignmentResponse> {
-  return apiClient.post<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/link`, { itemId }, { expectedVersion });
-}
-
-export function unlinkExpirationItem(subjectId: string, assignmentId: string, expectedVersion: number): Promise<RequirementAssignmentResponse> {
-  return apiClient.post<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/unlink`, undefined, { expectedVersion });
-}
-
-// --- A10 (Block 7, D-2xx) - Legacy Tracked Requirements -------------------------------------
-
-/** `POST /subjects/{subjectId}/requirements` - `requirement:assign`, WRITE_ROLES. */
-export function assignRequirement(subjectId: string, input: AssignRequirementInput): Promise<RequirementAssignmentResponse> {
-  return apiClient.post<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements`, input);
-}
-
-/** `GET /subjects/{subjectId}/requirements/{assignmentId}` - single-assignment detail, A10's
- * Snapshot + timeline page. */
-export function fetchRequirementAssignment(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<RequirementAssignmentResponse> {
-  return apiClient.get<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, { signal: options?.signal });
-}
-
-/** `PUT /subjects/{subjectId}/requirements/{assignmentId}` - `requirement:update`, WRITE_ROLES.
- * Name/notes only - status is never editable here (link/unlink above is the only status path). */
-export function updateRequirementAssignment(subjectId: string, assignmentId: string, input: UpdateRequirementAssignmentInput, expectedVersion: number): Promise<RequirementAssignmentResponse> {
-  return apiClient.put<RequirementAssignmentResponse>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, input, { expectedVersion });
-}
-
-/** `DELETE /subjects/{subjectId}/requirements/{assignmentId}` - `requirement:delete`, ADMIN_ROLES
- * only. Soft-delete (backend sets `deletedAt`) - the assignment disappears from the list. */
-export function deleteRequirementAssignment(subjectId: string, assignmentId: string, expectedVersion: number): Promise<void> {
-  return apiClient.delete<void>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}`, { expectedVersion });
-}
-
-/** `POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests` -
- * `requirement:request-document`, WRITE_ROLES. Distinct from A14's `createDocumentRequest`
- * (`documentRequests.ts`, `document-archive` module) - see `LegacyDocumentRequest`'s own doc
- * comment in `types.ts` for why these are never conflated despite the similar name. */
-export function createLegacyDocumentRequest(subjectId: string, assignmentId: string, input: CreateLegacyDocumentRequestInput): Promise<CreatedLegacyDocumentRequest> {
-  return apiClient.post<CreatedLegacyDocumentRequest>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/document-requests`, input);
-}
-
-/** `GET /subjects/{subjectId}/requirements/{assignmentId}/document-requests` -
- * `requirement:read`, all roles - full history for this assignment's timeline. */
-export function listLegacyDocumentRequests(subjectId: string, assignmentId: string, options?: { signal?: AbortSignal }): Promise<{ requests: LegacyDocumentRequest[] }> {
-  return apiClient.get<{ requests: LegacyDocumentRequest[] }>(`/subjects/${encodeURIComponent(subjectId)}/requirements/${encodeURIComponent(assignmentId)}/document-requests`, { signal: options?.signal });
-}
-
-/** `POST /subjects/{subjectId}/document-requests/{documentRequestId}/revoke` -
- * `requirement:update` (same tier as edit, not a dedicated capability - confirmed against
- * `document-request-service.ts#revokeDocumentRequest`). */
-export function revokeLegacyDocumentRequest(subjectId: string, documentRequestId: string, expectedVersion: number): Promise<void> {
-  return apiClient.post<void>(`/subjects/${encodeURIComponent(subjectId)}/document-requests/${encodeURIComponent(documentRequestId)}/revoke`, undefined, { expectedVersion });
-}
-
-/** `GET .../document-requests/{documentRequestId}/chasing-occurrences` - `requirement:read`,
- * all roles (D-288). Closes A10's timeline gap - the "Lembrete automático agendado/enviado"
- * entries the spec always called for but this route never existed to serve. */
-export function listDocumentChasingOccurrences(subjectId: string, documentRequestId: string, options?: { signal?: AbortSignal }): Promise<{ occurrences: DocumentChasingOccurrence[] }> {
-  return apiClient.get<{ occurrences: DocumentChasingOccurrence[] }>(
-    `/subjects/${encodeURIComponent(subjectId)}/document-requests/${encodeURIComponent(documentRequestId)}/chasing-occurrences`,
-    { signal: options?.signal },
-  );
-}
-
-// --- A22 (Block 7, D-2xx) - Request Delivery Settings ----------------------------------------
-
-/** `GET /subjects/document-request-delivery-preference` - `tenant:configure-document-request
- * -delivery`, OWNER_ROLES only. Tenant-wide, no subjectId - default `MANUAL` until configured. */
-export function fetchDocumentRequestDeliveryPreference(options?: { signal?: AbortSignal }): Promise<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }> {
-  return apiClient.get<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }>("/subjects/document-request-delivery-preference", { signal: options?.signal });
-}
-
-/** `PUT /subjects/document-request-delivery-preference` - the client never supplies
- * `expectedVersion` (`document-request-service.ts#setDocumentRequestDeliveryPreference` reads the
- * current row and computes it server-side in the same call), but a genuine `ConflictError`
- * (category `CONFLICT`, 409) IS still possible - the server-side read-then-conditional-write can
- * still race against a concurrent save and throw on `isTransactionCanceled`. The frontend must
- * still handle `isConflict(err)` distinctly (see `RequestDeliverySettings.tsx`), matching A22's
- * spec OCC-conflict state - this is a narrower race window than client-supplied OCC, never an
- * absent one. */
-export function updateDocumentRequestDeliveryPreference(mode: DocumentRequestDeliveryMode): Promise<void> {
-  return apiClient.put<void>("/subjects/document-request-delivery-preference", { initialInviteDeliveryDefault: mode });
 }

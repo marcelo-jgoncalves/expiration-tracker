@@ -22,7 +22,6 @@ import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
-import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
 import { useDocumentRequestSeries } from "../../hooks/useDocumentRequestSeries.js";
 import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -47,7 +46,6 @@ export function SubjectHub() {
   const subjectQuery = useSubject(subjectId ?? "");
   const complianceQuery = useSubjectCompliance(subjectId ?? "");
   const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
-  const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
   const seriesQuery = useDocumentRequestSeries(subjectId ?? "");
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -106,17 +104,6 @@ export function SubjectHub() {
         : requirementsQuery.isError
           ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
           : { kind: "value", value: requirementsQuery.data.requirements.filter((r) => r.evidenceVersionId).length },
-    },
-    {
-      id: "legacy-tracking",
-      label: "Rastreamento legado",
-      to: orgPath(`/subjects/${subjectId}/tracking`),
-      srDescription: "Ver vínculos do mecanismo antigo de acompanhamento deste fornecedor",
-      status: assignmentsQuery.isPending
-        ? { kind: "loading" }
-        : assignmentsQuery.isError
-          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void assignmentsQuery.refetch() }
-          : { kind: "value", value: assignmentsQuery.data.assignments.length },
     },
     {
       // A14 (Block 6, D-2xx) shipped with real routes (`/subjects/:subjectId/requests`) long

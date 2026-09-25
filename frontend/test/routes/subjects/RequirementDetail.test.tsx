@@ -35,6 +35,7 @@ function documentRequest(overrides: Partial<DocumentRequest> = {}): DocumentRequ
     deadline: undefined,
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery: "MANUAL",
     createdAt: "2026-08-20T00:00:00.000Z",
     updatedAt: "2026-08-20T00:00:00.000Z",
     version: 1,

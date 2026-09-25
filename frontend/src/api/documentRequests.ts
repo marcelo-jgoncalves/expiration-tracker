@@ -5,7 +5,7 @@
  * `documentArchive.ts`: every call site goes through these functions, never `apiClient` inline.
  */
 import { apiClient } from "./apiClient.js";
-import type { CreateDocumentRequestInput, CreateDocumentRequestSeriesInput, DocumentRequest, DocumentRequestSeries } from "./types.js";
+import type { CreateDocumentRequestInput, CreateDocumentRequestSeriesInput, DocumentRequest, DocumentRequestDeliveryMode, DocumentRequestSeries } from "./types.js";
 
 /** `POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests` -
  * `docarchive:request-create`, WRITE_ROLES. Avulso (one-off), outside any series. */
@@ -70,4 +70,26 @@ export function updateSeriesRecipient(subjectId: string, seriesId: string, recip
     { recipientEmail, expectedVersion },
     { expectedVersion },
   );
+}
+
+// --- A22 (ADR-0016 Decision B, 2026-09-25) - Request Delivery Settings, migrated here from the
+// retired subject module's own /subjects/document-request-delivery-preference ------------------
+
+/** `GET /document-archive/settings/document-request-delivery` - `tenant:configure-document-
+ * request-delivery`, OWNER_ROLES only. Tenant-wide, no subjectId - default `MANUAL` until
+ * configured. */
+export function fetchDocumentRequestDeliveryPreference(options?: { signal?: AbortSignal }): Promise<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }> {
+  return apiClient.get<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }>("/document-archive/settings/document-request-delivery", { signal: options?.signal });
+}
+
+/** `PUT /document-archive/settings/document-request-delivery` - the client never supplies
+ * `expectedVersion` (`DocumentArchiveService#setDocumentRequestDeliveryPreference` reads the
+ * current row and computes it server-side in the same call), but a genuine `ConflictError`
+ * (category `CONFLICT`, 409) IS still possible - the server-side read-then-conditional-write can
+ * still race against a concurrent save and throw on `isTransactionCanceled`. The frontend must
+ * still handle `isConflict(err)` distinctly (see `RequestDeliverySettings.tsx`), matching A22's
+ * spec OCC-conflict state - this is a narrower race window than client-supplied OCC, never an
+ * absent one. */
+export function updateDocumentRequestDeliveryPreference(mode: DocumentRequestDeliveryMode): Promise<void> {
+  return apiClient.put<void>("/document-archive/settings/document-request-delivery", { initialInviteDeliveryDefault: mode });
 }

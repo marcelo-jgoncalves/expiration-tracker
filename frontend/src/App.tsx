@@ -87,7 +87,6 @@ const NotFound = lazy(() => import("./routes/NotFound.js").then((m) => ({ defaul
 const SubjectRequests = lazy(() =>
   import("./routes/subjects/SubjectRequests.js").then((m) => ({ default: m.SubjectRequests })),
 );
-const Tracking = lazy(() => import("./routes/subjects/Tracking.js").then((m) => ({ default: m.Tracking })));
 const RequestDeliverySettings = lazy(() =>
   import("./routes/subjects/RequestDeliverySettings.js").then((m) => ({ default: m.RequestDeliverySettings })),
 );
@@ -97,9 +96,6 @@ const DossierExport = lazy(() =>
 const Reports = lazy(() => import("./routes/Reports.js").then((m) => ({ default: m.Reports })));
 const GuestDocumentRequest = lazy(() =>
   import("./routes/guest/GuestDocumentRequest.js").then((m) => ({ default: m.GuestDocumentRequest })),
-);
-const LegacyGuestUpload = lazy(() =>
-  import("./routes/guest/LegacyGuestUpload.js").then((m) => ({ default: m.LegacyGuestUpload })),
 );
 const ImportWizard = lazy(() => import("./routes/imports/ImportWizard.js").then((m) => ({ default: m.ImportWizard })));
 // D-3xx (reversal of D-320) - the app's own login/signup/reset-password screens, replacing the
@@ -203,10 +199,6 @@ export function App() {
                 {/* Requisito - Detalhe (Marcelo, 2026-09-21) - reached from A09's card ("Requisitos
                     documentais") and A11's table row ("Ver"), no top-level nav entry of its own. */}
                 <Route path="subjects/:subjectId/requirements/:requirementId" element={<RequirementDetail />} />
-                {/* A10 (Block 7, D-267) - Rastreamento legado, reached only from A09's card
-                    ("Rastreamento legado"), no top-level nav entry of its own. */}
-                <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
-                <Route path="subjects/:subjectId/tracking/:assignmentId" element={<Tracking />} />
                 {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
                     top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
                 <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
@@ -278,10 +270,6 @@ export function App() {
                     healing-forward discipline as A10/A13/A14/A17/A20/A21/A22, not a repeat of
                     A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requirements/:requirementId" element={null} />
-                {/* A10 (Block 7, D-267) - added here from the start, same healing-forward
-                    discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
-                <Route path="subjects/:subjectId/tracking" element={null} />
-                <Route path="subjects/:subjectId/tracking/:assignmentId" element={null} />
                 {/* A17 (Block 10, D-2xx) - added here from the start, same healing-forward
                     discipline as A10/A13/A20/A21/A22, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/dossier" element={null} />
@@ -348,11 +336,6 @@ export function App() {
                   ProtectedRoute/AuthProvider gating (G02's own spec: "esta tela é estruturalmente
                   separada do app autenticado"). No AppShell, no org context, no RBAC. */}
               <Route path="document-archive/guest/document-requests/:token" element={<GuestDocumentRequest />} />
-              {/* G01 (Block 7, D-267) - legacy guest upload (M10, D-037), same public/no-AppShell
-                  posture as G02 above - the bare path is also the API's own info-fetch path,
-                  which is why the CloudFront routing gap this block closed uses a distinct
-                  "/info" alias instead of this page route (see guestLegacyUpload.ts). */}
-              <Route path="guest/document-requests/:token" element={<LegacyGuestUpload />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>

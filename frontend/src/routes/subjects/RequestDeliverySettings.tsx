@@ -1,19 +1,22 @@
 /**
- * A22 — Configuração de entrega de solicitação (Block 7, D-2xx). `tenant:configure-document-
- * request-delivery` is OWNER_ROLES exclusive - per the audited spec, this is stronger than the
- * "hide, never just disable" nav rule alone: a direct visit by a non-OWNER must redirect away,
- * never render an in-page "sem permissão" message (unlike `ActivityLog.tsx`'s softer
- * ADMIN/OWNER-only convention) - the backend independently re-checks via `authorize()` regardless
- * of what this screen does, but the spec is explicit that the route itself must not resolve for
- * a non-OWNER.
+ * A22 — Configuração de entrega de solicitação. ADR-0016 Decision B (2026-09-25) migrated this
+ * screen's backend from the retired subject module to `document-archive` (same tenant-wide
+ * preference, same `tenant:configure-document-request-delivery` gate, same OCC/shape) - it now
+ * governs A14's avulso/série `DocumentRequest` creation, not the retired A10 "rastreamento
+ * legado" flow this screen used to describe. `tenant:configure-document-request-delivery` is
+ * OWNER_ROLES exclusive - per the audited spec, this is stronger than the "hide, never just
+ * disable" nav rule alone: a direct visit by a non-OWNER must redirect away, never render an
+ * in-page "sem permissão" message (unlike `ActivityLog.tsx`'s softer ADMIN/OWNER-only
+ * convention) - the backend independently re-checks via `authorize()` regardless of what this
+ * screen does, but the spec is explicit that the route itself must not resolve for a non-OWNER.
  *
  * ONE real, confirmed deviation from the spec (investigated directly against the backend, never
- * silent): `setDocumentRequestDeliveryPreference` (`document-request-service.ts`) accepts no
+ * silent): `setDocumentRequestDeliveryPreference` (`DocumentArchiveService`) accepts no
  * CLIENT-supplied `expectedVersion` - it reads the current row and computes the expected version
  * server-side, in the same call. A genuine `ConflictError` (409) is still possible if that
  * server-side read-then-write races a concurrent save (see `updateDocumentRequestDeliveryPreference`'s
- * own doc comment in `api/subjects.ts`) - narrower window than client-supplied OCC, never an
- * absent one, so the spec's "Conflito de concorrência (OCC)" InlineNotice IS rendered here,
+ * own doc comment in `api/documentRequests.ts`) - narrower window than client-supplied OCC, never
+ * an absent one, so the spec's "Conflito de concorrência (OCC)" InlineNotice IS rendered here,
  * driven by `isConflict(error)`.
  */
 import { useState } from "react";
@@ -36,9 +39,12 @@ import { isConflict } from "../../api/errors.js";
 import type { DocumentRequestDeliveryMode } from "../../api/types.js";
 import "./RequestDeliverySettings.css";
 
+// ADR-0016 Decision B: MANUAL no longer promises a link the operator can share by other means
+// (that would require exposing a magic-link to the operator, a named, deliberately deferred
+// pendency, D-146/D-226) - it describes automatic-send suppression only.
 const DELIVERY_OPTIONS = [
   { value: "EMAIL", label: "E-mail automático", hint: "O link é enviado por e-mail no momento da criação da solicitação." },
-  { value: "MANUAL", label: "Entrega manual", hint: "O link é gerado, mas quem criou a solicitação o compartilha por fora." },
+  { value: "MANUAL", label: "Entrega manual", hint: "Nenhum e-mail automático é enviado ao criar a solicitação." },
 ];
 
 export function RequestDeliverySettings() {
@@ -55,7 +61,7 @@ export function RequestDeliverySettings() {
 
   return (
     <>
-      <PageHeader title="Entrega de solicitação" description="Política de toda a organização para o convite inicial do fluxo de rastreamento legado." />
+      <PageHeader title="Entrega de solicitação" description="Política de toda a organização para o convite inicial de solicitações de documento (A14)." />
       {role === undefined ? <InitialLoading label="Carregando…" /> : <DeliveryPreferencePanel enabled={isOwner} />}
     </>
   );
@@ -100,7 +106,7 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
         setConflict(true);
         // Reload the current server value so it's visible for comparison, per spec - never
         // overwrite the user's own in-progress selection silently.
-        if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.documentRequestDeliveryPreference(organizationId) });
+        if (organizationId) void queryClient.invalidateQueries({ queryKey: queryKeys.documentArchive.documentRequestDeliveryPreference(organizationId) });
         return;
       }
       // Any other failure surfaces via mutation.isError below - selection is preserved (spec:
@@ -121,7 +127,9 @@ function DeliveryPreferencePanel({ enabled }: { enabled: boolean }) {
         onChange={(value) => setSelection(value as DocumentRequestDeliveryMode)}
         required
       />
-      <InlineNotice tone="neutral">Alterar este padrão afeta apenas novos convites — nunca revoga um link já emitido.</InlineNotice>
+      <InlineNotice tone="neutral">
+        Alterar este padrão afeta apenas solicitações e materializações NOVAS — nunca revoga um link já emitido, nem reenvia uma solicitação cujo envio já foi suprimido.
+      </InlineNotice>
       {conflict ? (
         <InlineNotice tone="warning" announce="alert">
           Este padrão foi alterado por outra pessoa enquanto você editava. Revise o valor atual ({query.data.initialInviteDeliveryDefault === "EMAIL" ? "E-mail automático" : "Entrega manual"}) antes de salvar novamente.

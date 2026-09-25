@@ -93,10 +93,10 @@ export interface DashboardSummaryResponse {
 }
 
 /**
- * BLOCKER-C review queue (Variante B, revisão humana explícita — decisão do Marcelo,
- * 2026-08-25, reminder-delivery-pipeline.md's sibling decision brief). The domain-relevant
- * subset of src/modules/subject/domain/{tracked-subject,requirement-assignment,document-
- * submission}.ts, same convention as ExpirationItem above.
+ * TrackedSubject — src/modules/subject/domain/tracked-subject.ts, same convention as
+ * ExpirationItem above. ADR-0016 (2026-09-25) retired this module's own RequirementAssignment/
+ * DocumentSubmission (M9/M10, BLOCKER-C's original review-queue scope) - A14/G2's
+ * document-archive Requirement/review-queue is the surviving equivalent.
  */
 export type TrackedSubjectStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
 export type TrackedSubjectType = "COMPANY" | "VENDOR" | "CLIENT" | "EMPLOYEE" | "ASSET" | "LOCATION" | "CUSTOM";
@@ -112,52 +112,6 @@ export interface TrackedSubject {
   externalId?: string;
   tags: string[];
   status: TrackedSubjectStatus;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-}
-
-export type RequirementAssignmentStatus = "MISSING" | "REQUESTED" | "SUBMITTED" | "UNDER_REVIEW" | "REJECTED" | "SATISFIED";
-
-export interface RequirementAssignment {
-  assignmentId: string;
-  subjectId: string;
-  tenantId: string;
-  requirementName: string;
-  notes?: string;
-  status: RequirementAssignmentStatus;
-  linkedItemId?: string;
-  /** A10 (Block 7, D-2xx) - "Última atualização manual" in the Snapshot block; present only
-   * once the assignment has been linked to an item at least once (mirrors the backend's own
-   * `satisfiedAt?` on `RequirementAssignment`, `requirement-assignment.ts`). */
-  satisfiedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-}
-
-export interface AssignRequirementInput {
-  requirementName: string;
-  notes?: string;
-}
-
-export interface UpdateRequirementAssignmentInput {
-  requirementName?: string;
-  notes?: string;
-}
-
-/** Same lifecycle vocabulary as Document (src/modules/document/domain/document.ts) - a
- * DocumentSubmission is Document's sibling aggregate for guest-uploaded evidence, never
- * merged into the same type (BLOCKER-A's own read routes keep them separate too). */
-export type DocumentSubmissionStatus = "PENDING_UPLOAD" | "SCANNING" | "CLEAN" | "REJECTED" | "UNSUPPORTED" | "TIMEOUT" | "DELETED";
-
-export interface DocumentSubmission {
-  submissionId: string;
-  subjectId: string;
-  assignmentId: string;
-  documentRequestId: string;
-  fileName: string;
-  status: DocumentSubmissionStatus;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -194,120 +148,22 @@ export interface SubjectSearchPage {
   scanLimitReached?: boolean;
 }
 
-export interface RequirementAssignmentResponse {
-  assignment: RequirementAssignment;
-}
-
-export interface RequirementAssignmentsResponse {
-  assignments: RequirementAssignment[];
-}
-
-export interface DocumentSubmissionsResponse {
-  submissions: DocumentSubmission[];
-}
-
-/**
- * A10 (Block 7, D-2xx) - `subject` module's legacy `DocumentRequest`
- * (`src/modules/subject/domain/document-request.ts`, D-037) - a DISTINCT backend entity from
- * `DocumentRequest`/`DocumentRequestStatus` further below (the `document-archive` module's own
- * type, A14/G02), even though both happen to share the same status vocabulary and type name in
- * their respective backend modules. Named `Legacy*` here specifically to avoid that collision -
- * never import one where the other is expected.
- */
-export type LegacyDocumentRequestStatus = "REQUESTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "REVOKED";
-
-export interface LegacyDocumentRequest {
-  documentRequestId: string;
-  subjectId: string;
-  assignmentId: string;
-  recipientEmail: string;
-  recipientDisplayName?: string;
-  requestedAt: string;
-  deadline?: string;
-  status: LegacyDocumentRequestStatus;
-  lastOpenedAt?: string;
-  submissionCount: number;
-  lastSubmissionId?: string;
-  revokedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-}
-
-export interface CreateLegacyDocumentRequestInput {
-  recipientEmail: string;
-  recipientDisplayName?: string;
-  deadline?: string;
-}
-
-/** `guestToken` is returned ONLY at creation time (`document-request-service.ts`'s own doc
- * comment: "retornado UMA ÚNICA VEZ, nunca reconstruível depois") - never persisted, never
- * refetchable from `listLegacyDocumentRequests`/`getLegacyDocumentRequest`. A10's "Copiar link do
- * convidado" affordance therefore only ever works in the moment right after creation, a real,
- * confirmed consequence of the backend's own security model (never a UI bug to "fix" by trying
- * to surface a copy affordance on a request loaded from history). */
-export interface CreatedLegacyDocumentRequest {
-  request: LegacyDocumentRequest;
-  guestToken: string;
-  initialInviteDeliveryStatus?: "SENT" | "FAILED" | "DISABLED_BY_KILL_SWITCH";
-}
-
-/**
- * D-288 - `DocumentChasingOccurrence` (`src/modules/subject/domain/document-chasing.ts`), the
- * automated-reminder entries A10's timeline was missing (Bloco 7, D-267's documented deviation
- * #1). `tier` T7/T3 are upcoming reminders relative to the request's deadline; EXPIRED fires
- * once the deadline itself passes - never a 4th tier, the backend materializes exactly these 3
- * per DocumentRequest.
- */
-export type DocumentChasingTier = "T7" | "T3" | "EXPIRED";
-export type DocumentChasingOccurrenceStatus = "SCHEDULED" | "CLAIMED" | "CANCELLED" | "TRIGGERED";
-
-export interface DocumentChasingOccurrence {
-  occurrenceId: string;
-  documentRequestId: string;
-  tier: DocumentChasingTier;
-  scheduledAt: string;
-  status: DocumentChasingOccurrenceStatus;
-}
-
-/** A22 (Block 7, D-2xx) - tenant-wide preference (`document-request-delivery-preference.ts`),
- * default `MANUAL` until ever configured. */
+/** ADR-0016 Decision B (2026-09-25) — A22's tenant-wide preference, migrated from the retired
+ * subject module to `document-archive` (`document-request-delivery-preference.ts`), default
+ * `MANUAL` until ever configured. */
 export type DocumentRequestDeliveryMode = "MANUAL" | "EMAIL";
 
-/**
- * G01 (Block 7, D-2xx) - `guest-submission-service.ts`'s public response shapes (M10, D-037),
- * the legacy single-step guest upload. Deliberately minimal, same posture as `GuestStartSession
- * Result`/`GuestDocumentTypeOption` above - never leaks more than the upload UI needs.
- */
-export interface LegacyGuestRequestInfo {
-  requirementName: string;
-  deadline?: string;
-  allowedMediaTypes: string[];
-  maxUploadBytes: number;
-  requesterDisplayName: string;
-}
-
-export interface LegacyGuestSubmissionInput {
-  fileName: string;
-  mediaType: string;
-  contentLength: number;
-  checksumSha256: string;
-}
-
-export interface LegacyGuestSubmissionResult {
-  submissionId: string;
-  uploadUrl: string;
-  requiredHeaders: Record<string, string>;
-  expiresAt: string;
-}
+/** Per-call override of A22's tenant-wide default — `"DEFAULT"` (or an omitted field) uses the
+ * tenant preference. */
+export type InitialInviteDeliveryOverride = "DEFAULT" | DocumentRequestDeliveryMode;
 
 // Wave B2B-10 (Tenant-aware Frontend) - members/invitations/settings.
 
 /** A09/A11 (Block 3, D-2xx) - `document-archive` module's evidence-backed `Requirement`
- * (`src/modules/document-archive/domain/requirement.ts`). A DISTINCT concept from
- * `RequirementAssignment` above (the legacy `subject` module one, MISSING/SATISFIED only, A10)
- * - never rendered under the bare label "Requisito", always "Requisito documental" here, per
- * the A11 spec's naming-collision verification. */
+ * (`src/modules/document-archive/domain/requirement.ts`) - never rendered under the bare label
+ * "Requisito", always "Requisito documental" here, per the A11 spec's naming-collision
+ * verification (ADR-0016 retired the subject module's own `RequirementAssignment`, A10, which
+ * this used to also be distinguished from). */
 export type RequirementStatus = "MISSING" | "PENDING" | "SATISFIED" | "NOT_SATISFIED" | "NOT_APPLICABLE";
 export type RequirementApplicability = "APPLICABLE" | "NOT_APPLICABLE";
 
@@ -882,6 +738,10 @@ export interface DocumentRequest {
   parentRequestId?: string;
   issuanceGeneration: number;
   recipientEmail?: string;
+  /** ADR-0016 Decision B (2026-09-25) — the delivery mode this request was actually created
+   * with, resolved once at creation (override → A22's tenant preference → MANUAL), valid for
+   * the request's entire life. */
+  resolvedInitialInviteDelivery: DocumentRequestDeliveryMode;
   lastRejection?: { versionId: string; reason: string; occurredAt: string };
   createdAt: string;
   updatedAt: string;
@@ -894,6 +754,9 @@ export interface CreateDocumentRequestInput {
   deadline?: string;
   recipientEmail?: string;
   idempotencyKey: string;
+  /** ADR-0016 Decision B — per-call override of A22's tenant-wide delivery default. Omitted is
+   * equivalent to `"DEFAULT"`. */
+  initialInviteDelivery?: InitialInviteDeliveryOverride;
 }
 
 /**

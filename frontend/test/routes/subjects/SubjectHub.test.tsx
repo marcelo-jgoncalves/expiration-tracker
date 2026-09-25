@@ -34,12 +34,6 @@ beforeEach(() => {
     if (path.startsWith("/document-archive/requirements/")) {
       return Promise.resolve({ requirements: [] });
     }
-    // A10 (Block 7, D-267) - `RequirementAssignment` list (subject module), distinct from
-    // `/document-archive/requirements/` above - must be matched BEFORE the generic
-    // "/subjects/" fallback below, which would otherwise wrongly answer it with a Subject.
-    if (path.includes("/requirements")) {
-      return Promise.resolve({ assignments: [] });
-    }
     // A14 (Block 6) - active-series count for the "Solicitações e recorrência" card (holistic
     // frontend review fix - this card used to be a dead "Em breve" placeholder).
     if (path.startsWith("/document-archive/series/")) {
@@ -62,26 +56,10 @@ describe("SubjectHub (A09)", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
-  it("A10 (Block 7): renders 'Rastreamento legado' as a real link with the assignment count, not 'Em breve' text", async () => {
-    getMock.mockImplementation((path: string) => {
-      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
-      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [{ assignmentId: "a1" }, { assignmentId: "a2" }] });
-      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
-      return Promise.resolve({ subject: subject() });
-    });
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
-
-    const link = await screen.findByRole("link", { name: /Rastreamento legado/ });
-    expect(link).toHaveAttribute("href", expect.stringContaining("/subjects/subject-1/tracking"));
-    expect(within(link).getByText("2")).toBeInTheDocument();
-  });
-
   it("A14 (Block 6, holistic frontend review fix): renders 'Solicitações e recorrência' as a real link with the active-series count, never 'Em breve' text", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) {
         return Promise.resolve({ series: [{ status: "ACTIVE" }, { status: "ACTIVE" }, { status: "CANCELLED" }] });
       }
@@ -101,7 +79,6 @@ describe("SubjectHub (A09)", () => {
         return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       }
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject() });
     });
@@ -118,7 +95,6 @@ describe("SubjectHub (A09)", () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
     });

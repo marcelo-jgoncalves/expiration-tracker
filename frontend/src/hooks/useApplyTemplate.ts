@@ -20,7 +20,6 @@ export function useApplyTemplate(templateId: string) {
     mutationFn: ({ subjectId, expectedTemplateVersion }) => applyTemplate(templateId, subjectId, expectedTemplateVersion),
     onSuccess: (_data, variables) => {
       if (!organizationId) return;
-      void queryClient.invalidateQueries({ queryKey: queryKeys.subjects.requirements(organizationId, variables.subjectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.documentArchive.subjectCompliance(organizationId, variables.subjectId) });
       void queryClient.invalidateQueries({ queryKey: ["org", organizationId, "documentArchive", "requirements", "search"] });
       // PERF-10 fix: A09's "Requisitos documentais" count card (`useRequirementsForSubject`)
