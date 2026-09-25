@@ -102,7 +102,6 @@ async function runEventBridgeTick(event: ReminderProducerEvent): Promise<void> {
       logger.info("reminder-producer tick complete", {
         scanned: result.scanned,
         claimed: result.claimed.length,
-        chasingClaimed: result.chasingClaimed.length,
         failed: result.failed.length,
         unknownEntityType: result.unknownEntityType,
         minutesScanned: result.minutesScanned,

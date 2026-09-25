@@ -15,6 +15,7 @@ import type { RequestContextResolver, ValidatedClaims } from "../../identity/app
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { CreateDocumentRequestInput, DocumentArchiveService } from "../application/document-archive-service.js";
 import type { DocumentRequestRecurrenceService } from "../application/document-request-recurrence-service.js";
+import type { DocumentRequestDeliveryMode, InitialInviteDeliveryOverride } from "../domain/document-request-delivery-preference.js";
 import type { CreateDocumentInput } from "../domain/document.js";
 import type { FileUploadSpec } from "../domain/document-file.js";
 import type { DocumentVersionOrigin, RejectionReason } from "../domain/document-version.js";
@@ -48,6 +49,8 @@ const REQUIREMENT_DELETE_SCHEMA_ID = "https://expiration-tracker/schemas/api/doc
 const REQUIREMENT_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-requirement-search-request.v1.json";
 const REVIEW_QUEUE_SEARCH_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-review-queue-search-request.v1.json";
 const REQUEST_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json";
+// ADR-0016 Decision B: A22 migrated here from the retired subject module.
+const DELIVERY_PREFERENCE_UPDATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json";
 const SERIES_CREATE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json";
 const SERIES_CANCEL_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-cancel-request.v1.json";
 const SERIES_MATERIALIZE_SCHEMA_ID = "https://expiration-tracker/schemas/api/docarchive-series-materialize-request.v1.json";
@@ -502,7 +505,10 @@ export async function handleDeleteRequirement(deps: DocumentArchiveHttpDeps, req
  * tenant-facing route/handler was missing (the guest-facing surface this produces a link for
  * was never affected). `subjectId`/`requirementId` come from the path, matching every sibling
  * requirement-scoped route above — never duplicated into the body. */
-export async function handleCreateDocumentRequest(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ deadline?: string; recipientEmail?: string; idempotencyKey: string }>): Promise<HttpResponse> {
+export async function handleCreateDocumentRequest(
+  deps: DocumentArchiveHttpDeps,
+  req: HttpRequest<{ deadline?: string; recipientEmail?: string; idempotencyKey: string; initialInviteDelivery?: InitialInviteDeliveryOverride }>,
+): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     const subjectId = requireSubjectId(req);
     const requirementId = requireRequirementId(req);
@@ -531,6 +537,29 @@ function requireDocumentRequestId(req: HttpRequest): string {
   const documentRequestId = req.pathParameters?.["documentRequestId"];
   if (!documentRequestId) throw new ValidationError("Missing documentRequestId path parameter.");
   return documentRequestId;
+}
+
+/** A22 (ADR-0016 Decision B) — GET /document-archive/settings/document-request-delivery.
+ * Migrated here from the retired subject module's own /subjects/document-request-delivery-
+ * preference — same tenant-wide preference, same `tenant:configure-document-request-delivery`
+ * (OWNER_ROLES) gate enforced inside the service. */
+export async function handleGetDocumentRequestDeliveryPreference(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const context = await resolve(deps, req);
+    const initialInviteDeliveryDefault = await deps.documentArchive.getDocumentRequestDeliveryPreference(context);
+    return { statusCode: 200, body: { initialInviteDeliveryDefault } };
+  });
+}
+
+/** A22 (ADR-0016 Decision B) — PUT /document-archive/settings/document-request-delivery. */
+export async function handleUpdateDocumentRequestDeliveryPreference(deps: DocumentArchiveHttpDeps, req: HttpRequest<{ initialInviteDeliveryDefault: DocumentRequestDeliveryMode }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(DELIVERY_PREFERENCE_UPDATE_SCHEMA_ID, req.body);
+    const context = await resolve(deps, req);
+    await deps.documentArchive.setDocumentRequestDeliveryPreference(context, req.body.initialInviteDeliveryDefault);
+    return { statusCode: 204, body: {} };
+  });
 }
 
 export async function handleGetDocumentRequest(deps: DocumentArchiveHttpDeps, req: HttpRequest): Promise<HttpResponse> {

@@ -5,10 +5,11 @@
  *
  * Escopo v1 (decisão de implementação, não de arquitetura — "Residuais não resolvidos" do
  * design explicitamente deixa isso para a sessão que implementar): CSV apenas (XLSX fica para
- * depois, per design), importação de `TrackedSubject` apenas (`RequirementAssignment`
- * combinado fica para v2 — začit simples, sem side-table de mapeamento subject-por-linha
- * ainda não resolvida no design). `targetEntityType` já existe no schema para essa extensão
- * futura sem migração.
+ * depois, per design), importação de `TrackedSubject` apenas — começar simples, sem side-table
+ * de mapeamento subject-por-linha ainda não resolvida no design. `targetEntityType` já existe
+ * no schema para uma extensão futura sem migração (o `RequirementAssignment` combinado
+ * originalmente cogitado para v2 nunca foi construído; ADR-0016, 2026-09-25, retirou esse
+ * agregado por completo — uma v2 real precisaria mirar `Requirement`/document-archive).
  *
  * Plano linha-a-linha vive em S3 (`planObjectKey`/`planSha256`), nunca em DynamoDB por linha
  * (design: ADR-0001, custo por item) — este item só guarda o que exige condição/transação:

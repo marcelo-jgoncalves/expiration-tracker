@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json",
   "title": "reminder.claim-candidate.v1",
-  "description": "SQS command published directly (SendMessageBatch, chunks of <=10 - never the outbox, no aggregate transaction backs a claim candidate) by scan-page.ts - D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §1/§4/§5). Consumed by the new reminder-claim-consumer Lambda, routed by data.entityKind to claimReminderOccurrence or claimChasingOccurrence.",
+  "description": "SQS command published directly (SendMessageBatch, chunks of <=10 - never the outbox, no aggregate transaction backs a claim candidate) by scan-page.ts - D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §1/§4/§5). Consumed by the reminder-claim-consumer Lambda via claimReminderOccurrence. ADR-0016 Decision A (2026-09-25) retired the CHASING entityKind this envelope used to also carry (document-chasing feature, fully removed).",
   "allOf": [{ "$ref": "../queues/command-envelope.v1.json" }],
   "type": "object",
   "properties": {
@@ -14,7 +14,7 @@
       "properties": {
         "PK": { "type": "string", "minLength": 1 },
         "SK": { "type": "string", "minLength": 1 },
-        "entityKind": { "enum": ["REMINDER", "CHASING"] },
+        "entityKind": { "enum": ["REMINDER"] },
         "rolloutEpoch": { "type": "integer", "minimum": 1 }
       }
     }

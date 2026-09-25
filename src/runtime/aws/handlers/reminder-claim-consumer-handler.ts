@@ -2,10 +2,10 @@
  * NEW Lambda - D-300 (`reminder-producer-implementation-plan-scoping/DECISION.md` §1): consumes
  * `SQS_REMINDER_CLAIM_CANDIDATE_V1` candidates published directly (never via the outbox -
  * DECISION.md §4/§5, no aggregate transaction backs a claim candidate) by `scan-page.ts`'s
- * `SendMessageBatch` calls. Routes each candidate to the correct claim helper by
- * `data.entityKind` (mirroring the discriminator `producer.ts`'s own scan loop already uses for
- * the SAME two entity types sharing GSI3) - `claimReminderOccurrence` for `"REMINDER"`,
- * `claimChasingOccurrence` for `"CHASING"`. DELIBERATELY built on `buildReminderClaimConsumerDeps`
+ * `SendMessageBatch` calls, routed through `claimReminderOccurrence` (ADR-0016 Decision A,
+ * 2026-09-25, retired the `"CHASING"` entityKind this handler used to also route to
+ * `claimChasingOccurrence` — document-chasing feature, fully removed). DELIBERATELY built on
+ * `buildReminderClaimConsumerDeps`
  * (`DynamoDbReminderStore`, never `DynamoDbReminderProducerStore`) - this Lambda's IAM role
  * (Terraform) never grants `gsi3_read`, and this is the matching code-level guarantee: nothing in
  * this file's dependency graph can even structurally reach GSI3 (proven by
@@ -15,7 +15,6 @@ import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildReminderClaimConsumerDeps } from "../composition/reminder.js";
 import { claimReminderOccurrence } from "../../../modules/reminder/application/reminder-claim.js";
-import { claimChasingOccurrence } from "../../../modules/subject/application/document-chasing-producer.js";
 import { correlationIdFromSqsRecord, runWithContext } from "../../../shared/observability/context.js";
 import { timeSpan, withHandlerTiming } from "../../../shared/observability/handler-timing.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
@@ -63,12 +62,6 @@ async function processRecord(record: SQSEvent["Records"][number]): Promise<void>
     await runWithContext({ correlationId: command.correlationId ?? fallbackCorrelationId, tenantId: command.tenantId }, async () => {
       try {
         const outcome = await timeSpan(NAMESPACE, "lambda.business_operation_ms", "reminder-claim-consumer business operation timing", async () => {
-          if (command.data.entityKind === "CHASING") {
-            return claimChasingOccurrence(
-              { store: deps.store, tableName: deps.tableName, dueWorkTableName: deps.dueWorkTableName, now: deps.now, claimTtlMs: deps.claimTtlMs, newEventId: deps.newEventId, correlationId: deps.correlationId },
-              { PK: command.data.PK, SK: command.data.SK },
-            );
-          }
           return claimReminderOccurrence(deps, { PK: command.data.PK, SK: command.data.SK }, command.tenantId);
         });
         logger.info("reminder-claim-consumer outcome", { messageId: record.messageId, entityKind: command.data.entityKind, outcome: outcome.kind });

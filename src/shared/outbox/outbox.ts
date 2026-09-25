@@ -21,7 +21,6 @@ export type OutboxStatus = "PENDING" | "PUBLISHED";
 export type OutboxDestination =
   | "SQS_REMINDER_DISPATCH_V1"
   | "SQS_NOTIFICATION_EMAIL_V1"
-  | "SQS_DOCUMENT_CHASING_DISPATCH_V1"
   | "SQS_IMPORT_COMMIT_V1"
   /** BLOCKER-B (reminder-delivery-pipeline.md §4): the ONLY real delivery path for an
    * outbox record - the "generic EventBridge path" every other destination's comment
@@ -122,7 +121,6 @@ export const OUTBOX_DESTINATION_OWNERSHIP = {
   // "shared privileged role, router keyed by destination" pattern (m4-notification-engine-
   // design.md §7.4) - this has been true of every destination in this category since M10.
   SQS_REMINDER_DISPATCH_V1: "both",
-  SQS_DOCUMENT_CHASING_DISPATCH_V1: "both",
   SQS_IMPORT_COMMIT_V1: "both",
   SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: "both",
   SQS_IMPORT_PARSE_V1: "both",

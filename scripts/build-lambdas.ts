@@ -62,8 +62,6 @@ const HANDLERS = [
   "parser-sandbox-handler",
   "subjects-handler",
   "memberships-handler",
-  "guest-documents-handler",
-  "document-chasing-dispatch-handler",
   "imports-handler",
   "import-parse-handler",
   "import-commit-handler",

@@ -32,6 +32,8 @@ import {
   handleCreateDocumentRequest,
   handleListDocumentRequests,
   handleGetDocumentRequest,
+  handleGetDocumentRequestDeliveryPreference,
+  handleUpdateDocumentRequestDeliveryPreference,
   handleCreateSeries,
   handleGetSeries,
   handleListSeries,
@@ -167,6 +169,13 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
         // same "no path-parameter collision" reasoning as /reviews above.
         case "GET /document-archive/storage-usage":
           return await handleGetStorageUsage(deps, base);
+        // ADR-0016 Decision B (2026-09-25): A22 migrated here from the retired subject module's
+        // own /subjects/document-request-delivery-preference - literal segment, same
+        // "no path-parameter collision" reasoning as /reviews/storage-usage above.
+        case "GET /document-archive/settings/document-request-delivery":
+          return await handleGetDocumentRequestDeliveryPreference(deps, base);
+        case "PUT /document-archive/settings/document-request-delivery":
+          return await handleUpdateDocumentRequestDeliveryPreference(deps, { ...base, body: parseBody(event) });
         // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147) — subject-scoped series
         // routes. Tenant-facing only — the guest-facing surface stays on
         // document-archive-guest-handlers.ts, unchanged by this task.

@@ -31,6 +31,7 @@ function seedRequest(overrides: Partial<DocumentRequest> = {}): DocumentRequest 
     status: "REQUESTED",
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery: "EMAIL",
     recipientEmail: "guest@example.com",
     deadline: "2026-02-01T00:00:00.000Z",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -183,6 +184,22 @@ describe("deliverGuestCredential (D-228/D-233)", () => {
     const outcome = await deliverGuestCredential(deps, seedDelivery());
 
     expect(outcome.kind).toBe("SKIPPED_NO_RECIPIENT_EMAIL");
+    expect(emailProvider.sent).toHaveLength(0);
+  });
+
+  // ADR-0016 Decision B (2026-09-25): resolvedInitialInviteDelivery === "MANUAL" is a
+  // deliberate choice (A22's tenant preference, or an explicit per-call override), distinct
+  // from the data-gap case above — never sends, never claims, and is checked even when a
+  // recipientEmail happens to be present (the avulso path can collect one under MANUAL too).
+  it("skips (no send, no claim) when resolvedInitialInviteDelivery is MANUAL, even with a recipientEmail present", async () => {
+    const store = new InMemoryDocumentArchiveStore([
+      seedRequest({ resolvedInitialInviteDelivery: "MANUAL", recipientEmail: "guest@example.com" }) as unknown as Record<string, unknown> & { PK: string; SK: string },
+    ]);
+    const emailProvider = new FakeEmailProvider();
+    const { deps } = makeDeps(store, { emailProvider });
+    const outcome = await deliverGuestCredential(deps, seedDelivery());
+
+    expect(outcome.kind).toBe("SKIPPED_MANUAL_DELIVERY");
     expect(emailProvider.sent).toHaveLength(0);
   });
 

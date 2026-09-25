@@ -46,15 +46,6 @@ async function seedReminderRow(store: InMemoryReminderStore, tenantId: string, o
   });
 }
 
-async function seedChasingRow(store: InMemoryReminderStore, tenantId: string, occurrenceId: string): Promise<void> {
-  await store.update({
-    PK: `TENANT#${tenantId}#CHASING#${occurrenceId}`,
-    SK: `META`,
-    GSI3PK,
-    GSI3SK: `TENANT#${tenantId}#CHASING#${occurrenceId}`,
-  });
-}
-
 async function acquireLease(store: InMemoryReminderStore, ownerToken: string, nowIso: string): Promise<void> {
   const { tx } = buildAcquireLeaseTransaction(makeDeps(store, new FakeClaimQueue(), nowIso), REF, ownerToken, LEASE_DURATION_MS);
   await store.transactWrite(tx);
@@ -103,12 +94,11 @@ describe("runScanPage (D-300 §1/§2/§5)", () => {
     expect(lease?.version).toBe(1);
   });
 
-  it("PROCESSED: publishes one candidate per GSI3 row (reminder + chasing, mixed), completes the lease when no more pages remain", async () => {
+  it("PROCESSED: publishes one candidate per GSI3 row (reminder only - ADR-0016 Decision A retired the chasing shape this test used to also seed), completes the lease when no more pages remain", async () => {
     const store = new InMemoryReminderStore();
     await acquireLease(store, "owner-A", "2026-09-14T12:00:05.000Z");
     await seedReminderRow(store, "t_01", "occ_01");
     await seedReminderRow(store, "t_01", "occ_02");
-    await seedChasingRow(store, "t_01", "occ_03");
 
     const claimQueue = new FakeClaimQueue();
     const outcome = await runScanPage(makeDeps(store, claimQueue, "2026-09-14T12:00:10.000Z"), {
@@ -118,15 +108,15 @@ describe("runScanPage (D-300 §1/§2/§5)", () => {
       messageRolloutEpoch: 1,
     });
 
-    expect(outcome).toEqual({ kind: "PROCESSED", pagesProcessed: 1, candidatesPublished: 3, completed: true });
-    expect(claimQueue.sent).toHaveLength(1); // one chunk, 3 <= 10
-    expect(claimQueue.sent[0]).toHaveLength(3);
+    expect(outcome).toEqual({ kind: "PROCESSED", pagesProcessed: 1, candidatesPublished: 2, completed: true });
+    expect(claimQueue.sent).toHaveLength(1); // one chunk, 2 <= 10
+    expect(claimQueue.sent[0]).toHaveLength(2);
     const kinds = claimQueue.sent[0]!.map((c) => c.data.entityKind).sort();
-    expect(kinds).toEqual(["CHASING", "REMINDER", "REMINDER"]);
+    expect(kinds).toEqual(["REMINDER", "REMINDER"]);
 
     const lease = await store.get<ReminderScanLease>(leaseKey(REF));
     expect(lease?.status).toBe("COMPLETED");
-    expect(lease?.candidatesPublished).toBe(3);
+    expect(lease?.candidatesPublished).toBe(2);
     expect(lease?.pagesProcessed).toBe(1);
     expect(lease?.GSI6PK).toBeUndefined();
   });

@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 import { InMemoryReminderStore } from "./in-memory-store.js";
 import { recoverExpiredClaims } from "../../../src/workers/reminder-reconciliation/recover-expired-claims.js";
 import { claimReminderOccurrence } from "../../../src/modules/reminder/application/reminder-claim.js";
-import { claimChasingOccurrence } from "../../../src/modules/subject/application/document-chasing-producer.js";
 
+// ADR-0016 Decision A (2026-09-25) retired the DocumentChasingOccurrence entityType this suite
+// used to also exercise (document-chasing feature, fully removed) - ReminderOccurrence is the
+// only entityType left.
 function setup(entityType = "ReminderOccurrence") {
   const store = new InMemoryReminderStore();
   let counter = 0;
   const deps = { store, tableName: "table", dispatchOutboxTableName: "table", now: () => "2026-09-16T22:00:00.000Z", claimTtlMs: 120000,
     newEventId: () => `evt-${++counter}`, correlationId: () => "recovery" };
-  const candidate = { PK: entityType === "DocumentChasingOccurrence" ? "TENANT#t1#CHASING#o1" : "TENANT#t1#ITEM#item1",
-    SK: entityType === "DocumentChasingOccurrence" ? "META" : "OCC#o1", tenantId: "t1", entityType,
+  const candidate = { PK: "TENANT#t1#ITEM#item1",
+    SK: "OCC#o1", tenantId: "t1", entityType,
     occurrenceId: "o1", itemId: "item1", itemVersion: 1, policyVersion: 1,
     subjectId: "s1", assignmentId: "a1", documentRequestId: "r1", tier: "T7", documentRequestVersion: 1,
     status: "CLAIMED", version: 2, scheduledAt: "2026-09-16T20:00:00.000Z",
@@ -22,7 +24,6 @@ describe("PAGED expired claim recovery", () => {
   // G-V3: resetting to SCHEDULED or omitting the outbox strands work behind the completed scan.
   it.each([
     ["ReminderOccurrence", "SQS_REMINDER_DISPATCH_V1"],
-    ["DocumentChasingOccurrence", "SQS_DOCUMENT_CHASING_DISPATCH_V1"],
   ])("recovers %s outside lookback with a completed scan and durable %s dispatch", async (entity, destination) => {
     const { store, deps, candidate } = setup(entity);
     await store.update(candidate);
@@ -65,7 +66,6 @@ describe("PAGED expired claim recovery", () => {
       const failure = { name: "TransactionCanceledException", CancellationReasons: codes?.map(Code => ({ Code })) };
       const failedDeps = { ...deps, store: { get: store.get.bind(store), transactWrite: async () => { throw failure; } } };
       await expect(claimReminderOccurrence(failedDeps, candidate, candidate.tenantId)).rejects.toBe(failure);
-      await expect(claimChasingOccurrence(failedDeps, candidate)).rejects.toBe(failure);
       expect((await store.get(candidate))?.["status"]).toBe("SCHEDULED");
     },
   );

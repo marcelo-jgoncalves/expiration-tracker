@@ -25,6 +25,8 @@ import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { DocumentArchiveStore } from "../ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "./id-generator.js";
 import { documentRequestKey, type DocumentRequest } from "../domain/document-request.js";
+import { resolveInitialInviteDeliveryMode, type DocumentRequestDeliveryMode } from "../domain/document-request-delivery-preference.js";
+import { resolveTenantInitialInviteDeliveryDefault } from "./document-request-delivery-preference-resolver.js";
 import { requirementKey } from "../domain/requirement.js";
 import { SUBJECT_STATUS_ACCEPTING_REQUIREMENTS, trackedSubjectKeyForFence } from "../domain/requirement-template.js";
 import {
@@ -88,8 +90,13 @@ export function buildMaterializeAttemptEntries(input: {
   series: DocumentRequestSeries;
   newRequestId: string;
   now: string;
+  /** ADR-0016 Decision B: the mode already resolved by the caller (materializeAttempt()/the
+   * periodic worker, both via `resolveTenantInitialInviteDeliveryDefault` — series have no UI
+   * override of their own, only A22's tenant default applies) — this stays a pure, I/O-free
+   * planner, never resolving it itself. */
+  resolvedInitialInviteDelivery: DocumentRequestDeliveryMode;
 }): { entries: TransactWriteEntry[]; request: DocumentRequest } {
-  const { tableName, series, newRequestId, now } = input;
+  const { tableName, series, newRequestId, now, resolvedInitialInviteDelivery } = input;
   const occurrenceId = computeSeriesOccurrenceId(series.seriesId, series.currentCycleStartAt);
   const attemptIndex = series.latestAttemptIndex + 1;
   const parentRequestId = series.latestRequestId;
@@ -109,6 +116,7 @@ export function buildMaterializeAttemptEntries(input: {
     ...(series.recipientEmail !== undefined ? { recipientEmail: series.recipientEmail } : {}),
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery,
     createdAt: now,
     updatedAt: now,
     version: 1,
@@ -328,7 +336,11 @@ export class DocumentRequestRecurrenceService {
     if (series.version !== expectedVersion) throw new ConflictError("DocumentRequestSeries was concurrently modified.", { seriesId });
     const now = this.now();
     const newRequestId = this.ids.newDocumentRequestId();
-    const { entries, request } = buildMaterializeAttemptEntries({ tableName: this.tableName, series, newRequestId, now });
+    // ADR-0016 Decision B: resolved fresh here (no override — series never have their own),
+    // same internal resolver DocumentArchiveService.createDocumentRequest wraps.
+    const tenantDeliveryDefault = await resolveTenantInitialInviteDeliveryDefault(this.store, tenantId);
+    const resolvedInitialInviteDelivery = resolveInitialInviteDeliveryMode({ tenantDefault: tenantDeliveryDefault });
+    const { entries, request } = buildMaterializeAttemptEntries({ tableName: this.tableName, series, newRequestId, now, resolvedInitialInviteDelivery });
     try {
       await this.store.transactWrite(entries);
     } catch (err) {

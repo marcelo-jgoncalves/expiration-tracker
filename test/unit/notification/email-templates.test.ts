@@ -33,52 +33,11 @@ describe("renderEmailTemplate", () => {
   });
 });
 
-describe("document-request-chasing v1 (M10 cluster 4, D-039/D-048) — reenvio T7/T3 ao destinatário externo", () => {
-  it("includes the rotated guest link and deadline, never the original secret", () => {
-    const result = renderEmailTemplate("document-request-chasing", 1, "pt-BR", {
-      requirementName: "Certidão negativa",
-      deadlineLocal: "2026-09-06",
-      guestLink: "https://app.example.invalid/guest/document-requests?token=abc.def",
-    });
-    expect(result.subject).toContain("Certidão negativa");
-    expect(result.text).toContain("https://app.example.invalid/guest/document-requests?token=abc.def");
-    expect(result.html).toContain("https://app.example.invalid/guest/document-requests?token=abc.def");
-    expect(result.text).toMatch(/Não encaminhe este link/);
-  });
-
-  it("escapes HTML-significant characters in tenant-supplied fields (anti-injection, D-049)", () => {
-    const result = renderEmailTemplate("document-request-chasing", 1, "pt-BR", {
-      requirementName: '<img src=x onerror=alert(1)>',
-      guestLink: "https://app.example.invalid/guest/x",
-    });
-    expect(result.html).not.toContain("<img src=x");
-    expect(result.html).toContain("&lt;img");
-  });
-});
-
-describe("document-request-chasing-expired-internal v1 (D-048) — tier EXPIRED, nunca envia link externo", () => {
-  it("never includes a link - only names the requirement and recipient for internal awareness", () => {
-    const result = renderEmailTemplate("document-request-chasing-expired-internal", 1, "pt-BR", {
-      requirementName: "Certidão negativa",
-      recipientDisplayName: "Fornecedor ACME",
-    });
-    expect(result.text).not.toMatch(/https?:\/\//);
-    expect(result.html).not.toMatch(/https?:\/\//);
-    expect(result.text).toContain("Certidão negativa");
-    expect(result.text).toContain("Fornecedor ACME");
-  });
-});
-
-describe("document-request-initial-invite v1 (D-049)", () => {
-  it("renders the initial invitation with the guest link", () => {
-    const result = renderEmailTemplate("document-request-initial-invite", 1, "pt-BR", {
-      requirementName: "Contrato assinado",
-      guestLink: "https://app.example.invalid/guest/document-requests?token=xyz",
-    });
-    expect(result.subject).toContain("Contrato assinado");
-    expect(result.text).toContain("https://app.example.invalid/guest/document-requests?token=xyz");
-  });
-});
+// ADR-0016 Decision A (2026-09-25) retired the "document-request-chasing"/
+// "document-request-chasing-expired-internal"/"document-request-initial-invite" templates these
+// suites used to cover (document-chasing/initial-invite features, fully removed). The surviving
+// "guest-credential-delivery-invite" template (document-archive module) is covered end-to-end by
+// test/unit/document-archive/guest-credential-delivery-worker.test.ts.
 
 describe("sanitizeTenantText (D-049) — campo fornecido pelo tenant antes de interpolar em e-mail externo", () => {
   it("trims, collapses whitespace and caps at 80 characters", () => {

@@ -61,12 +61,12 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/import-jobs/{jobId}/row-results" },
   { method: "GET", pathTemplate: "/notifications/preferences" },
   { method: "PUT", pathTemplate: "/notifications/preferences" },
-  // D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
-  // non-blocking gap in the WhatsApp roadmap item (all 5 engineering slices closed, but no
-  // real user could opt in until now).
-  { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in" },
-  // Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation, same
-  // notification:configure action as the route above.
+  // D-332 revisão adversarial (achado real Alta, Codex): a rota direta de opt-in (D-246/D-286,
+  // sem confirmação de posse) REMOVIDA do allowlist - contradizia a invariante de D-328 ("todo
+  // WhatsAppOptIn nasce possession-confirmed"). As duas rotas abaixo (D-328) são o único caminho
+  // real desde então.
+  // Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation, mesma ação
+  // notification:configure.
   { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in/request-confirmation" },
   { method: "POST", pathTemplate: "/notifications/whatsapp-opt-in/confirm" },
   { method: "POST", pathTemplate: "/reminders/policies" },
@@ -77,27 +77,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/subjects/dashboard" },
   // D-194 Fatia 3 (search/filters).
   { method: "GET", pathTemplate: "/subjects/search" },
-  { method: "GET", pathTemplate: "/subjects/document-request-delivery-preference" },
-  { method: "PUT", pathTemplate: "/subjects/document-request-delivery-preference" },
   { method: "GET", pathTemplate: "/subjects/{subjectId}" },
   { method: "PUT", pathTemplate: "/subjects/{subjectId}" },
   { method: "DELETE", pathTemplate: "/subjects/{subjectId}" },
   { method: "POST", pathTemplate: "/subjects/{subjectId}/archive" },
-  { method: "POST", pathTemplate: "/subjects/{subjectId}/requirements" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}" },
-  { method: "PUT", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}" },
-  { method: "DELETE", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}" },
-  { method: "POST", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/link" },
-  { method: "POST", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/unlink" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/submissions" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}" },
-  { method: "POST", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" },
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}" },
-  { method: "POST", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" },
-  // D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence).
-  { method: "GET", pathTemplate: "/subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences" },
   // Wave B2B-8 (D-099).
   { method: "POST", pathTemplate: "/organizations/members/invite" },
   { method: "POST", pathTemplate: "/organizations/invitations/{invitationId}/revoke" },
@@ -154,6 +137,11 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   // storage-quota-scoping (D-2xx): tenant-wide storage usage summary — JSON envelope, same
   // reasoning as review-queue listing above.
   { method: "GET", pathTemplate: "/document-archive/storage-usage" },
+  // ADR-0016 Decision B: A22 migrated here from the retired subject module's own
+  // /subjects/document-request-delivery-preference — same tenant:configure-document-request-
+  // delivery (OWNER_ROLES) gate, same OCC, new module/route only.
+  { method: "GET", pathTemplate: "/document-archive/settings/document-request-delivery" },
+  { method: "PUT", pathTemplate: "/document-archive/settings/document-request-delivery" },
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/series" },
   { method: "GET", pathTemplate: "/document-archive/series/{subjectId}" },

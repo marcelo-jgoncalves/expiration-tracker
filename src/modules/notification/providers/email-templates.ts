@@ -30,93 +30,12 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
-  // M10 cluster 4 (D-039/D-046/D-048): reenvio automático de guest upload, tiers T7/T3 (antes
-  // do deadline/expiração do token) - SEMPRE ao destinatário EXTERNO, SEMPRE com um link
-  // recém-rotacionado (nunca o secret original, que nunca é persistido). Nunca envia depois de
-  // EXPIRED (ver "document-request-chasing-expired-internal" abaixo).
-  "document-request-chasing": {
-    1: {
-      "pt-BR": (context) => {
-        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
-        // D-129 (GTR-01 supersession): identidade de quem solicitou, exibida ao convidado -
-        // sempre `Organization.displayName` (fallback genérico só no caso não-esperado de
-        // ausência, ver resolveOrganizationDisplayName em composition/subject.ts).
-        const requesterName = sanitizeTenantText(context["requesterName"] as string | undefined, "Solicitante não identificado");
-        const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
-        const guestLink = String(context["guestLink"] ?? "");
-        const subject = `Lembrete: envio de ${requirementName} pendente`;
-        const text = [
-          `Ainda estamos aguardando o envio de "${requirementName}".`,
-          `Solicitado por: ${requesterName}.`,
-          deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
-          `Envie pelo link: ${guestLink}`,
-          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
-        ]
-          .filter(Boolean)
-          .join("\n");
-        const html = [
-          `<p>Ainda estamos aguardando o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
-          `<p>Solicitado por: ${escapeHtml(requesterName)}.</p>`,
-          deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
-          `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
-          `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
-        ]
-          .filter(Boolean)
-          .join("\n");
-        return { subject, html, text };
-      },
-    },
-  },
-  // Tier EXPIRED (D-048): nunca envia link externo funcional (o token já expirou por design) -
-  // notifica o usuário INTERNO que criou a solicitação (`requestedByUserId`), não o fornecedor.
-  "document-request-chasing-expired-internal": {
-    1: {
-      "pt-BR": (context) => {
-        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "documento solicitado");
-        const recipientDisplayName = sanitizeTenantText(context["recipientDisplayName"] as string | undefined, "o destinatário");
-        const subject = `Prazo expirado sem envio: ${requirementName}`;
-        const text = `A solicitação de "${requirementName}" para ${recipientDisplayName} expirou sem envio do documento. Considere abrir uma nova solicitação.`;
-        const html = `<p>A solicitação de <strong>${escapeHtml(requirementName)}</strong> para ${escapeHtml(recipientDisplayName)} expirou sem envio do documento. Considere abrir uma nova solicitação.</p>`;
-        return { subject, html, text };
-      },
-    },
-  },
-  // D-049: convite inicial automatizado (feature separada, gate de kill switch/preferência de
-  // tenant fora deste template) - mesmo link/sanitização do chasing, texto de primeira solicitação.
-  "document-request-initial-invite": {
-    1: {
-      "pt-BR": (context) => {
-        const requirementName = sanitizeTenantText(context["requirementName"] as string | undefined, "um documento");
-        // W5-01/GTR-01 (D-060), mesma disciplina do template "document-request-chasing" acima.
-        const requesterName = sanitizeTenantText(context["requesterName"] as string | undefined, "Solicitante não identificado");
-        const deadlineLocal = (context["deadlineLocal"] as string | undefined) ?? "";
-        const guestLink = String(context["guestLink"] ?? "");
-        const subject = `Solicitação de envio: ${requirementName}`;
-        const text = [
-          `Foi solicitado o envio de "${requirementName}".`,
-          `Solicitado por: ${requesterName}.`,
-          deadlineLocal ? `Prazo: ${deadlineLocal}.` : "",
-          `Envie pelo link: ${guestLink}`,
-          "Não encaminhe este link - ele é pessoal e expira automaticamente.",
-        ]
-          .filter(Boolean)
-          .join("\n");
-        const html = [
-          `<p>Foi solicitado o envio de <strong>${escapeHtml(requirementName)}</strong>.</p>`,
-          `<p>Solicitado por: ${escapeHtml(requesterName)}.</p>`,
-          deadlineLocal ? `<p>Prazo: ${escapeHtml(deadlineLocal)}.</p>` : "",
-          `<p><a href="${escapeHtml(guestLink)}">Enviar documento</a></p>`,
-          `<p><small>Não encaminhe este link - ele é pessoal e expira automaticamente.</small></p>`,
-        ]
-          .filter(Boolean)
-          .join("\n");
-        return { subject, html, text };
-      },
-    },
-  },
   // Wave B2B-8 (Invitations/Team, D-099): convite para ingressar numa Organization como
-  // membro de equipe - distinto de "document-request-initial-invite" acima (aquele é convite
-  // de guest upload para um destinatário externo/documento; este é convite de time/produto).
+  // membro de equipe - convite de time/produto (distinto de "guest-credential-delivery-invite"
+  // abaixo, que é convite de guest upload de documento). ADR-0016 Decision A (2026-09-25)
+  // retired the subject module's own "document-request-chasing"/
+  // "document-request-chasing-expired-internal"/"document-request-initial-invite" templates
+  // that used to live here (document-chasing/initial-invite features, fully removed).
   // `inviterDisplayName` nunca inferido, mesma disciplina W5-01/GTR-01 - fallback genérico
   // quando ausente.
   "organization-invitation": {
@@ -167,11 +86,9 @@ const TEMPLATES: Record<string, Record<number, Record<string, TemplateRenderer>>
       },
     },
   },
-  // D-228 (closes D-222/D-227/D-226: guest-credential-delivery worker). Distinct from
-  // "document-request-initial-invite" above (that one is the SUBJECT module's older,
-  // unrelated DocumentRequest) - this is the document-archive module's own guest link,
-  // delivered asynchronously off the dedicated guest-credential-delivery table's Streams
-  // rather than synchronously at creation time.
+  // D-228 (closes D-222/D-227/D-226: guest-credential-delivery worker) - the document-archive
+  // module's own guest link, delivered asynchronously off the dedicated
+  // guest-credential-delivery table's Streams rather than synchronously at creation time.
   "guest-credential-delivery-invite": {
     1: {
       "pt-BR": (context) => {

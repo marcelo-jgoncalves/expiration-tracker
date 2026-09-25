@@ -71,7 +71,10 @@ export const EXPECTED_ACCOUNT_ID = "975707451904";
  * inteiro). Toda entrada aqui precisa ter um par `${base}`/`${base}-dlq` real (garantido pelo
  * módulo `./modules/sqs-worker-queue`, nunca assumido). */
 export const QUEUE_BASE_NAMES = [
-  "document-chasing-dispatch",
+  // ADR-0016 Decision A (2026-09-25) retired document-chasing-dispatch (document-chasing
+  // feature, fully removed) - the queue/DLQ pair no longer exists in infra/main.tf, so this
+  // entry must never be reintroduced (would throw QueueDoesNotExist, same failure mode the
+  // comment above already documents for guest-credential-delivery-failures).
   "dossier-export",
   "extraction-starter",
   "guest-credential-issuance",

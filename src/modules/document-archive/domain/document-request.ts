@@ -23,6 +23,7 @@
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
+import type { DocumentRequestDeliveryMode } from "./document-request-delivery-preference.js";
 
 /** Mirrors the older subject-module DocumentRequest's status vocabulary (same states cover the
  * same real lifecycle — requested/opened/submitted/completed, plus the three ways it can die
@@ -107,6 +108,15 @@ export interface DocumentRequest extends EntityKey {
    * recipient is a data gap, not a transient failure.
    */
   recipientEmail?: string;
+  /**
+   * ADR-0016 Decision B (2026-09-25): the delivery mode this request was actually created with —
+   * resolved ONCE at creation (override → A22's tenant preference → `MANUAL`), never recalculated
+   * afterward, valid for the request's entire life including reissue (`rejectVersion()`'s reopen
+   * reads this same field, never re-resolves it). Required (not optional) — every DocumentRequest
+   * created after this decision has a resolved mode; requests created before it (none exist, no
+   * production data to migrate, D-093) would have needed a backfill.
+   */
+  resolvedInitialInviteDelivery: DocumentRequestDeliveryMode;
   createdAt: string;
   updatedAt: string;
   version: number;

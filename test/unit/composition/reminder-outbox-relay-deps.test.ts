@@ -26,7 +26,6 @@ function fakeSqsClient() {
 const FULL_RELAY_ENV: Record<string, string> = {
   TABLE_NAME: "t",
   DISPATCH_QUEUE_URL: "https://sqs.example/dispatch",
-  DOCUMENT_CHASING_DISPATCH_QUEUE_URL: "https://sqs.example/chasing",
   IMPORT_COMMIT_QUEUE_URL: "https://sqs.example/import-commit",
   REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL: "https://sqs.example/materialization",
   IMPORT_PARSE_QUEUE_URL: "https://sqs.example/import-parse",
@@ -93,15 +92,15 @@ describe("buildOutboxRelayDeps (low-level helper) - documents its always-correct
     expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeUndefined();
   });
 
-  it("includes it when the URL is passed as the 13th argument", () => {
+  it("includes it when the URL is passed as the 12th argument", () => {
     const { client } = fakeSqsClient();
-    const deps = buildOutboxRelayDeps(fakeClient, "t", "https://sqs.example/dispatch", client, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "https://sqs.example/reminder-scan");
+    const deps = buildOutboxRelayDeps(fakeClient, "t", "https://sqs.example/dispatch", client, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "https://sqs.example/reminder-scan");
     expect(deps.senders["SQS_REMINDER_SCAN_CONTINUATION_V1"]).toBeDefined();
   });
 });
 
 describe("buildReminderDispatchOutboxOnlyRelayDepsFromEnv (D-303 dedicated relay/sweeper composition)", () => {
-  // G-V3: reusing buildOutboxRelayDeps's full 12-destination sender map here (like the shared
+  // G-V3: reusing buildOutboxRelayDeps's full 11-destination sender map here (like the shared
   // relay does) instead of hardcoding only SQS_REMINDER_DISPATCH_V1 would make Object.keys have
   // more than one entry, failing the toEqual assertion below.
   it("wires exactly one sender (SQS_REMINDER_DISPATCH_V1) - proves this is deliberately narrower than the shared relay/sweeper, not an accidental subset", async () => {
@@ -160,7 +159,6 @@ describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender ma
     const allDestinations: OutboxDestination[] = [
       "SQS_REMINDER_DISPATCH_V1",
       "SQS_NOTIFICATION_EMAIL_V1",
-      "SQS_DOCUMENT_CHASING_DISPATCH_V1",
       "SQS_IMPORT_COMMIT_V1",
       "SQS_REMINDER_MATERIALIZATION_TRIGGER_V1",
       "SQS_IMPORT_PARSE_V1",

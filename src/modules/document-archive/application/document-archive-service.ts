@@ -152,6 +152,14 @@ import { computeDossierExportRunPurgeAfterTtl, computeDossierScopeHash, dossierE
 import { documentRequestKey, DOCUMENT_REQUEST_SK_PREFIX, type DocumentRequest } from "../domain/document-request.js";
 import { requestAccessCredentialKey } from "../domain/request-access-credential.js";
 import { buildDocumentRequestCreatedOutboxEntry } from "./document-request-recurrence-service.js";
+import {
+  documentRequestDeliveryPreferenceKey,
+  resolveInitialInviteDeliveryMode,
+  type DocumentRequestDeliveryMode,
+  type DocumentRequestDeliveryPreference,
+  type InitialInviteDeliveryOverride,
+} from "../domain/document-request-delivery-preference.js";
+import { resolveTenantInitialInviteDeliveryDefault } from "./document-request-delivery-preference-resolver.js";
 import { defaultStorageQuota, projectStorageQuotaUsage, storageQuotaKey, wouldExceedStorageQuota, type StorageQuotaUsage, type TenantStorageQuota } from "../domain/storage-quota.js";
 
 /** Metadata paired with each transaction entry so a cancellation is classified structurally
@@ -477,6 +485,9 @@ export interface CreateDocumentRequestInput {
    * omits it gets a `DocumentRequest` the delivery worker will skip (terminal, not retried) rather
    * than one silently addressed to nobody. */
   recipientEmail?: string;
+  /** ADR-0016 Decision B: per-call override of A22's tenant-wide delivery default. Absent is
+   * equivalent to `"DEFAULT"`. */
+  initialInviteDelivery?: InitialInviteDeliveryOverride;
   idempotencyKey: string;
 }
 
@@ -781,6 +792,64 @@ export class DocumentArchiveService {
     const tenantId = authorizedTenantId(ctx);
     const quota = await this.ensureStorageQuota(tenantId);
     return projectStorageQuotaUsage(quota);
+  }
+
+  /** A22 (ADR-0016 Decision B, migrated here from the retired subject module) — tenant-wide
+   * policy for the default initial-invite delivery mode. `tenant:configure-document-request-
+   * delivery` is OWNER_ROLES-exclusive, same tier/action as before the migration. */
+  async getDocumentRequestDeliveryPreference(ctx: RequestContext): Promise<DocumentRequestDeliveryMode> {
+    authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
+    return this.resolveTenantDeliveryDefault(authorizedTenantId(ctx));
+  }
+
+  async setDocumentRequestDeliveryPreference(ctx: RequestContext, mode: DocumentRequestDeliveryMode): Promise<void> {
+    authorize({ context: ctx, action: "tenant:configure-document-request-delivery", resource: { tenantId: ctx.tenant.tenantId } });
+    const tenantId = authorizedTenantId(ctx);
+    const now = this.now();
+    const key = documentRequestDeliveryPreferenceKey(tenantId);
+    const existing = await this.store.get<DocumentRequestDeliveryPreference>(key);
+    const entries: TransactWriteEntry[] = existing
+      ? [
+          {
+            Update: buildVersionedUpdate({
+              tableName: this.tableName,
+              key,
+              tenantId,
+              expectedVersion: existing.version,
+              set: { initialInviteDeliveryDefault: mode, updatedByUserId: ctx.principal.userId },
+              now,
+            }),
+          },
+        ]
+      : [
+          {
+            Put: buildVersionedCreate(this.tableName, {
+              ...key,
+              entityType: "DocumentRequestDeliveryPreference",
+              tenantId,
+              initialInviteDeliveryDefault: mode,
+              updatedByUserId: ctx.principal.userId,
+              createdAt: now,
+              updatedAt: now,
+              version: 1,
+            } as unknown as Record<string, unknown> & EntityKey),
+          },
+        ];
+    try {
+      await this.store.transactWrite(entries);
+    } catch (err) {
+      if (isTransactionCanceled(err)) throw new ConflictError("Failed to update document request delivery preference under contention.", { tenantId });
+      throw err;
+    }
+  }
+
+  /** Internal resolver used by `createDocumentRequest` above — never exposed by its own route,
+   * never gated to `tenant:configure-document-request-delivery` (OWNER_ROLES), only scoped to
+   * the tenant already authorized in the caller's own action. `DocumentRequestRecurrenceService`/
+   * the `document-request-recurrence` worker call the shared function this wraps directly
+   * (they are a different class/have no `RequestContext`), never duplicating this logic. */
+  private resolveTenantDeliveryDefault(tenantId: AuthorizedTenantId): Promise<DocumentRequestDeliveryMode> {
+    return resolveTenantInitialInviteDeliveryDefault(this.store, tenantId);
   }
 
   /** DRAFT -> RECEIVED. File presence/malware-scan-clean validation is the caller's
@@ -1185,13 +1254,27 @@ export class DocumentArchiveService {
     authorize({ context: ctx, action: "docarchive:request-create", resource: { tenantId: ctx.tenant.tenantId } });
     const tenantId = authorizedTenantId(ctx);
     const now = this.now();
-    const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}:${input.recipientEmail ?? ""}`;
+    // ADR-0016 Decision B: fingerprint is computed over the NORMALIZED INPUT
+    // (`initialInviteDelivery ?? "DEFAULT"`), never over the mode already resolved against A22 —
+    // a replay of a "DEFAULT" key must always return the ORIGINAL snapshot even if the tenant
+    // preference changes later; an explicit "EMAIL"/"MANUAL" key genuinely conflicts with a
+    // differently-keyed replay even under a real transactional race (see the lost-race branch
+    // below, which applies this SAME comparison — closes a pre-existing bug where that path
+    // re-read and returned a winning snapshot with no comparison at all).
+    const normalizedDelivery: InitialInviteDeliveryOverride = input.initialInviteDelivery ?? "DEFAULT";
+    const payloadHash = `createDocumentRequest:${input.subjectId}:${input.requirementId}:${input.deadline ?? ""}:${input.recipientEmail ?? ""}:${normalizedDelivery}`;
     const idempotencyKey = { PK: `TENANT#${tenantId}#SUBJECT#${input.subjectId}`, SK: `DOCREQUESTCREATE#${input.idempotencyKey}` };
 
     const existing = await this.store.get<{ payloadHash: string; resultSnapshot: DocumentRequest } & EntityKey>(idempotencyKey);
     if (existing) {
       if (existing.payloadHash !== payloadHash) throw new ConflictError("Idempotency key reused with a different DocumentRequest payload.", { idempotencyKey: input.idempotencyKey });
       return existing.resultSnapshot;
+    }
+
+    const tenantDeliveryDefault = await this.resolveTenantDeliveryDefault(tenantId);
+    const resolvedInitialInviteDelivery = resolveInitialInviteDeliveryMode({ override: input.initialInviteDelivery, tenantDefault: tenantDeliveryDefault });
+    if (resolvedInitialInviteDelivery === "EMAIL" && !input.recipientEmail) {
+      throw new ValidationError("EMAIL delivery (explicit or resolved via DEFAULT) requires a valid recipientEmail.", { subjectId: input.subjectId, requirementId: input.requirementId });
     }
 
     const documentRequestId = this.ids.newDocumentRequestId();
@@ -1207,6 +1290,7 @@ export class DocumentArchiveService {
       ...(input.recipientEmail !== undefined ? { recipientEmail: input.recipientEmail } : {}),
       submissionCount: 0,
       issuanceGeneration: 1,
+      resolvedInitialInviteDelivery,
       createdAt: now,
       updatedAt: now,
       version: 1,
@@ -1231,10 +1315,16 @@ export class DocumentArchiveService {
         const codes = getCancellationReasonCodes(err);
         if (codes?.[0] === "ConditionalCheckFailed") throw new NotFoundError("Requirement not found.", { requirementId: input.requirementId });
         if (codes?.[1] === "ConditionalCheckFailed") {
-          // Concurrent replay of the SAME idempotency key won the race — re-read and return its
-          // snapshot rather than treating this as a genuine failure.
+          // Concurrent call lost the race — re-read the winning record. ADR-0016 Decision B fix:
+          // this used to return it unconditionally, with no fingerprint comparison at all — a
+          // real pre-existing bug where two concurrent calls with a DIFFERENT
+          // initialInviteDelivery override could both "succeed", each caller believing its own
+          // override won. Same comparison as the up-front idempotency check above.
           const replay = await this.store.get<{ payloadHash: string; resultSnapshot: DocumentRequest } & EntityKey>(idempotencyKey);
-          if (replay) return replay.resultSnapshot;
+          if (replay) {
+            if (replay.payloadHash !== payloadHash) throw new ConflictError("Idempotency key reused with a different DocumentRequest payload.", { idempotencyKey: input.idempotencyKey });
+            return replay.resultSnapshot;
+          }
         }
         throw new ConflictError("createDocumentRequest transaction was rejected (concurrent modification or invalid state).", { subjectId: input.subjectId });
       }

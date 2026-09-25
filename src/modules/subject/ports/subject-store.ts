@@ -6,7 +6,6 @@
  * domain/entitlement.ts).
  */
 import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ.js";
-import type { ReminderDueWorkItem } from "../../reminder/domain/reminder-due-work.js";
 
 export type { EntityKey, TransactWriteEntry };
 export { TRANSACTION_CANCELED, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
@@ -37,7 +36,6 @@ export interface SubjectStore {
   /** Leitura fortemente consistente (mesma exigência de ExpirationStore.get). */
   get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined>;
   putIfAbsent<T extends EntityKey>(item: T): Promise<boolean>;
-  putOccurrenceWithDueWork?<T extends EntityKey>(occurrence: T, dueWork: ReminderDueWorkItem): Promise<boolean>;
   /** Unconditional overwrite - only for bookkeeping writes with no concurrent-writer risk (ver `updateConditional` para o caso de contador). */
   update<T extends EntityKey>(item: T): Promise<void>;
   /** PutItem condicionado ao contador ainda bater com `expected` no momento da escrita — mesmo

@@ -205,19 +205,18 @@ export function buildReminderMaterializationTriggerDeps(client: DynamoDBDocument
   return { store, tableName, dueWorkTableName, now: () => new Date().toISOString(), shardConfig: defaultShardConfig() };
 }
 
-/** M10 cluster 4 (D-039/D-046/D-048): `chasingQueueUrl` is optional so this function keeps
- * working for any OTHER caller that only cares about reminder dispatch - passing it adds a
- * SECOND sender to the SAME relay Lambda/DynamoDB Streams event source mapping (mirrors
- * `outbox-sweeper-handler.ts`'s own "one shared privileged role, router keyed by destination"
- * pattern, per m4-notification-engine-design.md §7.4 - never a new relay Lambda just for a
- * second destination). M11 (D-042) adds `importCommitQueueUrl` as a THIRD optional sender on
- * this same shared relay, same reasoning. */
+/** M11 (D-042): `importCommitQueueUrl` is optional so this function keeps working for any
+ * OTHER caller that only cares about reminder dispatch - passing it adds a SECOND sender to the
+ * SAME relay Lambda/DynamoDB Streams event source mapping (mirrors `outbox-sweeper-handler.ts`'s
+ * own "one shared privileged role, router keyed by destination" pattern, per
+ * m4-notification-engine-design.md §7.4 - never a new relay Lambda just for a second
+ * destination). ADR-0016 Decision A (2026-09-25) retired the `chasingQueueUrl` parameter that
+ * used to occupy this position (document-chasing feature, fully removed). */
 export function buildOutboxRelayDeps(
   client: DynamoDBDocumentClient,
   tableName: string,
   queueUrl: string,
   sqsClient: SQSClient = new SQSClient({}),
-  chasingQueueUrl?: string,
   importCommitQueueUrl?: string,
   materializationTriggerQueueUrl?: string,
   // D-192 slice 9: FOURTH optional sender on this same shared relay - `POST /mapping`'s
@@ -286,7 +285,6 @@ export function buildOutboxRelayDeps(
     now: () => new Date().toISOString(),
     senders: {
       SQS_REMINDER_DISPATCH_V1: send(queueUrl),
-      ...(chasingQueueUrl ? { SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingQueueUrl) } : {}),
       ...(importCommitQueueUrl ? { SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl) } : {}),
       ...(importParseQueueUrl ? { SQS_IMPORT_PARSE_V1: send(importParseQueueUrl) } : {}),
       ...(requirementEvidenceRefreshQueueUrl ? { SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl) } : {}),
@@ -314,7 +312,6 @@ export function buildOutboxRelayDeps(
 export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string | undefined>, client: DynamoDBDocumentClient, sqsClient: SQSClient = new SQSClient({})) {
   const tableName = env["TABLE_NAME"];
   const queueUrl = env["DISPATCH_QUEUE_URL"];
-  const chasingQueueUrl = env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
   const importCommitQueueUrl = env["IMPORT_COMMIT_QUEUE_URL"];
   const materializationTriggerQueueUrl = env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
   const importParseQueueUrl = env["IMPORT_PARSE_QUEUE_URL"];
@@ -327,7 +324,6 @@ export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string |
   const reminderScanContinuationQueueUrl = env["REMINDER_SCAN_CONTINUATION_QUEUE_URL"];
   if (!tableName) throw new Error("TABLE_NAME env var is required.");
   if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
-  if (!chasingQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
   if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
   if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
   if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
@@ -341,7 +337,6 @@ export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string |
     tableName,
     queueUrl,
     sqsClient,
-    chasingQueueUrl,
     importCommitQueueUrl,
     materializationTriggerQueueUrl,
     importParseQueueUrl,
@@ -365,7 +360,6 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
   const tableName = env["TABLE_NAME"];
   const reminderDispatchQueueUrl = env["DISPATCH_QUEUE_URL"];
   const emailDeliverQueueUrl = env["EMAIL_DELIVER_QUEUE_URL"];
-  const chasingDispatchQueueUrl = env["DOCUMENT_CHASING_DISPATCH_QUEUE_URL"];
   const importCommitQueueUrl = env["IMPORT_COMMIT_QUEUE_URL"];
   const materializationTriggerQueueUrl = env["REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL"];
   const importParseQueueUrl = env["IMPORT_PARSE_QUEUE_URL"];
@@ -381,7 +375,6 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
   if (!tableName) throw new Error("TABLE_NAME env var is required.");
   if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
   if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
-  if (!chasingDispatchQueueUrl) throw new Error("DOCUMENT_CHASING_DISPATCH_QUEUE_URL env var is required.");
   if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
   if (!materializationTriggerQueueUrl) throw new Error("REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL env var is required.");
   if (!importParseQueueUrl) throw new Error("IMPORT_PARSE_QUEUE_URL env var is required.");
@@ -420,7 +413,6 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
     senders: {
       SQS_REMINDER_DISPATCH_V1: send(reminderDispatchQueueUrl),
       SQS_NOTIFICATION_EMAIL_V1: send(emailDeliverQueueUrl),
-      SQS_DOCUMENT_CHASING_DISPATCH_V1: send(chasingDispatchQueueUrl),
       SQS_IMPORT_COMMIT_V1: send(importCommitQueueUrl),
       SQS_IMPORT_PARSE_V1: send(importParseQueueUrl),
       SQS_REQUIREMENT_EVIDENCE_REFRESH_V1: send(requirementEvidenceRefreshQueueUrl),

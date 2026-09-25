@@ -18,12 +18,12 @@ describe("ReminderDueWork", () => {
 
   it("builds a self-contained pointer to the authoritative occurrence", () => {
     const item = buildReminderDueWorkItem({
-      entityKind: "CHASING", tenantId: "t1", occurrenceId: "o1",
-      occurrenceKey: { PK: "TENANT#t1#SUBJECT#s1", SK: "CHASING#o1" },
+      entityKind: "REMINDER", tenantId: "t1", occurrenceId: "o1",
+      occurrenceKey: { PK: "TENANT#t1#ITEM#item1", SK: "OCC#o1" },
       scheduledAt: "2026-09-17T18:49:10.000Z", shardFnVersion: 2, shardId: 17,
       now: "2026-09-01T00:00:00.000Z", purgeAfterTtl: 1_800_000_000,
     });
-    expect(item).toMatchObject({ entityType: "REMINDER_DUE_WORK", entityKind: "CHASING", occurrencePK: "TENANT#t1#SUBJECT#s1", occurrenceSK: "CHASING#o1" });
+    expect(item).toMatchObject({ entityType: "REMINDER_DUE_WORK", entityKind: "REMINDER", occurrencePK: "TENANT#t1#ITEM#item1", occurrenceSK: "OCC#o1" });
   });
 
   it("rejects non-canonical timestamps so lexical ordering remains safe", () => {
