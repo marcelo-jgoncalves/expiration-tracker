@@ -45,15 +45,16 @@ describe("SubjectsCollection", () => {
     await waitFor(() => expect(screen.getByText(/Nenhum fornecedor cadastrado ainda\./)).toBeInTheDocument());
   });
 
+  // Mutation: failing to apply ARCHIVED would leave the active record visible.
   it("switching to the Arquivados tab queries status=ARCHIVED", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("status=ARCHIVED")) return Promise.resolve({ subjects: [] });
       return Promise.resolve({ subjects: [subject({})] });
     });
     renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Arquivados" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Arquivados/ })).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Arquivados" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Arquivados/ }));
 
     await waitFor(() => expect(screen.getByText("Nenhum fornecedor neste status.")).toBeInTheDocument());
     expect(getMock).toHaveBeenCalledWith(expect.stringContaining("status=ARCHIVED"), expect.anything());

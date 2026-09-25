@@ -32,13 +32,14 @@ beforeEach(() => {
 });
 
 describe("CreateItem", () => {
+  // Mutation: accepting an empty required name sends an invalid request.
   it("blocks submission with field-level errors when required fields are missing, without calling the backend", async () => {
     renderAtRoute("/items/new", <CreateItem />, "/items/new");
     fireEvent.click(screen.getByRole("button", { name: "Criar vencimento" }));
 
-    expect(await screen.findByText("Informe um nome.")).toBeInTheDocument();
+    expect(await screen.findByText("Informe o nome do vencimento.")).toBeInTheDocument();
     expect(screen.getByText("Informe uma categoria.")).toBeInTheDocument();
-    expect(screen.getByText("Informe a data de vencimento.")).toBeInTheDocument();
+    expect(screen.getByText("Informe uma data válida.")).toBeInTheDocument();
     expect(postMock).not.toHaveBeenCalled();
   });
 
@@ -106,7 +107,8 @@ describe("CreateItem", () => {
     expect(secondKey).toBe(firstKey);
   });
 
-  it("session-interruption recovery: a remount (simulating the BFF reauth full-page round trip) rehydrates the draft AND reuses the same Idempotency-Key (mission §49)", async () => {
+  // Mutation: persisting the draft exposes its values after remount; rotating the same intent key duplicates creation.
+  it("keeps drafts in memory only and reuses the key if the identical request is re-entered after remount", async () => {
     postMock.mockImplementation(() => new Promise(() => {})); // never resolves - we only care about the request that goes out
     const first = renderAtRoute("/items/new", <CreateItem />, "/items/new");
     fillMinimalValidForm();
@@ -116,8 +118,9 @@ describe("CreateItem", () => {
     first.unmount(); // simulates the full-page navigation away (BFF login) and back
 
     renderAtRoute("/items/new", <CreateItem />, "/items/new");
-    expect(screen.getByLabelText(/^Nome/)).toHaveValue("Alvará");
-    expect(screen.getByLabelText(/^Categoria/)).toHaveValue("Licenças");
+    expect(screen.getByLabelText(/^Nome/)).toHaveValue("");
+    expect(screen.getByLabelText(/^Categoria/)).toHaveValue("");
+    fillMinimalValidForm();
 
     fireEvent.click(screen.getByRole("button", { name: "Criar vencimento" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));

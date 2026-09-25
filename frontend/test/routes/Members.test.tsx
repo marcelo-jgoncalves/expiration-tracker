@@ -21,7 +21,7 @@ vi.mock("../../src/api/organizations.js", () => ({
 }));
 
 function member(overrides: Partial<Member>): Member {
-  return { userId: "user-1", role: "MEMBER", status: "ACTIVE", joinedAt: "2026-01-01T00:00:00.000Z", version: 1, ...overrides };
+  return { userId: "user-1", displayName: "Ana Exemplo", email: "ana@example.com", role: "MEMBER", status: "ACTIVE", joinedAt: "2026-01-01T00:00:00.000Z", version: 1, ...overrides };
 }
 
 function invitation(overrides: Partial<Invitation>): Invitation {
@@ -37,6 +37,7 @@ beforeEach(() => {
 });
 
 describe("Members", () => {
+  // Mutation: discarding an active member would fail this case.
   it("shows loading, then lists active members", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({})] });
@@ -48,11 +49,12 @@ describe("Members", () => {
     renderAtRoute("/members", <Members />, "/members");
 
     expect(screen.getByText("Carregando membros…")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("user-1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("ana@example.com")).toBeInTheDocument());
   });
 
   // #15 (2026-09-21): shows the resolved displayName instead of the raw userId once GlobalUser
   // resolution is present, with the raw id kept as the row's title (support/debugging).
+  // Mutation: substituting the user id for the resolved profile would fail this case.
   it("shows the resolved displayName instead of the raw userId when present", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({ displayName: "Ana Exemplo" })] });
@@ -65,12 +67,13 @@ describe("Members", () => {
 
     await waitFor(() => expect(screen.getByText("Ana Exemplo")).toBeInTheDocument());
     expect(screen.queryByText("user-1")).not.toBeInTheDocument();
-    expect(screen.getByText("Ana Exemplo").closest("span")).toHaveAttribute("title", "user-1");
+    expect(screen.getByText("ana@example.com")).toBeInTheDocument();
   });
 
   // Mutação: trocar `canManageMembers` para incluir "VIEWER"/"MEMBER" (ou remover a checagem de
   // role) faria o formulário de convite e as ações de gerência aparecerem para um usuário que o
   // backend rejeitaria - a UI nunca deve prometer uma ação que o servidor vai recusar.
+  // Mutation: offering management to a viewer would fail this case.
   it("hides invite form and management actions for a VIEWER (permission UX mirrors backend tier)", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({})] });
@@ -81,11 +84,12 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    await waitFor(() => expect(screen.getByText("user-1")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Convidar" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Remover" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("ana@example.com")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Enviar convite" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remover Ana Exemplo" })).not.toBeInTheDocument();
   });
 
+  // Mutation: hiding management from an administrator would fail this case.
   it("shows invite form and management actions for an ADMIN", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({})] });
@@ -96,10 +100,10 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Convidar" })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Remover" })).toBeInTheDocument();
-    expect(screen.getByText("new@acme.com")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Revogar" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar convite" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Remover Ana Exemplo" })).toBeInTheDocument();
+    expect(await screen.findByText("new@acme.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar convite para new@acme.com" })).toBeInTheDocument();
   });
 
   // A19 audit CRITICAL finding #3 (D-25x): membership:role-change is ADMIN_ROLES in the backend
@@ -107,7 +111,8 @@ describe("Members", () => {
   // (OwnerTierChangeRequiresOwnerError, authorization.ts comment on membership:role-change) - a
   // carve-out the generic authorize() matrix can't express and the frontend previously didn't
   // mirror at all, letting an ADMIN pick "Owner" in the dropdown for a guaranteed backend 403.
-  it("lets an OWNER actor select the Owner role for another member", async () => {
+  // Mutation: offering Owner in ordinary role changes would fail this case.
+  it("does not offer ownership transfer in the regular role control", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2", role: "MEMBER" })] });
       if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
@@ -117,11 +122,12 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    const select = await screen.findByLabelText(new RegExp("^Papel de user-2"));
+    const select = await screen.findByLabelText(new RegExp("^Papel de Ana Exemplo"));
     const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
-    expect(options).toContain("OWNER");
+    expect(options).not.toContain("OWNER");
   });
 
+  // Mutation: offering Owner to an administrator would fail this case.
   it("hides the Owner option from an ADMIN actor's role dropdown", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2", role: "MEMBER" })] });
@@ -132,11 +138,12 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    const select = await screen.findByLabelText(new RegExp("^Papel de user-2"));
+    const select = await screen.findByLabelText(new RegExp("^Papel de Ana Exemplo"));
     const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
     expect(options).not.toContain("OWNER");
   });
 
+  // Mutation: making an existing owner editable would fail this case.
   it("renders an existing OWNER's role as plain text (not editable) to a non-OWNER actor", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "owner-1", role: "OWNER" })] });
@@ -147,22 +154,23 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    await waitFor(() => expect(screen.getByText("owner-1")).toBeInTheDocument());
-    expect(screen.queryByLabelText(new RegExp("^Papel de owner-1"))).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("ana@example.com")).toBeInTheDocument());
+    expect(screen.queryByLabelText(new RegExp("^Papel de Ana Exemplo"))).not.toBeInTheDocument();
     // #15 redesign (2026-09-21): the read-only role cell now shows the presented label
     // (`presentMembershipRole`, "Owner") instead of the raw enum value, matching the labels the
     // role-change dropdown itself already used. Scoped to the member's own row so it can't
     // accidentally match a different "Owner" text elsewhere on the page.
-    const row = screen.getByText("owner-1").closest("tr");
+    const row = screen.getByText("ana@example.com").closest("li");
     expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText("Owner")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Proprietário")).toBeInTheDocument();
   });
 
   // Same backend carve-out as the role-change dropdown above (OwnerTierChangeRequiresOwnerError),
   // but for CreateInvitationService.invite() - an ADMIN actor picking "Owner" in the invite form
   // used to be a guaranteed backend 403 the UI never warned about (InviteForm had no actorRole
   // input and always rendered the full, unfiltered ROLE_OPTIONS).
-  it("lets an OWNER actor select the Owner role in the invite form", async () => {
+  // Mutation: offering Owner in ordinary invitations would fail this case.
+  it("does not offer the Owner role in ordinary invitations", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [] });
       if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
@@ -174,9 +182,10 @@ describe("Members", () => {
 
     const select = await screen.findByLabelText(new RegExp("^Papel \\("));
     const options = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
-    expect(options).toContain("OWNER");
+    expect(options).not.toContain("OWNER");
   });
 
+  // Mutation: offering Owner in administrator invitations would fail this case.
   it("hides the Owner option from an ADMIN actor's invite form", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [] });
@@ -192,6 +201,7 @@ describe("Members", () => {
     expect(options).not.toContain("OWNER");
   });
 
+  // Mutation: sending the wrong invite email or default role would fail this case.
   it("submits the invite form with the entered email and default role", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [] });
@@ -205,7 +215,7 @@ describe("Members", () => {
 
     await waitFor(() => expect(screen.getByLabelText(/E-mail/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/E-mail/), { target: { value: "convidado@acme.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Convidar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar convite" }));
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/organizations/members/invite", { email: "convidado@acme.com", role: "MEMBER" }));
   });
@@ -213,6 +223,7 @@ describe("Members", () => {
   // Holistic frontend review finding: a failed invitations load used to render nothing at all,
   // indistinguishable from "no invitations pending" - an admin had no way to tell a real backend
   // failure apart from a genuinely empty list.
+  // Mutation: treating invitation errors as an empty list would fail this case.
   it("shows a distinct error state (not silence) when pending invitations fail to load", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({})] });
@@ -229,6 +240,7 @@ describe("Members", () => {
 
   // Holistic frontend review finding: a failed member removal had no error rendering at all -
   // the button just went back to its idle state with no feedback that nothing happened.
+  // Mutation: removing without confirmation or hiding a removal failure would fail this case.
   it("shows a visible error when removing a member fails", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2" })] });
@@ -240,9 +252,11 @@ describe("Members", () => {
 
     renderAtRoute("/members", <Members />, "/members");
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remover" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remover" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remover Ana Exemplo" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Remover Ana Exemplo" }));
 
-    await waitFor(() => expect(screen.getByText("Não foi possível remover este membro.")).toBeInTheDocument());
+    expect(deleteMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Remover membro" }));
+    await waitFor(() => expect(screen.getByText("Não foi possível concluir a alteração. Tente novamente.")).toBeInTheDocument());
   });
 });

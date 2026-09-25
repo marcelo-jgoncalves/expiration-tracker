@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { screen, waitFor, fireEvent, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,7 +26,7 @@ function renderWithOrg(organizationId: string) {
   const utils = render(
     <QueryClientProvider client={queryClient}>
       <ActiveOrganizationContext.Provider value={activeOrgValue(organizationId)}>
-        <NotificationPreferences />
+        <MemoryRouter><NotificationPreferences /></MemoryRouter>
       </ActiveOrganizationContext.Provider>
     </QueryClientProvider>,
   );
@@ -35,7 +36,7 @@ function renderWithOrg(organizationId: string) {
       utils.rerender(
         <QueryClientProvider client={queryClient}>
           <ActiveOrganizationContext.Provider value={activeOrgValue(nextOrganizationId)}>
-            <NotificationPreferences />
+            <MemoryRouter><NotificationPreferences /></MemoryRouter>
           </ActiveOrganizationContext.Provider>
         </QueryClientProvider>,
       ),
@@ -71,6 +72,7 @@ beforeEach(() => {
 });
 
 describe("NotificationPreferences (A18, Block 8)", () => {
+  // Mutation: silencing an initial read failure would fail this case.
   it("shows an error state with retry when the initial GET fails", async () => {
     getMock.mockRejectedValue(new Error("down"));
     renderScreen();
@@ -78,28 +80,31 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     await waitFor(() => expect(screen.getByText("Não foi possível carregar suas preferências.")).toBeInTheDocument());
   });
 
+  // Mutation: offering implicit WhatsApp consent would fail this case.
   it("loads and displays the current preferences", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeChecked());
     // Item 26 (Marcelo, 2026-09-23): WhatsApp shows a real phone confirmation form now,
     // never the old permanent "Indisponível" badge.
-    expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enviar código" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Telefone/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enviar código" })).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
   });
 
   // Deviation 1 (file header comment, Codex review round 1 BLOQUEANTE finding): the switch is
   // always disabled (no toggle control on this screen), but it must reflect the REAL value - an
   // SES-complaint suppression (`emailEnabled: false`) must never be shown/sent as re-enabled.
+  // Mutation: re-enabling a suppressed email preference would fail this case.
   it("shows the e-mail switch off (never forced on) when the backend reports emailEnabled: false, and preserves it on save", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: false }) });
     putMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: false, version: 2 }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).not.toBeChecked());
-    expect(screen.getByRole("switch", { name: "Ativado" })).toBeDisabled();
-    expect(screen.getByText("Desativado — contate o suporte para reativar")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).not.toBeChecked());
+    expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeDisabled();
+    expect(screen.getByText("Para reativar o e-mail, contate o suporte.")).toBeInTheDocument();
 
     screen.getByRole("button", { name: "Salvar preferências" }).click();
     await waitFor(() =>
@@ -107,29 +112,33 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     );
   });
 
+  // Mutation: displaying an enabled channel as disabled would fail this case.
   it("shows the e-mail switch on when emailEnabled is true", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ emailEnabled: true }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked());
-    expect(screen.getByText("Canal padrão da sua conta")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeChecked());
+    expect(screen.getByText("Enviado ao endereço associado à sua conta.")).toBeInTheDocument();
   });
 
+  // Mutation: hiding the service-reported default state would fail this case.
   it("shows the 'default preferences' notice only when consentSource is MIGRATED_DEFAULT", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ consentSource: "MIGRATED_DEFAULT" }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByText("Estas são as preferências padrão — ainda não personalizadas.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Você está usando as configurações padrão. Personalize os canais e horários abaixo.")).toBeInTheDocument());
   });
 
+  // Mutation: inventing a default state after customization would fail this case.
   it("does not show the 'default preferences' notice once preferences were saved (USER_SETTINGS)", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences({ consentSource: "USER_SETTINGS" }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
-    expect(screen.queryByText("Estas são as preferências padrão — ainda não personalizadas.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
+    expect(screen.queryByText("Você está usando as configurações padrão. Personalize os canais e horários abaixo.")).not.toBeInTheDocument();
   });
 
+  // Mutation: discarding the saved quiet-hours values would fail this case.
   it("pre-fills the quiet-hours fields and shows the consent source for e-mail", async () => {
     getMock.mockResolvedValue({
       preferences: basePreferences({
@@ -142,10 +151,11 @@ describe("NotificationPreferences (A18, Block 8)", () => {
 
     await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue("21:00"));
     expect(screen.getByLabelText(/^Até/)).toHaveValue("07:00");
-    expect(screen.getByText(/Confirmado no cadastro em/)).toBeInTheDocument();
-    expect(screen.getByText("Este intervalo atravessa a meia-noite.")).toBeInTheDocument();
+    expect(screen.getByText(/Fuso horário: America\/Sao_Paulo/)).toBeInTheDocument();
+    expect(screen.getByText("Preencha os dois horários para ativar o intervalo. Um período que atravessa a meia-noite também é aceito.")).toBeInTheDocument();
   });
 
+  // Mutation: sending an incomplete quiet-hours window would fail this case.
   it("blocks save with a field error when only one quiet-hours field is filled", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     renderScreen();
@@ -153,11 +163,13 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     await waitFor(() => expect(screen.getByLabelText(/^Das/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/^Das/), { target: { value: "21:00" } });
 
-    await waitFor(() => expect(screen.getByText("Informe os dois horários do intervalo, ou deixe ambos em branco.")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar preferências" }));
+    await waitFor(() => expect(screen.getByLabelText(/^Até/)).toHaveFocus());
+    expect(screen.getByLabelText(/^Até/)).toHaveAttribute("aria-invalid", "true");
     expect(putMock).not.toHaveBeenCalled();
   });
 
+  // Mutation: sending equal start and end times would fail this case.
   it("blocks save with a field error when start equals end", async () => {
     getMock.mockResolvedValue({
       preferences: basePreferences({ quietHours: { enabled: true, startLocal: "21:00", endLocal: "21:00", timeZone: "America/Sao_Paulo" } }),
@@ -166,16 +178,20 @@ describe("NotificationPreferences (A18, Block 8)", () => {
 
     // Attached to BOTH fields (Codex review round 1 MÉDIO finding: the problem belongs to the
     // pair, not to one arbitrarily-chosen field).
-    await waitFor(() => expect(screen.getAllByText("Intervalo precisa ter início e fim diferentes.")).toHaveLength(2));
-    expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
+    await screen.findByLabelText(/^Até/);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar preferências" }));
+    expect(screen.getByLabelText(/^Até/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/^Até/)).toHaveFocus();
+    expect(putMock).not.toHaveBeenCalled();
   });
 
+  // Mutation: sending a non-null blank interval would fail this case.
   it("saves the form and sends emailEnabled: true, the fixed locale, and quietHours: null when both time fields are blank", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockResolvedValue({ preferences: basePreferences() });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() =>
@@ -183,33 +199,36 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     );
   });
 
-  it("shows a transient 'Salvo' label after a successful save, then reverts", async () => {
+  // Mutation: announcing success before a save resolves would fail this case.
+  it("confirms a successful save while keeping the primary action available", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockResolvedValue({ preferences: basePreferences({ version: 2 }) });
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Salvo" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Preferências salvas.")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeInTheDocument(), { timeout: 3000 });
   });
 
+  // Mutation: hiding the version conflict would fail this case.
   it("shows the OCC-conflict notice (never the generic error) on a version conflict", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
-    await waitFor(() => expect(screen.getByText(/alteradas em outro lugar/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/mudaram em outra sessão/)).toBeInTheDocument());
     expect(screen.queryByText("Não foi possível salvar suas preferências. Tente novamente.")).not.toBeInTheDocument();
   });
 
   // Codex review round 1 ALTO finding, corrected: a conflict used to leave Save re-clickable with
   // the SAME stale version, repeating the 409 forever. "Recarregar" now refetches and re-hydrates
   // the form from the fresh server value, and Save stays disabled until that happens.
+  // Mutation: saving repeatedly with a stale version would fail this case.
   it("disables Save during a conflict, and 'Recarregar' re-hydrates the form and clears it", async () => {
     // First call is the initial load; every call after (the explicit "Recarregar" click, which
     // itself awaits a fresh `query.refetch()` - see NotificationPreferences.tsx's
@@ -224,7 +243,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "Recarregar" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
@@ -238,6 +257,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   // conflict flag and hydrate from whatever `query.data` happened to hold (TanStack Query can
   // keep the stale previous value around on a failed refetch) - letting the very next save repeat
   // the same 409 forever, silently.
+  // Mutation: clearing conflict after a failed reload would fail this case.
   it("keeps the conflict notice and Save disabled (never silently clears it) when 'Recarregar' itself fails", async () => {
     getMock
       .mockResolvedValueOnce({ preferences: basePreferences({ version: 1 }) })
@@ -245,46 +265,35 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     putMock.mockRejectedValue(conflictError());
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
     await waitFor(() => expect(screen.getByRole("button", { name: "Recarregar" })).toBeInTheDocument());
 
     screen.getByRole("button", { name: "Recarregar" }).click();
-    await waitFor(() => expect(screen.getByText(/Não foi possível recarregar agora/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Não foi possível recarregar\./)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Salvar preferências" })).toBeDisabled();
   });
 
-  // Codex review round 2 MEDIUM finding, corrected: silently falling back to a fixed timezone
-  // when detection fails would apply the WRONG timezone to a user outside it - this must block
-  // save and say so instead of guessing.
-  it("blocks save and shows a distinct notice when the browser's timezone cannot be detected for a NEW quiet-hours window", async () => {
-    const originalDateTimeFormat = Intl.DateTimeFormat;
-    // @ts-expect-error - intentionally breaking timezone resolution for this one test
-    Intl.DateTimeFormat = () => {
-      throw new Error("Intl unavailable");
-    };
-    try {
-      getMock.mockResolvedValue({ preferences: basePreferences() });
-      renderScreen();
-
-      await waitFor(() => expect(screen.getByLabelText(/^Das/)).toBeInTheDocument());
-      fireEvent.change(screen.getByLabelText(/^Das/), { target: { value: "21:00" } });
-      fireEvent.change(screen.getByLabelText(/^Até/), { target: { value: "07:00" } });
-      screen.getByRole("button", { name: "Salvar preferências" }).click();
-
-      await waitFor(() => expect(screen.getByText(/Não foi possível detectar seu fuso horário/)).toBeInTheDocument());
-      expect(putMock).not.toHaveBeenCalled();
-    } finally {
-      Intl.DateTimeFormat = originalDateTimeFormat;
-    }
+  // Mutation: inferring a browser timezone would override the displayed fallback required by the specification.
+  // Mutation: using an undisclosed browser timezone would fail this case.
+  it("uses the displayed Sao Paulo fallback for a new quiet-hours window", async () => {
+    getMock.mockResolvedValue({ preferences: basePreferences() });
+    putMock.mockResolvedValue({ preferences: basePreferences({ version: 2 }) });
+    renderScreen();
+    fireEvent.change(await screen.findByLabelText(/^Das/), { target: { value: "21:00" } });
+    fireEvent.change(screen.getByLabelText(/^Até/), { target: { value: "07:00" } });
+    expect(screen.getByText("Fuso horário: America/Sao_Paulo")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar preferências" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/notifications/preferences", expect.objectContaining({ quietHours: { enabled: true, startLocal: "21:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" } }), { expectedVersion: 1 }));
   });
 
+  // Mutation: claiming a timeout definitively failed would fail this case.
   it("shows a distinct 'unknown outcome' notice (never claiming failure) when the save's result is genuinely unknown", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockRejectedValue(ApiError.unknownOutcome(new Error("timeout")));
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
     await waitFor(() => expect(screen.getByText(/Não sabemos se suas preferências foram salvas/)).toBeInTheDocument());
@@ -294,6 +303,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   // Deviation 3 (file header comment, Codex review round 1 ALTO finding): saving must never
   // silently move a saved quiet-hours window to the browser's current timezone or re-enable a
   // window the user had paused - both must be preserved verbatim even on an unrelated save.
+  // Mutation: re-enabling paused quiet hours or changing its timezone would fail this case.
   it("preserves the loaded quiet-hours enabled:false and original timeZone on save", async () => {
     getMock.mockResolvedValue({
       preferences: basePreferences({ quietHours: { enabled: false, startLocal: "21:00", endLocal: "07:00", timeZone: "Europe/Lisbon" } }),
@@ -313,17 +323,17 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     );
   });
 
+  // Mutation: discarding inputs after a save failure would fail this case.
   it("shows the generic error label/notice and preserves the form on a non-conflict save failure", async () => {
     getMock.mockResolvedValue({ preferences: basePreferences() });
     putMock.mockRejectedValue(new Error("network down"));
     renderScreen();
 
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Ativado" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeInTheDocument());
     screen.getByRole("button", { name: "Salvar preferências" }).click();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Falhou — tentar de novo" })).toBeInTheDocument());
-    expect(screen.getByText("Não foi possível salvar suas preferências. Tente novamente.")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Ativado" })).toBeChecked();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível salvar as preferências agora."));
+    expect(screen.getByRole("switch", { name: "Receber lembretes por e-mail" })).toBeChecked();
   });
 
   // Codex review round 1 (D-2xx) BLOQUEANTE finding, corrected: this screen used to keep its
@@ -331,6 +341,7 @@ describe("NotificationPreferences (A18, Block 8)", () => {
   // instance across a `:orgId` param change) - a stale field from the PREVIOUS organization could
   // be saved against the NEW organization's version. `key={organizationId}` on `PreferencesPanel`
   // forces a full remount (and therefore a fresh hydration) on every switch.
+  // Mutation: carrying local edits into another organization would fail this case.
   it("resets all local edit state to the NEW organization's own values when the active organization switches", async () => {
     getMock.mockImplementation(() => Promise.resolve({ preferences: basePreferences() }));
     const { switchOrg } = renderWithOrg("org-1");
@@ -347,74 +358,13 @@ describe("NotificationPreferences (A18, Block 8)", () => {
     await waitFor(() => expect(screen.getByLabelText(/^Das/)).toHaveValue(""));
   });
 
-  // Item 26 (Marcelo, 2026-09-23): phone-ownership confirmation, two-step flow.
-  describe("WhatsApp phone confirmation", () => {
-    it("rejects a number that does not match the E.164 shape without ever calling the API", async () => {
-      getMock.mockResolvedValue({ preferences: basePreferences() });
-      renderScreen();
-      await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "011999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
-
-      await waitFor(() => expect(screen.getByText(/formato internacional/)).toBeInTheDocument());
-      expect(postMock).not.toHaveBeenCalled();
-    });
-
-    it("sends the code, then confirms it, showing a real confirmation once the API accepts it", async () => {
-      getMock.mockResolvedValue({ preferences: basePreferences() });
-      postMock.mockResolvedValueOnce({ expiresAt: "2026-09-23T00:10:00.000Z" });
-      postMock.mockResolvedValueOnce({ optIn: { phoneE164: "+5511999999999", optedInAt: "2026-09-22T12:00:00.000Z" } });
-      renderScreen();
-      await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
-
-      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/notifications/whatsapp-opt-in/request-confirmation", { phoneE164: "+5511999999999" }));
-      await waitFor(() => expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Código de confirmação/), { target: { value: "123456" } });
-      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
-
-      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/notifications/whatsapp-opt-in/confirm", { phoneE164: "+5511999999999", code: "123456" }));
-      await waitFor(() => expect(screen.getByText(/\+5511999999999 confirmado/)).toBeInTheDocument());
-      // The form itself is gone once confirmed - never left showing alongside its own success
-      // message, which would look like the opt-in silently failed.
-      expect(screen.queryByLabelText(/^Telefone/)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText(/^Código de confirmação/)).not.toBeInTheDocument();
-    });
-
-    it("shows the real backend error message (never a generic fallback) when requesting the code fails", async () => {
-      getMock.mockResolvedValue({ preferences: basePreferences() });
-      postMock.mockRejectedValue(new ApiError({ code: "DEPENDENCY_UNAVAILABLE", category: "DEPENDENCY_UNAVAILABLE", message: "Canal WhatsApp ainda não está disponível.", retryable: false }));
-      renderScreen();
-      await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
-
-      await waitFor(() => expect(screen.getByText("Canal WhatsApp ainda não está disponível.")).toBeInTheDocument());
-      // The form stays usable after a real failure - never replaced by a fake success state.
-      expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument();
-    });
-
-    it("shows the real backend error message when the confirmation code is wrong, without recording an opt-in", async () => {
-      getMock.mockResolvedValue({ preferences: basePreferences() });
-      postMock.mockResolvedValueOnce({ expiresAt: "2026-09-23T00:10:00.000Z" });
-      postMock.mockRejectedValueOnce(new ApiError({ code: "VALIDATION", category: "VALIDATION", message: "Código inválido ou expirado.", retryable: false }));
-      renderScreen();
-      await waitFor(() => expect(screen.getByLabelText(/^Telefone/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Telefone/), { target: { value: "+5511999999999" } });
-      fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
-      await waitFor(() => expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument());
-
-      fireEvent.change(screen.getByLabelText(/^Código de confirmação/), { target: { value: "000000" } });
-      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
-
-      await waitFor(() => expect(screen.getByText("Código inválido ou expirado.")).toBeInTheDocument());
-      expect(screen.getByLabelText(/^Código de confirmação/)).toBeInTheDocument();
-    });
+  // Mutation: invoking phone verification here would also grant delivery consent with the current service.
+  // Mutation: offering implicit delivery consent would fail this case.
+  it("does not offer verification while it implicitly opts into delivery", async () => {
+    getMock.mockResolvedValue({ preferences: basePreferences() });
+    renderScreen();
+    await screen.findByText("A verificação de número ainda não está disponível para uso nesta tela.");
+    expect(screen.queryByRole("button", { name: "Enviar código" })).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
   });
 });

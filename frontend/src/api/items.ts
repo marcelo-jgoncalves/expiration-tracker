@@ -42,3 +42,17 @@ export function createItem(input: CreateItemInput, idempotencyKey: string): Prom
 export function renewItem(itemId: string, input: RenewItemInput, expectedVersion: number, idempotencyKey: string): Promise<RenewItemResponse> {
   return apiClient.post<RenewItemResponse>(`/items/${encodeURIComponent(itemId)}/renew`, input, { idempotencyKey, expectedVersion });
 }
+
+export interface ItemSearchPage {
+  items: { kind: "EXPIRATION_ITEM"; item: import("./types.js").ExpirationItem }[];
+  cursor: string | null;
+  scanLimitReached: boolean;
+}
+
+export function searchItems(status: ExpirationItemStatus, search: string, validityState: string, options: { signal?: AbortSignal; cursor?: string }): Promise<ItemSearchPage> {
+  const params = new URLSearchParams({ status });
+  if (search) params.set("namePrefix", search);
+  if (validityState) params.set("validityState", validityState);
+  if (options.cursor) params.set("cursor", options.cursor);
+  return apiClient.get<ItemSearchPage>("/items/search?" + params.toString(), { signal: options.signal });
+}

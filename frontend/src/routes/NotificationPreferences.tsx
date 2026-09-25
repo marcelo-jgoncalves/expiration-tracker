@@ -82,7 +82,7 @@ function PreferencesForm({ initial, reload }: { initial: Preferences; reload: ()
       <section className="ov-notification-card" aria-labelledby="notif-channels">
         <header><span><Bell size={20} aria-hidden="true" /></span><div><h2 id="notif-channels">Canais de notificação</h2><p>Controle os canais pelos quais você quer ser avisado.</p></div></header>
         <div className="ov-email-row"><Mail size={19} aria-hidden="true" /><div><h3>E-mail</h3><p>Enviado ao endereço associado à sua conta.</p><span>{email ? "Ativado" : "Desativado"}</span></div>
-          <label className="ov-email-switch"><input type="checkbox" aria-label="Receber lembretes por e-mail" checked={email} disabled={!base.emailEnabled || mutation.isPending} onChange={e => { setEmail(e.target.checked); setSuccess(false); }} /><span aria-hidden="true" /></label>
+          <label className="ov-email-switch"><input type="checkbox" role="switch" aria-label="Receber lembretes por e-mail" checked={email} disabled={!base.emailEnabled || mutation.isPending} onChange={e => { setEmail(e.target.checked); setSuccess(false); }} /><span aria-hidden="true" /></label>
         </div>
         {!base.emailEnabled && <p className="ov-notification-help">Para reativar o e-mail, contate o suporte.</p>}
         <div className="ov-whatsapp"><MessageCircle size={19} aria-hidden="true" /><div><h3>WhatsApp</h3><p>Cadastre e verifique um número para receber avisos quando este canal estiver disponível.</p><p className="ov-notification-help">A verificação de número ainda não está disponível para uso nesta tela.</p></div></div>

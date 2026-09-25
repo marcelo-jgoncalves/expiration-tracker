@@ -53,10 +53,11 @@ describe("Login", () => {
     expect(navigateMock).toHaveBeenCalledWith("/items/42", { replace: true });
   });
 
-  it("falls back to /overview when returnTo is missing or unsafe (never an open redirect)", () => {
+  // Mutation: accepting an external returnTo would navigate away from the local dashboard.
+  it("falls back to /dashboard when returnTo is missing or unsafe (never an open redirect)", () => {
     useAuthMock.mockReturnValue({ state: { status: "AUTHENTICATED" }, clearReauthLatch: clearReauthLatchMock });
     renderLogin("/login?returnTo=https%3A%2F%2Fevil.example.com");
-    expect(navigateMock).toHaveBeenCalledWith("/overview", { replace: true });
+    expect(navigateMock).toHaveBeenCalledWith("/dashboard", { replace: true });
   });
 
   // Marcelo, 2026-09-22 ("entro com as credenciais e não acontece nada"): navigation must be
@@ -126,14 +127,16 @@ describe("Login", () => {
     expect(passwordField.type).toBe("password");
   });
 
+  // Mutation: rendering the upstream credential error would reveal its diagnostic message.
   it("shows a generic error message on invalid credentials (never distinguishes user-not-found from wrong-password)", async () => {
-    loginMock.mockRejectedValue(new Error("invalid"));
+    const { ApiError } = await import("../../../src/api/errors.js");
+    loginMock.mockRejectedValue(new ApiError({ code: "UNAUTHORIZED", category: "AUTH", message: "invalid", retryable: false }, 401));
     renderLogin();
 
     fireEvent.change(screen.getByLabelText(/E-mail/), { target: { value: "user@example.com" } });
     fireEvent.change(screen.getByLabelText(/Senha/), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
 
-    await waitFor(() => expect(screen.getByText("E-mail ou senha inválidos.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Não foi possível entrar. Confira seus dados e tente novamente.")).toBeInTheDocument());
   });
 });

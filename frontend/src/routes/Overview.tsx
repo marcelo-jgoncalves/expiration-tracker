@@ -52,13 +52,14 @@ export function Overview() {
         </div>
       </div>
       <div className="ov-overview-list" aria-busy={query.isFetching}>
-        {query.isPending ? <CollectionSkeleton label="Carregando seus vencimentos…" /> : query.isError ? <ErrorState message="Não foi possível carregar a visão geral. Tente novamente." onRetry={() => void query.refetch()} /> :
+        {query.isPending ? <CollectionSkeleton label="Carregando seus vencimentos…" /> : query.isError && !query.data ? <ErrorState message="Não foi possível carregar a visão geral. Tente novamente." onRetry={() => void query.refetch()} /> :
           items.length ? <table><caption className="u-visually-hidden">Vencimentos ativos, do mais para o menos urgente</caption><thead><tr><th>Vencimento</th><th>Data</th><th>Urgência</th><th><span className="u-visually-hidden">Detalhe</span></th></tr></thead>
             <tbody>{items.map(item => <tr key={item.itemId}>
               <td><Link to={orgPath("/items/" + item.itemId)}>{item.name}</Link>{(item.issuer || item.category) && <small>{[item.issuer, item.category].filter(Boolean).join(" · ")}</small>}</td>
               <td>{formatAbsoluteDate(item.dueDate)}</td><td><UrgencyIndicator urgency={presentItemUrgency(item, new Date())} /></td><td><ChevronRight size={16} aria-hidden="true" /></td>
             </tr>)}</tbody></table> :
             <div className="ov-overview-empty"><h3>{search || filter ? "Nenhum vencimento encontrado para esta busca." : "Nenhum vencimento em acompanhamento"}</h3>{search || filter ? <Button onClick={() => { setSearch(""); setFilter(""); }}>Limpar filtros</Button> : <p>Crie o primeiro registro para acompanhar seus prazos.</p>}</div>}
+        {query.isError && query.data && <ErrorState message="Não foi possível atualizar a lista. Os registros carregados foram mantidos." onRetry={() => void (query.isFetchNextPageError ? query.fetchNextPage() : query.refetch())} />}
         <footer><span aria-live="polite">{search || filter ? items.length + " resultado(s) nesta visualização" : summary.data ? "Exibindo " + items.length + " de " + summary.data.activeItemsCount.toLocaleString("pt-BR") + " vencimentos" + (summary.data.approximate ? " (total parcial)" : "") : items.length + " vencimentos nesta visualização"}</span><Link to={orgPath("/items") + (filter || debounced ? "?" + new URLSearchParams({ search: debounced, urgency: filter }).toString() : "")}>Ver todos os vencimentos</Link></footer>
         {query.hasNextPage && items.length < 11 && <Button onClick={() => void query.fetchNextPage()} pending={query.isFetchingNextPage}>Carregar mais resultados</Button>}
       </div>

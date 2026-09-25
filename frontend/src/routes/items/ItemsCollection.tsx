@@ -128,7 +128,7 @@ export function ItemsCollection() {
       }
     />
     <OmniHero icon={CalendarClock} eyebrow="Seu panorama" title="Prazos claros. Próximos passos visíveis." description="Comece pelo que venceu, acompanhe o que está chegando e mantenha o histórico organizado."
-      summary={<><strong>{summary.data ? summary.data.activeItemsCount.toLocaleString("pt-BR") : "?"}</strong><span>ativos{summary.data?.approximate ? " (parcial)" : ""}</span></>} />
+      summary={<><strong>{summary.data ? summary.data.activeItemsCount.toLocaleString("pt-BR") : "—"}</strong><span>ativos{summary.data?.approximate ? " (parcial)" : ""}</span></>} />
     </>
   );
 
@@ -140,7 +140,7 @@ export function ItemsCollection() {
       {urgency && <Button size="sm" onClick={() => setSearchParams(previous => { const params = new URLSearchParams(previous); params.delete("urgency"); return params; })}>Limpar filtro de urgência</Button>}
       {query.isFetching && !query.isPending && !query.isFetchingNextPage ? <BackgroundRefreshIndicator /> : null}
       <Button variant="secondary" size="sm" icon={RotateCw} disabled={query.isFetching} onClick={() => { void query.refetch(); void summary.refetch(); }}>
-        {query.isFetching ? "Atualizando?" : "Atualizar"}
+        {query.isFetching ? "Atualizando…" : "Atualizar"}
       </Button>
     </Toolbar>
   );
@@ -157,7 +157,7 @@ export function ItemsCollection() {
     );
   }
 
-  if (query.isError) {
+  if (query.isError && !query.data) {
     const error = query.error;
     if (error instanceof ApiError && error.category === "AUTHORIZATION") {
       return (
@@ -180,7 +180,7 @@ export function ItemsCollection() {
   const allItems = query.data.pages.flatMap((page) => page.items.map(row => row.item));
   const entries: RowEntry[] = (status === "ACTIVE" ? sortByDueDateAscending(allItems) : [...allItems].sort((a, b) => b.dueDate.localeCompare(a.dueDate) || a.itemId.localeCompare(b.itemId))).map((item) => ({ item, urgency: presentItemUrgency(item, now) }));
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && !query.hasNextPage) {
     return (
       <div className="ov-items">
         {header}
@@ -216,6 +216,7 @@ export function ItemsCollection() {
       {header}
       {filters}
       <Panel>
+        {query.isError && <ErrorState message="Não foi possível atualizar os resultados. Os registros carregados foram mantidos." onRetry={() => void (query.isFetchNextPageError ? query.fetchNextPage() : query.refetch())} />}
         {query.hasNextPage && <p className="ov-items-partial">Contagens de grupos referentes aos registros carregados.</p>}
         <DataTable
           caption={`Vencimentos — ${STATUS_TABS.find((tab) => tab.value === status)?.label ?? ""}`}

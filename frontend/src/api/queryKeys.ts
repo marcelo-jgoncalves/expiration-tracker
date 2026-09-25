@@ -34,6 +34,8 @@ export const queryKeys = {
      * `dashboardAll` prefix so create/renew's existing invalidation already covers it, no new
      * call site to update. */
     summary: (organizationId: string) => [...queryKeys.items.dashboardAll(organizationId), "summary"] as const,
+    search: (organizationId: string, status: string, search: string, validityState: string) =>
+      [...queryKeys.items.dashboardAll(organizationId), "search", status, search, validityState] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
     /** A07 (Block 2 D-2xx) - generic per-item document attachments, `GET
