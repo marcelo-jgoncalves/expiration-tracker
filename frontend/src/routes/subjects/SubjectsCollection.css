@@ -7,3 +7,24 @@
   flex: 1 1 22rem;
   max-width: 22rem;
 }
+.ov-subjects-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:29px 0 15px; }
+.ov-subjects-heading h2 { font-size:17px; font-weight:700; margin-bottom:5px; }
+.ov-subjects-heading p { font-size:11px; color:#55507a; margin:0; }
+.ov-subjects-heading .ui-toolbar { margin:0; }
+.ov-subjects .ui-filter { display:flex; border-radius:10px; padding:3px; background:#f0edf7; }
+.ov-subjects .ui-filter__option { font-size:11px; border:0; min-height:38px; }
+.ov-subjects .ui-filter__option[aria-pressed=true] { background:white; color:#4c1d95; border-radius:7px; }
+.ov-subjects .subjects-search { flex:1; min-width:190px; max-width:280px; }
+.ov-subjects .subjects-search input { height:44px; border:1px solid #e5e0ef; background:white; border-radius:9px; font-size:11px; }
+.ov-subjects .ui-table { min-width:0; font-size:11px; }
+.ov-subjects .ui-table thead th { font-size:10px; text-transform:uppercase; background:#fbfafe; padding:15px 21px; }
+.ov-subjects .ui-table td { padding:12px 21px; min-height:77px; }
+.ov-subjects .ui-table__cell--primary a { color:#4c1d95; font-weight:800; font-size:12px; text-decoration:none; }
+.ov-subjects .ui-table__cell--primary a:hover { text-decoration:underline; }
+.ov-subject-tags { display:flex; flex-wrap:wrap; gap:5px; }
+.ov-subject-tags > span { background:#f1ebff; color:#4c1d95; font-size:10px; padding:5px 8px; border-radius:6px; overflow-wrap:anywhere; }
+.ov-subject-actions { display:flex; justify-content:flex-end; gap:2px; }
+.ov-subject-actions > .ui-icon-button, .ov-subject-actions > a { min-height:44px; min-width:44px; }
+.ov-subjects-footer { padding:15px 21px; border-top:1px solid #e8e4f1; margin:0; font-size:11px; color:#55507a; }
+@media(max-width:1150px) { .ov-subjects-heading { flex-direction:column; align-items:stretch; } .ov-subjects-heading .ui-toolbar { width:100%; } .ov-subjects .subjects-search { max-width:none; } }
+@media(max-width:650px) { .ov-subjects .ui-filter, .ov-subjects .subjects-search { width:100%; flex-basis:100%; } .ov-subjects .ui-filter__option { flex:1; } .ov-subjects .ui-table td { padding:5px 0; min-height:0; } .ov-subject-actions { justify-content:flex-start; } }

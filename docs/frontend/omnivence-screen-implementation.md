@@ -26,3 +26,9 @@ Referências: especificações e protótipos em `prototype/novasTelas/`. Commits
 - Categoria, periodicidade e prioridade são texto livre no contrato atual; não existe catálogo com IDs. Campos mantidos como texto, sem listas fictícias. Criar catálogos e IDs é decisão de modelo pendente de Marcelo.
 - A API exige data-hora; o adaptador mantém a data digitada com sufixo UTC estável. Migrar para data civil exige contrato conjunto com consulta/alertas.
 - Rascunho do formulário fica em memória nesta tela; idempotência existente preservada. Links internos e fechamento/reload pedem descarte; botão Voltar/Avançar do browser ainda depende de migração do roteador declarativo para suporte a bloqueio.
+
+## Fornecedores — diferenças confirmadas
+
+- `archiveSubject` sempre transita para ARCHIVED; não há endpoint de restauração. A confirmação explica a limitação e a interface não anuncia reativação falsa.
+- Exclusão é lógica (DELETED/deletedAt), não cascata. Confirmação exige nome, mantém OCC e autorização existentes. O serviço não impede exclusão por vínculos; política de bloqueio/retenção pendente de decisão.
+- Dashboard existente não devolve totais nem cursor. Contagens rotuladas como carregadas; busca por nome/identificador preservada sobre esse conjunto. Busca remota existente só aceita nome e tags, sem identificador. Paginação e totais completos ainda pendentes de contrato.
