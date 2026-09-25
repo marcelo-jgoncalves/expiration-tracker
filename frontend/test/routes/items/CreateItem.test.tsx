@@ -108,7 +108,11 @@ describe("CreateItem", () => {
   });
 
   // Mutation: persisting the draft exposes its values after remount; rotating the same intent key duplicates creation.
-  it("keeps drafts in memory only and reuses the key if the identical request is re-entered after remount", async () => {
+  // Mission §49 (session interruption): the draft and its idempotency key are a PAIR, persisted
+  // to sessionStorage TOGETHER (useFormDraft.ts / useCreateItem.ts's own header comment) - a
+  // session expiring mid-submit takes the user through a real full-page navigation (BFF login),
+  // which clears any in-memory-only React state, so BOTH must survive a remount, not just the key.
+  it("keeps the draft AND the idempotency key across a remount, reusing the same key for the identical resubmission", async () => {
     postMock.mockImplementation(() => new Promise(() => {})); // never resolves - we only care about the request that goes out
     const first = renderAtRoute("/items/new", <CreateItem />, "/items/new");
     fillMinimalValidForm();
@@ -118,14 +122,21 @@ describe("CreateItem", () => {
     first.unmount(); // simulates the full-page navigation away (BFF login) and back
 
     renderAtRoute("/items/new", <CreateItem />, "/items/new");
-    expect(screen.getByLabelText(/^Nome/)).toHaveValue("");
-    expect(screen.getByLabelText(/^Categoria/)).toHaveValue("");
-    fillMinimalValidForm();
+    expect(screen.getByLabelText(/^Nome/)).toHaveValue("Alvará");
+    expect(screen.getByLabelText(/^Categoria/)).toHaveValue("Licenças");
 
     fireEvent.click(screen.getByRole("button", { name: "Criar vencimento" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
     const keyAfterReload = (postMock.mock.calls[1]?.[2] as { idempotencyKey?: string }).idempotencyKey;
     expect(keyAfterReload).toBe(keyBeforeReload);
+  });
+
+  // A genuinely NEW submission (a fresh draft, sessionStorage cleared - e.g. after a completed
+  // create, or a brand-new tab) must never carry over stale field values from an unrelated one.
+  it("starts with an empty draft when nothing was persisted yet", () => {
+    renderAtRoute("/items/new", <CreateItem />, "/items/new");
+    expect(screen.getByLabelText(/^Nome/)).toHaveValue("");
+    expect(screen.getByLabelText(/^Categoria/)).toHaveValue("");
   });
 
   it("prevents a double-submit: the submit button is disabled while the request is in flight", async () => {

@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useCreateItem } from "../../hooks/useCreateItem.js";
+import { useFormDraft } from "../../hooks/useFormDraft.js";
 import { useMembers } from "../../hooks/useMembers.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { SelectField } from "../../components/forms/SelectField.js";
@@ -46,6 +47,12 @@ function fieldId(field: string): string {
   return `create-item-${field}`;
 }
 
+/** Session-interruption recovery (mission §49): the draft (sessionStorage, `useFormDraft`) and
+ * the idempotency key (`useCreateItem`'s `CREATE_ITEM_IDEMPOTENCY_STORAGE_KEY`) must back each
+ * other up as a pair - a session expiring mid-submit takes the user through a real full-page
+ * navigation (BFF login), which clears any in-memory-only React state. */
+const DRAFT_STORAGE_KEY = "expiration-tracker:create-item:draft";
+
 function toSummaryFieldErrors(fieldErrors: Record<string, string>): SummaryFieldError[] {
   return Object.entries(fieldErrors)
     .filter(([field]) => FIELD_LABELS[field] !== undefined)
@@ -55,7 +62,7 @@ function toSummaryFieldErrors(fieldErrors: Record<string, string>): SummaryField
 export function CreateItem() {
   const navigate = useNavigate();
   const orgPath = useOrgPath();
-  const [draft, update] = useState<CreateItemDraft>(EMPTY_CREATE_ITEM_DRAFT);
+  const { draft, update, clear: clearDraft } = useFormDraft<CreateItemDraft>(DRAFT_STORAGE_KEY, EMPTY_CREATE_ITEM_DRAFT);
   const [saved, setSaved] = useState(false);
   const members = useMembers();
   const role = useCurrentMembershipRole();
@@ -86,6 +93,7 @@ export function CreateItem() {
     try {
       const response = await mutation.mutateAsync(draftToCreateItemInput(draft));
       setSaved(true);
+      clearDraft();
       mutation.newIntent();
       navigate(orgPath(`/items/${response.item.itemId}`), { state: { justCreated: true } });
     } catch (err) {
