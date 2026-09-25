@@ -32,3 +32,9 @@ Referências: especificações e protótipos em `prototype/novasTelas/`. Commits
 - `archiveSubject` sempre transita para ARCHIVED; não há endpoint de restauração. A confirmação explica a limitação e a interface não anuncia reativação falsa.
 - Exclusão é lógica (DELETED/deletedAt), não cascata. Confirmação exige nome, mantém OCC e autorização existentes. O serviço não impede exclusão por vínculos; política de bloqueio/retenção pendente de decisão.
 - Dashboard existente não devolve totais nem cursor. Contagens rotuladas como carregadas; busca por nome/identificador preservada sobre esse conjunto. Busca remota existente só aceita nome e tags, sem identificador. Paginação e totais completos ainda pendentes de contrato.
+
+## Notificações — decisões pendentes
+
+- A verificação WhatsApp existente registra opt-in automaticamente; a especificação exige verificação independente de adesão. Campo/botão ficam indisponíveis até separar essas operações e expor disponibilidade do serviço. Não há confirmação demonstrativa nem chamada de adesão implícita.
+- E-mail salvo desativado não informa se houve supressão SES por reclamação. Desativação pessoal oferecida; reativação de uma preferência já desativada permanece indisponível até existir distinção de supressão no serviço.
+- Worker M4 tem perda conhecida de lembretes em quiet hours (item 27 do handoff); o reskin não resolve a fila. Aceite funcional completo depende dessa correção.
