@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Building2, HardDrive, IdCard, LogOut, Trash2 } from "lucide-react";
 import { useOrganizationsList } from "../hooks/useOrganizationsList.js";
 import { useMembers } from "../hooks/useMembers.js";
@@ -63,7 +63,7 @@ function OrganizationActions({ organization }: { organization: UsableOrganizatio
       <Button disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
       <p>{action === "leave" ? `Você perderá o acesso à organização “${organization.displayName}”. Os dados e demais membros permanecerão nela.` : `O acesso de todos os membros de “${organization.displayName}” será bloqueado. Os dados serão mantidos por 30 dias para recuperação e depois entrarão em exclusão definitiva.`}</p>
       {action === "close" && <><p>Identificador: <code>{organization.organizationId}</code></p><TextField label="Identificador da organização" value={confirmation} onChange={setConfirmation} required /></>}
-      {error && <InlineNotice tone="critical" announce="alert">{message}</InlineNotice>}
+      {Boolean(error) && <InlineNotice tone="critical" announce="alert">{message}</InlineNotice>}
       {close.isSuccess && <InlineNotice tone="success" announce="status">Encerramento solicitado. O processo de recuperação e exclusão foi iniciado.</InlineNotice>}
       <Button variant="danger" pending={pending} disabled={action === "close" && (confirmation !== organization.organizationId || close.isSuccess)} onClick={() => { if (pending) return; if (action === "leave") leave.mutate(); else close.mutate(organization.organizationId); }}>{pending ? "Processando…" : action === "leave" ? "Sair da organização" : "Encerrar organização"}</Button>
     </Dialog>}
@@ -88,7 +88,7 @@ function OrganizationForm({ organization, reload }: { organization: UsableOrgani
     if (Object.keys(errors).length) { document.getElementById(errors["name"] ? "organization-name" : "organization-time")?.focus(); return; }
     try {
       const saved = await update.mutateAsync({ displayName: name.trim(), defaultReminderLocalTime: time, expectedVersion: base.version });
-      setBase({ ...base, ...saved }); setName(saved.displayName); reload();
+      setBase({ ...base, ...saved }); setName(saved.displayName); setTime(saved.defaultReminderLocalTime ?? time);
     } catch { /* The mutation exposes the failure without discarding local values. */ }
   }
   return <>

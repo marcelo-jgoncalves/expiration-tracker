@@ -402,19 +402,12 @@ export function initialsFor(name: string | undefined): string {
   return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
 }
 
-const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  MEMBER: "Member",
-  VIEWER: "Viewer",
-};
-
 /** Same 4 labels `Members.tsx`'s `ROLE_OPTIONS` already shows in its role-change dropdown - a
  * single source for anywhere else (e.g. the sidebar identity card) that needs to display a
  * role, so the two never drift apart. */
 export function presentMembershipRole(role: MembershipRole): string {
   switch (role) {
-    case "OWNER": return "Propriet?rio";
+    case "OWNER": return "Proprietário";
     case "ADMIN": return "Administrador";
     case "MEMBER": return "Membro";
     case "VIEWER": return "Leitor";

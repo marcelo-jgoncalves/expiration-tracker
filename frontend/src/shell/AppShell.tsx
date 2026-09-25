@@ -57,7 +57,7 @@ function SidebarUserFooter() {
       <button type="button" className="app-shell__icon-button" aria-label="Sair" disabled={leaving} onClick={() => { setLeaving(true); setFailure(false); void logout().catch(() => setFailure(true)).finally(() => setLeaving(false)); }}>
         <LogOut size={17} strokeWidth={2} aria-hidden="true" />
       </button>
-      {failure && <p role="alert">N?o foi poss?vel sair. Tente novamente.</p>}
+      {failure && <p role="alert">Não foi possível sair. Tente novamente.</p>}
     </div>
   );
 }
@@ -101,10 +101,11 @@ export function AppShell() {
     if (!menuOpen) return;
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    mainRef.current?.setAttribute("inert", "");
+    const main = mainRef.current;
+    main?.setAttribute("inert", "");
     return () => {
       document.body.style.overflow = oldOverflow;
-      mainRef.current?.removeAttribute("inert");
+      main?.removeAttribute("inert");
     };
   }, [menuOpen]);
   useEffect(() => {
@@ -115,13 +116,13 @@ export function AppShell() {
   }, []);
 
   const groups = [
-    { label: "Espa?o de trabalho", ids: ["overview", "items", "subjects", "requirements", "reviews"] },
-    { label: "Gest?o", ids: ["imports", "document-types", "requirement-templates", "request-delivery", "activity", "reports"] },
-    { label: "Organiza??o", ids: ["members", "notification-preferences", "settings"] },
+    { label: "Espaço de trabalho", ids: ["overview", "items", "subjects", "requirements", "reviews"] },
+    { label: "Gestão", ids: ["imports", "document-types", "requirement-templates", "request-delivery", "activity", "reports"] },
+    { label: "Organização", ids: ["members", "notification-preferences", "settings"] },
   ];
   function navigation(mobile = false) {
-    return <nav className="app-shell__nav" id={mobile ? "mobile-navigation" : undefined} aria-label="Navega??o principal">
-      <NavLink to={orgPath("/overview")} className="app-shell__wordmark"><img src="/brand/omnivence.png" alt="OmniVence ? Gest?o inteligente de vencimentos" /></NavLink>
+    return <nav className="app-shell__nav" id={mobile ? "mobile-navigation" : undefined} aria-label="Navegação principal">
+      <NavLink to={orgPath("/overview")} className="app-shell__wordmark"><img src="/brand/omnivence.png" alt="OmniVence — Gestão inteligente de vencimentos" /></NavLink>
       {mobile && <button className="app-shell__close" aria-label="Fechar menu" onClick={() => setMenuOpen(false)}><X aria-hidden="true" /></button>}
       {groups.map(group => <div className="app-shell__group" key={group.label}>
         <p className="app-shell__group-label">{group.label}</p>
@@ -137,7 +138,7 @@ export function AppShell() {
   }
 
   return <div className="app-shell ov-shell">
-    <a href="#surface-content" className="skip-link">Pular para o conte?do</a>
+    <a href="#surface-content" className="skip-link">Pular para o conteúdo</a>
     <div className="app-shell__desktop-nav">{navigation()}</div>
     <main className="app-shell__main" id="surface-content" tabIndex={-1} ref={mainRef}>
       <button className="app-shell__menu" aria-label="Abrir menu" aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(true)}><Menu aria-hidden="true" /></button>

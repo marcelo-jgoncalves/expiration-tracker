@@ -1,18 +1,18 @@
-﻿# OmniVence — implementação das nove telas
+# OmniVence — implementação das nove telas
 
 Referências: especificações e protótipos em `prototype/novasTelas/`. Commits individuais por tela; testes somente ao final, por instrução de Marcelo em 2026-09-25. Implementação em andamento, ainda sem aceite de validação.
 
 | Tela | Implementação | Validação |
 |---|---|---|
-| Login | 21dd06a2 | Pendente rodada final |
-| Visão geral e shell | Implementados sobre APIs existentes | Pendente rodada final |
-| Vencimentos | Em andamento | Pendente |
-| Novo vencimento | Pendente | Pendente |
-| Fornecedores | Pendente | Pendente |
-| Notificações | Pendente | Pendente |
-| Configurações | Pendente | Pendente |
-| Membros | Pendente | Pendente |
-| Atividade | Pendente | Pendente |
+| Login | 21dd06a2 | Em validação |
+| Visão geral e shell | 56a6b952 | Em validação |
+| Vencimentos | 9983c776 | Em validação |
+| Novo vencimento | 7273e5f2 | Em validação |
+| Fornecedores | adc9b7a3 | Em validação |
+| Notificações | 496fb3d4 | Em validação |
+| Configurações | 14a7aff9 | Em validação |
+| Membros | 65e9e2a0 | Em validação |
+| Atividade | e86e8aef | Em validação |
 
 ## Diferenças de contrato a resolver
 
@@ -44,3 +44,12 @@ Referências: especificações e protótipos em `prototype/novasTelas/`. Commits
 - API consulta um mês UTC por vez, padrão mês atual (`YYYYMM`). Não existe consulta de todos os meses, intervalo civil organizacional ou filtro por ator. Interface mantém mês explícito, campo de pessoa indisponível e aviso; não disfarça o mês atual como todos os meses. Contrato transversal depende de decisão de arquitetura.
 - Identidade vem do diretório autorizado de membros, em uma consulta, identificada como perfil atual. Para atores ausentes, mantém ID e informa indisponibilidade de nome/e-mail; snapshots históricos ainda não existem.
 - API oferece cursor sem total. Mantidos carregamento incremental real e contagem carregada; total e paginação numerada aguardam contrato. ID de recurso tem correspondência exata.
+
+
+## Validação em andamento — 2026-09-25
+
+- Frontend: `npm run typecheck` e `npm run lint` verdes após correções de tipos, fechamento de referências e acentuação.
+- Primeira execução de `npm test`: 381 testes passaram, 87 falharam (11 arquivos). Resultado anterior às correções finais; é necessário revisar expectativas antigas e regressões reais, corrigir e repetir a suíte. Nenhuma tela recebeu aceite final.
+- Pendente: testes de regressão das nove telas, build, validação visual desktop/mobile e acessibilidade. A implementação continua em andamento.
+- Configurações: serviço não retorna fuso na listagem inicial; não inferir fuso particular da organização. Encerramento usa retenção real de 30 dias, não exclusão imediata.
+- Membros: atribuição direta de Proprietário não é oferecida no formulário de convite/alteração comum, conforme especificação; fluxo próprio de transferência permanece pendente.

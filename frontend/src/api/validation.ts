@@ -140,10 +140,10 @@ export function validateCreateItemDraft(draft: CreateItemDraft): FieldErrors {
   }
 
   if (!isCivilDate(draft.dueDate)) {
-    fields["dueDate"] = "Informe uma data v?lida.";
+    fields["dueDate"] = "Informe uma data válida.";
   }
   if (draft.issueDate && !isCivilDate(draft.issueDate)) {
-    fields["issueDate"] = "Informe uma data de emiss?o v?lida.";
+    fields["issueDate"] = "Informe uma data de emissão válida.";
   }
 
   if (draft.description.length > MAX_LENGTH.description) {

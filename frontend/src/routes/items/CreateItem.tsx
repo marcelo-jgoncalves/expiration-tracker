@@ -59,7 +59,7 @@ export function CreateItem() {
   const [saved, setSaved] = useState(false);
   const members = useMembers();
   const role = useCurrentMembershipRole();
-  useEffect(() => { document.title = "Novo vencimento ? OmniVence"; }, []);
+  useEffect(() => { document.title = "Novo vencimento · OmniVence"; }, []);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
   const mutation = useCreateItem();
@@ -76,7 +76,7 @@ export function CreateItem() {
     const clientErrors = validateCreateItemDraft(draft);
     if (Object.keys(clientErrors.fields).length > 0) {
       setFieldErrors(clientErrors.fields);
-      setGeneralErrors(["Preencha os campos obrigat?rios para continuar."]);
+      setGeneralErrors(["Preencha os campos obrigatórios para continuar."]);
       document.getElementById(fieldId(Object.keys(clientErrors.fields)[0]!))?.focus();
       return;
     }
@@ -120,7 +120,7 @@ export function CreateItem() {
         <Panel padded>
           <Section heading="O essencial" headingId="create-item-essential" description="O que é, de que tipo é, e quando vence." icon={Plus}>
             <div className="create-item__grid">
-              <TextField id={fieldId("name")} label="Nome" placeholder="Ex.: Licen?a Ambiental ? Unidade Norte" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
+              <TextField id={fieldId("name")} label="Nome" placeholder="Ex.: Licença Ambiental — Unidade Norte" value={draft.name} onChange={(value) => setField("name", value)} error={fieldErrors["name"]} required maxLength={200} />
               <TextField
                 id={fieldId("category")}
                 label="Categoria"
@@ -175,9 +175,9 @@ export function CreateItem() {
                 error={fieldErrors["issueDate"]}
               />
               <div>
-                <SelectField id={fieldId("assigneeUserId")} label="Respons?vel" value={draft.assigneeUserId} onChange={value => setField("assigneeUserId", value)} disabled={members.isPending || members.isError}
-                  options={[{ value: "", label: members.isPending ? "Carregando membros?" : "Selecione, se aplic?vel" }, ...(members.data?.members.filter(member => member.status === "ACTIVE").map(member => ({ value: member.userId, label: member.displayName || member.email || member.userId })) ?? [])]} />
-                {members.isError && <p role="alert">N?o foi poss?vel carregar os respons?veis. <button type="button" onClick={() => void members.refetch()}>Tentar novamente</button></p>}
+                <SelectField id={fieldId("assigneeUserId")} label="Responsável" value={draft.assigneeUserId} onChange={value => setField("assigneeUserId", value)} disabled={members.isPending || members.isError}
+                  options={[{ value: "", label: members.isPending ? "Carregando membros…" : "Selecione, se aplicável" }, ...(members.data?.members.filter(member => member.status === "ACTIVE").map(member => ({ value: member.userId, label: member.displayName || member.email || member.userId })) ?? [])]} />
+                {members.isError && <p role="alert">Não foi possível carregar os responsáveis. <button type="button" onClick={() => void members.refetch()}>Tentar novamente</button></p>}
                 {fieldErrors["assigneeUserId"] && <p role="alert">{fieldErrors["assigneeUserId"]}</p>}
               </div>
               <TextField id={fieldId("priority")} label="Prioridade" value={draft.priority} onChange={(value) => setField("priority", value)} error={fieldErrors["priority"]} maxLength={50} />

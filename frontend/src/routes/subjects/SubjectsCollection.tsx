@@ -40,7 +40,7 @@ export function SubjectsCollection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchTerm = searchParams.get("search") ?? "";
   function setSearchTerm(value: string) { setSearchParams(previous => { const params = new URLSearchParams(previous); params.set("search", value); return params; }, { replace: true }); }
-  useEffect(() => { document.title = "Fornecedores ? OmniVence"; }, []);
+  useEffect(() => { document.title = "Fornecedores · OmniVence"; }, []);
   const statusParam = searchParams.get("status");
   const status: TrackedSubjectStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
   const query = useSubjectsDashboard(status);
@@ -89,9 +89,9 @@ export function SubjectsCollection() {
         description="Terceiros que precisam manter documentação em dia com você."
         actions={canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
       />
-      <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um s? lugar." description="Encontre rapidamente quem precisa da sua aten??o e mantenha cada cadastro organizado."
+      <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um s? lugar." description="Encontre rapidamente quem precisa da sua atenção e mantenha cada cadastro organizado."
         summary={<><strong>{activeQuery.data?.subjects.length.toLocaleString("pt-BR") ?? "?"}</strong><span>cadastros ativos carregados</span></>} />
-      <div className="ov-subjects-heading"><div><h2>Seus cadastros</h2><p>Consulte e gerencie os registros da sua organiza??o.</p></div>
+      <div className="ov-subjects-heading"><div><h2>Seus cadastros</h2><p>Consulte e gerencie os registros da sua organização.</p></div>
       <Toolbar>
         <StatusFilter options={STATUS_TABS.map(tab => ({ ...tab, label: tab.label + ((tab.value === "ACTIVE" ? activeQuery.data : archivedQuery.data) ? " (" + (tab.value === "ACTIVE" ? activeQuery.data : archivedQuery.data)!.subjects.length + " carregados)" : "") }))} value={status} onChange={selectStatus} />
         <div className="subjects-search">
@@ -116,7 +116,7 @@ export function SubjectsCollection() {
             columns={[
               {
                 key: "name",
-                header: "Organiza??o",
+                header: "Organização",
                 primary: true,
                 render: (s) => (
                   <>
@@ -139,7 +139,7 @@ export function SubjectsCollection() {
               },
             ]}
           />
-          <p className="ov-subjects-footer" aria-live="polite">{filtered.length} {filtered.length === 1 ? "cadastro" : "cadastros"} nesta visualiza??o</p>
+          <p className="ov-subjects-footer" aria-live="polite">{filtered.length} {filtered.length === 1 ? "cadastro" : "cadastros"} nesta visualização</p>
         </Panel>
       )}
     </div>
@@ -163,7 +163,7 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
       else await deleteMutation.mutateAsync({ expectedVersion: subject.version });
       setAction(undefined);
     } catch (error) {
-      setFailure(isConflict(error) ? "Este cadastro foi alterado. Atualize a lista antes de tentar novamente." : error instanceof ApiError && error.category === "BUSINESS_RULE" ? error.message : "N?o foi poss?vel concluir a a??o. Tente novamente.");
+      setFailure(isConflict(error) ? "Este cadastro foi alterado. Atualize a lista antes de tentar novamente." : error instanceof ApiError && error.category === "BUSINESS_RULE" ? error.message : "Não foi possível concluir a ação. Tente novamente.");
     }
   }
 
@@ -172,7 +172,7 @@ function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: Tracke
     {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><FolderArchive size={16} aria-hidden="true" /></IconButton>}
     {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
     {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} onClose={() => { if (!pending) setAction(undefined); }}>
-      <p>{action === "archive" ? `O cadastro de ${subject.displayName} sair? da lista de ativos. O servi?o atual n?o oferece restaura??o.` : `O cadastro de ${subject.displayName} ser? marcado como exclu?do e deixar? de aparecer nas listas. Esta a??o n?o apaga os documentos associados e n?o possui restaura??o nesta interface.`}</p>
+      <p>{action === "archive" ? `O cadastro de ${subject.displayName} sair? da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} ser? marcado como excluído e deixar? de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
       <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
       {action === "delete" && <TextField label="Digite o nome do cadastro para confirmar" value={confirmation} onChange={setConfirmation} />}
       {failure && <p role="alert">{failure}</p>}

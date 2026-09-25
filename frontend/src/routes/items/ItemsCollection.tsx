@@ -105,7 +105,7 @@ export function ItemsCollection() {
   const urgency = searchParams.get("urgency") ?? "";
   const debounced = useDebouncedValue(search);
   const query = useItemSearch(status, debounced, status === "ACTIVE" ? urgency : "");
-  useEffect(() => { document.title = "Vencimentos ? OmniVence"; }, []);
+  useEffect(() => { document.title = "Vencimentos · OmniVence"; }, []);
   // Computed once per render, not re-derived per row - a long-lived tab drifting a few
   // minutes stale between renders is an accepted trade-off (Overview.tsx's existing pattern).
   const now = useMemo(() => new Date(), []);
@@ -127,7 +127,7 @@ export function ItemsCollection() {
         </ButtonLink>
       }
     />
-    <OmniHero icon={CalendarClock} eyebrow="Seu panorama" title="Prazos claros. Pr?ximos passos vis?veis." description="Comece pelo que venceu, acompanhe o que est? chegando e mantenha o hist?rico organizado."
+    <OmniHero icon={CalendarClock} eyebrow="Seu panorama" title="Prazos claros. Próximos passos visíveis." description="Comece pelo que venceu, acompanhe o que está chegando e mantenha o histórico organizado."
       summary={<><strong>{summary.data ? summary.data.activeItemsCount.toLocaleString("pt-BR") : "?"}</strong><span>ativos{summary.data?.approximate ? " (parcial)" : ""}</span></>} />
     </>
   );
@@ -137,7 +137,7 @@ export function ItemsCollection() {
       <StatusFilter options={STATUS_TABS} value={status} onChange={selectStatus} />
       <ToolbarSpacer />
       <input className="ov-items-search" type="search" aria-label="Buscar vencimento" placeholder="Buscar vencimento" value={search} onChange={e => setSearchParams(previous => { const params = new URLSearchParams(previous); params.set("search", e.target.value); return params; }, { replace: true })} />
-      {urgency && <Button size="sm" onClick={() => setSearchParams(previous => { const params = new URLSearchParams(previous); params.delete("urgency"); return params; })}>Limpar filtro de urg?ncia</Button>}
+      {urgency && <Button size="sm" onClick={() => setSearchParams(previous => { const params = new URLSearchParams(previous); params.delete("urgency"); return params; })}>Limpar filtro de urgência</Button>}
       {query.isFetching && !query.isPending && !query.isFetchingNextPage ? <BackgroundRefreshIndicator /> : null}
       <Button variant="secondary" size="sm" icon={RotateCw} disabled={query.isFetching} onClick={() => { void query.refetch(); void summary.refetch(); }}>
         {query.isFetching ? "Atualizando?" : "Atualizar"}
@@ -224,7 +224,7 @@ export function ItemsCollection() {
           rows={groups ? undefined : entries}
           rowKey={(entry) => entry.item.itemId}
         />
-        <p className="ov-items-footer" aria-live="polite">{entries.length.toLocaleString("pt-BR")} {entries.length === 1 ? "registro" : "registros"} nesta visualiza??o</p>
+        <p className="ov-items-footer" aria-live="polite">{entries.length.toLocaleString("pt-BR")} {entries.length === 1 ? "registro" : "registros"} nesta visualização</p>
         {query.hasNextPage ? (
           <Toolbar>
             <ToolbarSpacer />

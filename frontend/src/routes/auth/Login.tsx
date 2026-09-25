@@ -7,7 +7,7 @@ import { InitialLoading } from "../../components/AsyncStates.js";
 import "./Login.css";
 
 export function safeLoginDestination(path: string | null): string {
-  if (!path || !path.startsWith("/") || /[\\\u0000-\u0020]/.test(path) || path.startsWith("//")) return "/dashboard";
+  if (!path || !path.startsWith("/") || (path.includes("\\") || [...path].some(char => char.charCodeAt(0) <= 32)) || path.startsWith("//")) return "/dashboard";
   const url = new URL(path, window.location.origin);
   return url.origin === window.location.origin && url.pathname !== "/login" ? path : "/dashboard";
 }
@@ -69,7 +69,7 @@ export function Login() {
         submitting.current = false;
         login.reset();
       },
-      onSuccess: () => { setPassword(""); },
+      onSuccess: () => { setPassword(""); submitting.current = false; login.reset(); },
     });
   }
 
