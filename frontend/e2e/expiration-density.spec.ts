@@ -53,24 +53,44 @@ async function freezeClock(page: Page) {
 /**
  * D-136/D-E: the real backend paginates via opaque `nextCursor` (base64url-encoded DynamoDB
  * key at the HTTP edge - see item-handlers.ts). The mock here does not need to reproduce that
- * encoding - it only needs to exercise the SAME client contract (`nextCursor: string | null`,
- * `?cursor=` round-tripped verbatim) so ItemsCollection's real `useItemsDashboardPage` /
+ * encoding - it only needs to exercise the SAME client contract (`cursor: string | null`,
+ * `?cursor=` round-tripped verbatim) so ItemsCollection's real `useItemSearch` /
  * "Carregar mais" pagination is what is under test, not a single unbounded response.
+ *
+ * OmniVence redesign: the Collection moved off `/items/dashboard` onto `/items/search`
+ * (paginated list, `{ items: [{ kind, item }], cursor, scanLimitReached }`) + `/dashboard/summary`
+ * (the hero panel's counter) - see hooks/useItemSearch.ts and hooks/useItemsDashboard.ts.
  */
 async function setup(page: Page, count: number, options?: { pageSize?: number }) {
   await freezeClock(page);
   const items = stressItems(count);
   const pageSize = options?.pageSize ?? count;
   await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
-  await page.route("**/bff/api/items/dashboard**", (route) => {
+  await page.route("**/bff/api/items/search**", (route) => {
     const url = new URL(route.request().url());
     const cursor = url.searchParams.get("cursor");
     const startIndex = cursor ? Number(cursor) : 0;
     const pageItems = items.slice(startIndex, startIndex + pageSize);
     const nextIndex = startIndex + pageSize;
     const nextCursor = nextIndex < items.length ? String(nextIndex) : null;
-    void route.fulfill({ json: { items: pageItems, nextCursor } });
+    void route.fulfill({ json: { items: pageItems.map((item) => ({ kind: "EXPIRATION_ITEM", item })), cursor: nextCursor, scanLimitReached: false } });
   });
+  await page.route("**/bff/api/dashboard/summary**", (route) =>
+    route.fulfill({
+      json: {
+        summary: {
+          overdueCount: 0,
+          expiringSoonCount: 0,
+          awaitingReviewCount: 0,
+          missingRequirementsCount: 0,
+          itemsOverdueCount: 0,
+          itemsExpiringSoonCount: 0,
+          activeItemsCount: count,
+          approximate: false,
+        },
+      },
+    }),
+  );
 }
 
 test("DENSITY-01: 140 items render as one semantic table, grouped by urgency, most urgent first", async ({ page }) => {

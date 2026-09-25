@@ -13,8 +13,12 @@ function mockSession(page: Page, session: { authenticated: boolean; activeOrgani
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
-function mockDashboard(page: Page, items: unknown[]) {
-  return page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items } }));
+// OmniVence redesign: the Collection moved off `/items/dashboard` onto `/items/search` - see
+// hooks/useItemSearch.ts.
+function mockDashboard(page: Page, items: { itemId: string }[]) {
+  return page.route("**/bff/api/items/search**", (route) =>
+    route.fulfill({ json: { items: items.map((item) => ({ kind: "EXPIRATION_ITEM", item })), cursor: null, scanLimitReached: false } }),
+  );
 }
 
 function activeItem(overrides: Record<string, unknown> = {}) {
@@ -43,7 +47,9 @@ test("E2E-01: login -> collection -> open detail", async ({ page }) => {
 
   await page.goto("/items");
   await expect(page.getByRole("heading", { name: "Vencimentos" })).toBeVisible();
-  await page.getByRole("link", { name: "Apólice de Seguro" }).click();
+  // exact: true - the redesigned row also carries a "Renovar Apólice de Seguro, ..." quick-action
+  // link whose accessible name otherwise substring-matches the record's own link too.
+  await page.getByRole("link", { name: "Apólice de Seguro", exact: true }).click();
 
   await expect(page).toHaveURL(/\/items\/item-1$/);
   await expect(page.getByRole("heading", { name: "Apólice de Seguro" })).toBeVisible();
