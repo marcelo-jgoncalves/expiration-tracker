@@ -1,50 +1,18 @@
-/**
- * A23 — Log de auditoria (Block 10, D-2xx). Convergence pass over the pre-existing minimal
- * `ActivityLog` (D-149) toward the audited spec (`A23-log-auditoria.md`), not first authorship —
- * `activity:read`, ADMIN_ROLES, same tier/gate as before, untouched.
- *
- * REAL deviations from the spec, confirmed directly against `activity-service.ts`'s
- * `ListActivityQuery` before changing anything (never guessed): the backend supports only
- * `month`/`resourceType` filters (both already real, kept as-is) — there is NO actor filter, NO
- * action filter, and NO arbitrary date-range filter, despite the spec naming all four. The spec
- * itself already names this ("não modelado em detalhe neste protótipo") — cursor-based pagination
- * (mandatory per the spec) was already real and is unchanged. Resource entries render as plain
- * text (resourceType + resourceId), never a link to a detail screen — this app has no generic
- * resource-detail routing keyed by an arbitrary resourceType (confirmed: `Members.tsx` itself only
- * ever shows a raw `userId`, never a resolved display name, for exactly the same reason) — this is
- * a real, out-of-scope gap, not a mechanical omission.
- *
- * What actually changed in this pass: prose-line rendering became a real `DataTable` (Ator/Ação/
- * Recurso/Quando columns, per spec), the action code renders in `<code>`, "Carregar mais" now
- * turns into static "Todos os eventos foram carregados." text once the feed is exhausted (focus
- * moves there so it's never silently lost), and a new page's arrival is announced with its own
- * delta count via `aria-live`.
- *
- * Codex review round (Block 10) findings, fixed:
- *  - A `fetchNextPage()` failure used to blank the ENTIRE already-loaded table (checked the
- *    infinite query's overall `isError`, which TanStack Query v5 also sets for a next-page
- *    failure while still preserving `data`) — now only a genuine INITIAL-load failure
- *    (`isLoadingError`) replaces the page; a next-page failure keeps every already-loaded row
- *    visible and surfaces an inline, dismissable-by-retry notice instead (matches the spec's own
- *    "não perde as linhas já carregadas" requirement exactly).
- *  - "Usuário removido" claimed a specific cause (account deletion) the data can't actually prove
- *    - the real event contract requires `userId` for a USER actor even after removal, so a
- *      missing `userId` only ever happens for malformed/legacy data, never a real removed
- *      account. Reworded to the honest "Usuário não identificado".
- */
-import { useEffect, useRef, useState, type FormEvent } from "react";
+﻿import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Filter, RefreshCw, Search, RotateCcw, User, Cog, FileText } from "lucide-react";
+import { History, Filter, RefreshCw, Search, RotateCcw, User, Cog, FileText } from "lucide-react";
+import { OmniHero } from "../components/OmniHero.js";
+import { useMembers } from "../hooks/useMembers.js";
+import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 import { useActivity } from "../hooks/useActivity.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { ApiError } from "../api/errors.js";
-import type { ActivityEntry, MembershipRole } from "../api/types.js";
+import type { ActivityEntry, Member, MembershipRole } from "../api/types.js";
 import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { PageHeader, Panel, Section, Toolbar, ToolbarSpacer } from "../components/ui/Layout.js";
 import { DataTable, CellSecondary, type DataTableColumn } from "../components/ui/DataTable.js";
 import { Button } from "../components/ui/Button.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { TextField } from "../components/forms/TextField.js";
 import "./ActivityLog.css";
 
 /** ADMIN/OWNER only - mirrors the backend's ADMIN_ROLES tier for `activity:read`
@@ -53,49 +21,36 @@ function canViewActivity(role: MembershipRole | undefined): boolean {
   return role === "ADMIN" || role === "OWNER";
 }
 
-function actorLabel(entry: ActivityEntry): string {
-  if (entry.actor.type === "SYSTEM") return "O sistema";
-  // The real event contract requires `userId` on every USER actor, even after the account is
-  // later removed (confirmed against the backend's own event type) - a missing value here can
-  // only come from malformed/legacy data, never a genuine "account was removed" signal. Never
-  // claim a specific cause the data can't prove.
-  return entry.actor.userId ?? "Usuário não identificado";
+const RESOURCE_LABELS: Record<string, string> = {
+  ExpirationItem: "Vencimento", TrackedSubject: "Fornecedor", Membership: "Membro",
+  Invitation: "Convite", Tenant: "Organização", RequirementAssignment: "Exigência",
+  DocumentRequest: "Solicitação de documento", DocumentRequestDeliveryPreference: "Entrega de documentos",
+  ExpirationExport: "Exportação de vencimentos",
+};
+const ACTION_LABELS: Record<string, string> = {
+  CREATE: "Criou registro", UPDATE: "Atualizou registro", DELETE: "Excluiu registro", ARCHIVE: "Arquivou registro",
+  RENEW: "Renovou vencimento", ROLE_CHANGED: "Alterou acesso de membro", MEMBER_REMOVED: "Removeu membro",
+  MEMBER_LEFT: "Saiu da organização", INVITATION_CREATED: "Criou convite", INVITATION_REVOKED: "Cancelou convite",
+  INVITATION_ACCEPTED: "Aceitou convite", ASSIGN_REQUIREMENT: "Atribuiu exigência", LINK_ITEM: "Vinculou vencimento",
+  UNLINK_ITEM: "Desvinculou vencimento", DELETE_REQUIREMENT: "Excluiu exigência", EXPORT: "Exportou vencimentos",
+};
+function ActionBadge({ entry }: { entry: ActivityEntry }) {
+  const verb = ({ CREATE: "Criou", UPDATE: "Atualizou", DELETE: "Excluiu", ARCHIVE: "Arquivou" } as Record<string, string>)[entry.action];
+  const resource = RESOURCE_LABELS[entry.resourceType];
+  return <span className="activity-action" title={entry.action}>{verb && resource ? `${verb} ${resource.toLocaleLowerCase("pt-BR")}` : ACTION_LABELS[entry.action] ?? "Registrou uma ação"}</span>;
 }
-
-/** `entry.action` is a free-form verb (`CREATE_ITEM`, `ROLE_CHANGED`, `SEND`, `RECONCILE_
- * UNKNOWN`…, confirmed against every real `action:` literal in `src/modules/**`) - there is no
- * closed CREATE/UPDATE/DELETE enum this domain actually emits, so a tone is only ever assigned
- * from a prefix/substring match that genuinely signals create/update/delete-like semantics;
- * everything else stays neutral rather than guessing a color the verb doesn't support (same
- * "never a stronger claim than the data proves" discipline as `StatusBadge.tsx`'s own header
- * comment - this is a local, scoped-to-this-screen heuristic, deliberately not routed through
- * `StatusBadge`/`presentation.ts`'s domain-state tone system, which is a different claim
- * entirely). */
-function actionTone(action: string): "success" | "info" | "critical" | "neutral" {
-  if (action.startsWith("CREATE") || action === "SEND" || action === "PROMOTE") return "success";
-  if (action.startsWith("DELETE") || action.includes("REMOVE") || action.includes("REVOKE") || action.includes("REJECT")) return "critical";
-  if (action.startsWith("UPDATE") || action.includes("CHANGE") || action.includes("ROLE_CHANGED") || action.startsWith("RENEW") || action.startsWith("ASSIGN") || action.startsWith("LINK") || action.startsWith("UNLINK")) return "info";
-  return "neutral";
-}
-
-function ActionBadge({ action }: { action: string }) {
-  return (
-    <code className={`activity-action activity-action--${actionTone(action)}`} title={action}>
-      {action}
-    </code>
-  );
-}
-
-function ActorCell({ entry }: { entry: ActivityEntry }) {
-  const Icon = entry.actor.type === "SYSTEM" ? Cog : User;
-  return (
-    <div className="activity-actor">
-      <span className={`activity-actor__avatar activity-actor__avatar--${entry.actor.type === "SYSTEM" ? "system" : "user"}`} aria-hidden="true">
-        <Icon size={16} strokeWidth={2} />
-      </span>
-      {actorLabel(entry)}
+function ActorCell({ entry, members }: { entry: ActivityEntry; members: Member[] }) {
+  const system = entry.actor.type === "SYSTEM";
+  const member = system ? undefined : members.find(candidate => candidate.userId === entry.actor.userId);
+  const Icon = system ? Cog : User;
+  return <div className="activity-actor">
+    <span className="activity-actor__avatar" aria-hidden="true"><Icon size={16} /></span>
+    <div><strong>{system ? "Sistema" : member?.displayName || "Usuário não disponível"}</strong>
+      <span>{system ? "Sem e-mail de usuário" : member?.email || "E-mail indisponível"}</span>
+      <small>{entry.actor.userId ? `ID: ${entry.actor.userId}` : "ID indisponível"}</small>
+      {member && <small>Perfil atual</small>}
     </div>
-  );
+  </div>;
 }
 
 function ResourceCell({ entry }: { entry: ActivityEntry }) {
@@ -105,7 +60,7 @@ function ResourceCell({ entry }: { entry: ActivityEntry }) {
         <FileText size={15} strokeWidth={2} />
       </span>
       <div>
-        <div>{entry.resourceType}</div>
+        <div>{RESOURCE_LABELS[entry.resourceType] ?? "Outro recurso"}</div>
         {entry.resourceId ? <CellSecondary>{entry.resourceId}</CellSecondary> : null}
       </div>
     </div>
@@ -113,6 +68,14 @@ function ResourceCell({ entry }: { entry: ActivityEntry }) {
 }
 
 export function ActivityLog() {
+  const { organizationId } = useActiveOrganization();
+  const role = useCurrentMembershipRole();
+  useEffect(() => { document.title = "Atividade · OmniVence"; }, []);
+  if (role !== "ADMIN" && role !== "OWNER") return <><PageHeader title="Atividade" /><EmptyState kind="permission-limited" message="Você não tem permissão para consultar a atividade desta organização." /></>;
+  return <ActivityContent key={organizationId} />;
+}
+function ActivityContent() {
+  const members = useMembers();
   const role = useCurrentMembershipRole();
   const [searchParams] = useSearchParams();
   // #16 finding (2026-09-20): entry points like ItemDetail's "Histórico de auditoria" card link
@@ -124,10 +87,11 @@ export function ActivityLog() {
   // `expiration-tracker-log-atividade(1).html`, Marcelo 2026-09-22): every keystroke used to
   // re-fire GET /activity immediately (no debounce) - an explicit "Aplicar filtros" avoids a
   // network round-trip per character typed into "Recurso (ID)".
-  const [draftMonth, setDraftMonth] = useState("");
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [draftMonth, setDraftMonth] = useState(currentMonth);
   const [draftResourceType, setDraftResourceType] = useState("");
   const [draftResourceId, setDraftResourceId] = useState(seededResourceId);
-  const [month, setMonth] = useState("");
+  const [month, setMonth] = useState(currentMonth);
   const [resourceType, setResourceType] = useState("");
   const [resourceId, setResourceId] = useState(seededResourceId);
   const [announcement, setAnnouncement] = useState("");
@@ -137,16 +101,16 @@ export function ActivityLog() {
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMonth(draftMonth);
+    setMonth(draftMonth || currentMonth);
     setResourceType(draftResourceType);
     setResourceId(draftResourceId);
   }
 
   function clearFilters() {
-    setDraftMonth("");
+    setDraftMonth(currentMonth);
     setDraftResourceType("");
     setDraftResourceId("");
-    setMonth("");
+    setMonth(currentMonth);
     setResourceType("");
     setResourceId("");
   }
@@ -160,7 +124,7 @@ export function ActivityLog() {
 
   const query = useActivity({ month: monthFilter, resourceType: resourceTypeFilter, resourceId: resourceIdFilter, enabled: canViewActivity(role) });
 
-  const header = <PageHeader title="Log de atividade" description="Quem fez o quê, quando — em toda a organização." />;
+  const header = <><PageHeader above={<span className="ov-eyebrow">RASTREABILIDADE DA ORGANIZAÇÃO</span>} title="Atividade" description="Saiba quem realizou cada ação, em qual recurso e quando aconteceu." /><OmniHero icon={History} eyebrow="HISTÓRICO DE AÇÕES" title="Clareza em cada mudança." description="Consulte os registros da organização com identificação completa de quem executou cada ação." /></>;
 
   const pageCount = query.data?.pages.length ?? 0;
   useEffect(() => {
@@ -217,41 +181,37 @@ export function ActivityLog() {
   const entries = query.data.pages.flatMap((page) => page.entries);
 
   const columns: DataTableColumn<ActivityEntry>[] = [
-    { key: "actor", header: "Ator", primary: true, render: (e) => <ActorCell entry={e} /> },
-    { key: "action", header: "Ação", render: (e) => <ActionBadge action={e.action} /> },
+    { key: "actor", header: "Quem executou", primary: true, render: (e) => <ActorCell entry={e} members={members.data?.members ?? []} /> },
+    { key: "action", header: "Ação", render: (e) => <ActionBadge entry={e} /> },
     { key: "resource", header: "Recurso", render: (e) => <ResourceCell entry={e} /> },
-    { key: "occurredAt", header: "Quando", numeric: true, render: (e) => new Date(e.occurredAt).toLocaleString("pt-BR") },
+    { key: "occurredAt", header: "Quando", numeric: true, render: (e) => <div className="activity-date"><strong>{new Date(e.occurredAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}</strong><span>às {new Date(e.occurredAt).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })}</span></div> },
   ];
 
   return (
     <>
       {header}
-      <Section heading="Filtros" headingId="activity-filters" icon={Filter}>
+      <Section heading="Encontre um evento" description="Combine os filtros para localizar uma alteração específica." headingId="activity-filters" icon={Filter}>
         <Panel padded>
           <form className="ui-form" onSubmit={applyFilters}>
             <div className="activity-filters__grid">
-              <TextField id="activity-filter-month" label="Mês" type="month" value={draftMonth} onChange={setDraftMonth} hint="Vazio usa o mês atual." />
-              <TextField id="activity-filter-resource-type" label="Tipo de recurso" value={draftResourceType} onChange={setDraftResourceType} hint="Ex.: ExpirationItem. Vazio mostra todos." />
-              <TextField
-                id="activity-filter-resource-id"
-                label="Recurso (ID)"
-                value={draftResourceId}
-                onChange={setDraftResourceId}
-                hint="Ex.: o ID de um vencimento específico. Vazio mostra todos."
-              />
+              <label className="activity-filter"><span>Mês</span><input aria-label="Mês" type="month" required value={draftMonth} onChange={event => setDraftMonth(event.target.value)} /></label>
+              <label className="activity-filter"><span>Pessoa, e-mail ou ID do usuário</span><input disabled placeholder="Busca por pessoa indisponível" aria-describedby="activity-limitations" /></label>
+              <label className="activity-filter"><span>Tipo de recurso</span><select value={draftResourceType} onChange={event => setDraftResourceType(event.target.value)}><option value="">Todos os recursos</option>{Object.entries(RESOURCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label className="activity-filter"><span>ID do recurso</span><input placeholder="Ex.: item_01…" value={draftResourceId} onChange={event => setDraftResourceId(event.target.value)} /></label>
             </div>
+            <p id="activity-limitations" className="activity-limitations">Consulta por mês. A busca em todos os meses e por pessoa ainda não está disponível. O ID do recurso deve ser completo.</p>
             <div className="ui-form__actions">
               <Button type="submit" variant="primary" icon={Search}>
                 Aplicar filtros
               </Button>
               <Button type="button" variant="secondary" icon={RotateCcw} onClick={clearFilters}>
-                Limpar
+                Limpar filtros
               </Button>
             </div>
           </form>
         </Panel>
       </Section>
-      <Section heading="Eventos" headingId="activity-events" annotation={`(${entries.length})`}>
+      <Section heading="Eventos" headingId="activity-events" description="Do mais recente para o mais antigo." annotation={`(${entries.length} carregados)`}>
         <Panel>
           <Toolbar>
             <ToolbarSpacer />
@@ -260,7 +220,7 @@ export function ActivityLog() {
             </Button>
           </Toolbar>
           {entries.length === 0 ? (
-            <EmptyState kind="true-empty" message="Nenhum evento registrado ainda." />
+            <EmptyState kind="true-empty" message="Nenhum evento encontrado nesta consulta. Revise os filtros ou carregue a próxima página, se disponível." />
           ) : (
             <DataTable caption="Eventos de atividade" columns={columns} rows={entries} rowKey={(e) => e.auditEventId} />
           )}
@@ -286,3 +246,4 @@ export function ActivityLog() {
     </>
   );
 }
+

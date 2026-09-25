@@ -38,3 +38,9 @@ Referências: especificações e protótipos em `prototype/novasTelas/`. Commits
 - A verificação WhatsApp existente registra opt-in automaticamente; a especificação exige verificação independente de adesão. Campo/botão ficam indisponíveis até separar essas operações e expor disponibilidade do serviço. Não há confirmação demonstrativa nem chamada de adesão implícita.
 - E-mail salvo desativado não informa se houve supressão SES por reclamação. Desativação pessoal oferecida; reativação de uma preferência já desativada permanece indisponível até existir distinção de supressão no serviço.
 - Worker M4 tem perda conhecida de lembretes em quiet hours (item 27 do handoff); o reskin não resolve a fila. Aceite funcional completo depende dessa correção.
+
+## Atividade — diferenças confirmadas
+
+- API consulta um mês UTC por vez, padrão mês atual (`YYYYMM`). Não existe consulta de todos os meses, intervalo civil organizacional ou filtro por ator. Interface mantém mês explícito, campo de pessoa indisponível e aviso; não disfarça o mês atual como todos os meses. Contrato transversal depende de decisão de arquitetura.
+- Identidade vem do diretório autorizado de membros, em uma consulta, identificada como perfil atual. Para atores ausentes, mantém ID e informa indisponibilidade de nome/e-mail; snapshots históricos ainda não existem.
+- API oferece cursor sem total. Mantidos carregamento incremental real e contagem carregada; total e paginação numerada aguardam contrato. ID de recurso tem correspondência exata.

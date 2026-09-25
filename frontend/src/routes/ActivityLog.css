@@ -1,27 +1,16 @@
-/* Filters grid (Marcelo 2026-09-22): Mês/Tipo de recurso/Recurso (ID) all in a single row on
-   desktop - scoped to this screen, same pattern as `CreateItem.css`/`SubjectForm.css`. */
-.activity-filters__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 var(--space-6);
-}
-
-.activity-filters__grid > .ui-field {
-  margin-bottom: var(--space-6);
-}
-
-.activity-filters__grid > .ui-field:last-child {
-  margin-bottom: 0;
-}
-
-@media (max-width: 900px) {
-  .activity-filters__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 700px) {
-  .activity-filters__grid {
-    grid-template-columns: 1fr;
-  }
-}
+﻿.activity-filters__grid{display:grid;grid-template-columns:minmax(150px,.75fr) minmax(210px,1.25fr) minmax(165px,.85fr) minmax(180px,1fr);gap:14px}
+.activity-filter{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:11px;font-weight:700;color:#55507a}
+.activity-filter>span{height:30px;display:flex;align-items:center}
+.activity-filter input,.activity-filter select{box-sizing:border-box;width:100%;height:41px;min-width:0;border:1px solid #e8e4f1;border-radius:8px;background:white;padding:0 11px;font:inherit;color:#14121f}
+.activity-filter input:focus-visible,.activity-filter select:focus-visible{outline:3px solid #a78bfa;outline-offset:2px}
+.activity-filter input:disabled{background:#f8f7fc;color:#55507a}
+.activity-limitations{font-size:11px;color:#55507a;line-height:1.7}
+.activity-actor,.activity-resource{display:flex;align-items:flex-start;gap:12px;min-width:0;overflow-wrap:anywhere}
+.activity-actor__avatar{display:grid;place-items:center;width:37px;height:37px;flex-shrink:0;background:#f1eafb;color:#4c1d95;border-radius:11px}
+.activity-actor>div,.activity-date{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px}
+.activity-actor span:not(.activity-actor__avatar),.activity-date span{font-size:10px;color:#55507a}
+.activity-actor small{font-size:9px;color:#55507a;overflow-wrap:anywhere}
+.activity-action{font-size:11px;font-weight:800;color:#4c1d95;overflow-wrap:anywhere}
+.activity-resource{font-size:11px}
+@media(max-width:1250px){.activity-filters__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.activity-filters__grid{grid-template-columns:1fr}.activity-filter>span{height:auto}}
