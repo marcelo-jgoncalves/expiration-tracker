@@ -1,85 +1,117 @@
-/**
- * D-3xx (reversal of D-320) - the app's own login screen, replacing the redirect to Cognito's
- * Hosted UI/Managed Login as the frontend's real entry point (Marcelo chose visual fidelity
- * with the rest of the v2 design system over the Hosted UI's lower-effort/lower-risk path - see
- * decisions-log.md D-3xx). Same design-system components/tokens (Panel, TextField, Button,
- * violet accent, Plus Jakarta Sans, Lucide icons) as every other screen - no bespoke "auth
- * layout" invented, matching Onboarding.tsx/AcceptInvitation.tsx's own precedent of rendering
- * directly (no AppShell) outside the authenticated tree.
- *
- * Public route (App.tsx) - redirects an already-AUTHENTICATED visitor away rather than showing
- * a login form to someone who doesn't need one.
- */
-import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { LogIn } from "lucide-react";
+﻿import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext.js";
 import { useLogin } from "../../hooks/useAuthActions.js";
-import { PageHeader, Panel } from "../../components/ui/Layout.js";
-import { Button } from "../../components/ui/Button.js";
-import { Link } from "../../components/ui/Link.js";
-import { TextField } from "../../components/forms/TextField.js";
-import { InlineNotice } from "../../components/ui/InlineNotice.js";
-import "./Auth.css";
+import { ApiError } from "../../api/errors.js";
+import { InitialLoading } from "../../components/AsyncStates.js";
+import "./Login.css";
 
-function isSafeReturnTo(path: string | null): path is string {
-  return Boolean(path) && path!.startsWith("/") && !path!.startsWith("//") && !path!.includes("://");
+export function safeLoginDestination(path: string | null): string {
+  if (!path || !path.startsWith("/") || /[\\\u0000-\u0020]/.test(path) || path.startsWith("//")) return "/dashboard";
+  const url = new URL(path, window.location.origin);
+  return url.origin === window.location.origin && url.pathname !== "/login" ? path : "/dashboard";
+}
+
+export function loginErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 429) return "Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.";
+    if (error.category === "NETWORK") return "Não foi possível conectar. Verifique sua conexão e tente novamente.";
+    if (error.status === 401 || error.category === "AUTH") return "Não foi possível entrar. Confira seus dados e tente novamente.";
+  }
+  return "O acesso está temporariamente indisponível. Tente novamente em alguns instantes.";
 }
 
 export function Login() {
   const { state } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const returnTo = isSafeReturnTo(searchParams.get("returnTo")) ? searchParams.get("returnTo")! : "/overview";
+  const [params] = useSearchParams();
+  const destination = safeLoginDestination(params.get("returnTo"));
   const login = useLogin();
-
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const submitting = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState(false);
+  const [error, setError] = useState("");
+  const [invalid, setInvalid] = useState<"email" | "password" | null>(null);
 
-  // Real achado de Marcelo, 2026-09-22 ("entro com as credenciais e não acontece nada, fica na
-  // tela"): esse efeito costumava navegar assim que `login.isSuccess` virava true, mas
-  // `useLogin`'s `onSuccess` só DISPARA `invalidateQueries(sessionQueryKey)` - não espera o
-  // refetch resolver. `login.isSuccess` liga bem antes de `AuthContext`'s `sessionQuery` refletir
-  // a sessão nova, então a navegação para `returnTo` acontecia com `state.status` ainda
-  // SESSION_MISSING (dado velho em cache) - `ProtectedRoute` via isso, achava que não estava
-  // autenticado, e chamava `reauthenticate()` de volta para `/login` (um mount novo, sem as
-  // credenciais digitadas, parecendo "travado"). Único gatilho de navegação agora é `state.status
-  // === AUTHENTICATED` (abaixo) - a fonte de verdade real, nunca o retorno otimista da mutation.
+  useEffect(() => { document.title = "Entrar · OmniVence"; }, []);
   useEffect(() => {
-    if (state.status === "AUTHENTICATED") {
-      navigate(returnTo, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- returnTo read fresh only at the moment of the check, not tracked as a reactive dependency.
-  }, [state.status, navigate]);
+    if (state.status === "AUTHENTICATED") navigate(destination, { replace: true });
+  }, [state.status, navigate, destination]);
 
-  function handleSubmit(event: FormEvent) {
+  function submit(event: FormEvent) {
     event.preventDefault();
-    login.mutate({ email, password });
+    if (submitting.current || login.isPending) return;
+    setError("");
+    setInvalid(null);
+    const trimmed = email.trim();
+    setEmail(trimmed);
+    if (emailRef.current) emailRef.current.value = trimmed;
+    if (!trimmed || !emailRef.current?.validity.valid) {
+      setError("Informe um e-mail válido para continuar.");
+      setInvalid("email");
+      emailRef.current?.focus();
+      return;
+    }
+    if (!password) {
+      setError("Informe sua senha para continuar.");
+      setInvalid("password");
+      passwordRef.current?.focus();
+      return;
+    }
+    submitting.current = true;
+    login.mutate({ email: trimmed, password }, {
+      onError: (failure) => {
+        setError(loginErrorMessage(failure));
+        setPassword("");
+        submitting.current = false;
+        login.reset();
+      },
+      onSuccess: () => { setPassword(""); },
+    });
   }
 
-  return (
-    <>
-      <PageHeader title="Entrar" description="Acesse sua conta para continuar." />
-      <Panel padded>
-        <form onSubmit={handleSubmit}>
-          <TextField label="E-mail" type="email" value={email} onChange={setEmail} autoComplete="username" required />
-          <TextField label="Senha" type="password" value={password} onChange={setPassword} autoComplete="current-password" required />
-          <Button type="submit" variant="primary" icon={LogIn} pending={login.isPending}>
-            {login.isPending ? "Entrando…" : "Entrar"}
-          </Button>
-          {login.isError ? (
-            <InlineNotice tone="critical" announce="alert">
-              E-mail ou senha inválidos.
-            </InlineNotice>
-          ) : null}
+  if (state.status === "SESSION_REFRESHING" || state.status === "AUTHENTICATED") return <InitialLoading />;
+
+  return <div className="ov-login-layout">
+    <aside className="ov-login-story" aria-label="Apresentação da OmniVence">
+      <div className="ov-login-story-top">OmniVence</div>
+      <div className="ov-login-story-copy">
+        <span className="ov-login-eyebrow">CONTINUIDADE SOB CONTROLE</span>
+        <h2>Antecipe prazos.<br />Cuide do que vem depois.</h2>
+        <p>Documentos, responsáveis e vencimentos conectados para que sua equipe acompanhe cada pendência até a resolução.</p>
+      </div>
+      <div className="ov-login-story-bottom">Clareza para agir no momento certo.</div>
+    </aside>
+    <main className="ov-login-main">
+      <img className="ov-login-brand" src="/brand/omnivence.png" alt="OmniVence — Gestão inteligente de vencimentos" />
+      <div className="ov-login-form-wrap">
+        <div className="ov-login-intro"><h1>Acesse sua conta</h1><p>Entre para acompanhar prazos e manter tudo em dia.</p></div>
+        {state.status === "SESSION_EXPIRED" && <p role="status">Sua sessão expirou. Entre novamente para continuar.</p>}
+        <form onSubmit={submit} noValidate>
+          {error && <div className="ov-login-alert ov-login-show" role="alert">{error}</div>}
+          <div className="ov-login-field">
+            <label htmlFor="login-email">E-mail</label>
+            <input ref={emailRef} id="login-email" name="email" type="email" inputMode="email" autoComplete="username" placeholder="voce@empresa.com.br" required value={email} onChange={e => { setEmail(e.target.value); if (invalid === "email") setInvalid(null); }} aria-invalid={invalid === "email" || undefined} aria-describedby={invalid === "email" ? "login-email-error" : undefined} />
+            {invalid === "email" && <span id="login-email-error" className="ov-login-field-error">{error}</span>}
+          </div>
+          <div className="ov-login-field">
+            <label htmlFor="login-password">Senha</label>
+            <div className="ov-login-password">
+              <input ref={passwordRef} id="login-password" name="password" type={visible ? "text" : "password"} autoComplete="current-password" placeholder="Digite sua senha" required value={password} onChange={e => { setPassword(e.target.value); if (invalid === "password") setInvalid(null); }} aria-invalid={invalid === "password" || undefined} aria-describedby={invalid === "password" ? "login-password-error" : undefined} />
+              <button className="ov-login-toggle" type="button" aria-label={visible ? "Ocultar senha" : "Mostrar senha"} aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? "Ocultar" : "Mostrar"}</button>
+            </div>
+            {invalid === "password" && <span id="login-password-error" className="ov-login-field-error">{error}</span>}
+          </div>
+          <div className="ov-login-row"><Link className="ov-login-link" to="/recuperar-senha">Esqueceu a senha?</Link></div>
+          <button className="ov-login-submit" type="submit" disabled={login.isPending || submitting.current}>{login.isPending || submitting.current ? "Entrando…" : "Entrar"}</button>
+          <span className="u-visually-hidden" aria-live="polite">{login.isPending ? "Entrando…" : ""}</span>
         </form>
-        <p className="ui-auth-links">
-          <Link to="/forgot-password">Esqueceu sua senha?</Link>
-        </p>
-        <p className="ui-auth-links">
-          Não tem conta? <Link to="/signup">Criar conta</Link>
-        </p>
-      </Panel>
-    </>
-  );
+        <p className="ov-login-hint">O acesso é fornecido pela sua organização. Se ainda não recebeu um convite, fale com o administrador da sua equipe.</p>
+      </div>
+      <div className="ov-login-footer">© {new Date().getFullYear()} OmniVence</div>
+    </main>
+  </div>;
 }

@@ -254,6 +254,8 @@ export function App() {
                   renders an <Outlet/>, so an `index` child nested in it would never actually
                   render its own element either - a plain top-level redirect avoids that trap. */}
               <Route path="/" element={<Navigate to="/overview" replace />} />
+              <Route path="dashboard" element={<Navigate to="/overview" replace />} />
+              <Route path="recuperar-senha" element={<ForgotPassword />} />
               {/* Pre-migration bare paths (D-2xx, Block 0) - same gating as the real tree above
                   (organizationId is guaranteed defined by the time LegacyOrgRedirect renders),
                   each one heals forward to the equivalent `/app/:orgId/...` URL rather than
