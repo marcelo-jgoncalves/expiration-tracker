@@ -1,0 +1,37 @@
+Continuacao da mesma rodada de protocolo Claude<->Codex sobre a retirada do "Rastreamento legado"
+(A10), em docs/architecture/reviews/legacy-tracking-retirement/. Sua Rodada 3
+(round-3-codex-output.txt) deu 8,8/10 NEEDS FIXES e listou 3 blocos precisos para chegar a 9,0:
+(1) fechar algoritmo/comparacao de idempotencia sob corrida (incluindo o caminho real de
+:1233-1237 que hoje nao compara fingerprint apos perder a corrida transacional); (2) estender a
+copy de honestidade para series (SubjectRequests.tsx:502) e para os rotulos de
+RequestDeliverySettings.tsx, alem do formulario avulso ja corrigido; (3) precisoes factuais do
+inventario (nomes de arquivo corretos do chasing, wiring de G01 completo, pepper compartilhado nao
+exclusivo, composicao subject.ts detalhada, BFF/schema/testes, GET de A22 preservado OWNER-only,
+encaixe tecnico dos dois produtores de series).
+
+Claude escreveu round-4-claude-revision.md respondendo exatamente esses 3 blocos. Leia-o inteiro,
+depois verifique por leitura direta do codigo se cada um dos 3 blocos foi realmente fechado, sem
+introduzir erro novo:
+
+1. O algoritmo de idempotencia proposto (fingerprint do input normalizado ANTES de resolver A22;
+   comparacao tanto no lookup inicial quanto no caminho de corrida perdida) resolve de fato o bug
+   concreto que voce apontou (K+EMAIL vs K+MANUAL na mesma chave, corrida real)?
+2. As correcoes de copy (SubjectRequests.tsx:502 + PageHeader/rotulos de
+   RequestDeliverySettings.tsx) cobrem series E avulsas agora, sem prometer entrega que nao
+   acontece?
+3. As correcoes factuais do inventario (nomes de arquivo do chasing, G01 completo com
+   build-lambdas/infra/api-gateway corretos, pepper compartilhado preservado, composicao
+   subject.ts, BFF/schema/testes, GET de A22 literalmente preservado OWNER-only com leitura
+   interna separada, os dois produtores de series recebendo o modo resolvido como parametro) estao
+   corretas e completas?
+
+De uma nota cega (0-10, sem arredondar) para esta Rodada 4 especificamente. Lembre-se do gate do
+protocolo (AGENTS.md secao 4): fecha só quando AMBOS os lados registrarem nota >= 9,0, sem
+arredondar. Se os 3 blocos foram fechados de forma defensavel e voce nao encontrou erro novo, diga
+isso claramente e de a nota correspondente - a essa altura ja e a quarta rodada sobre o mesmo
+assunto, entao so continue exigindo correcao se houver de fato lacuna real ou erro novo, nao por
+exigir mais uma rodada por habito. Se restar algo real, liste especificamente.
+
+Escreva sua resposta em
+docs/architecture/reviews/legacy-tracking-retirement/round-4-codex-output.txt (crie o arquivo).
+Nao implemente nada.

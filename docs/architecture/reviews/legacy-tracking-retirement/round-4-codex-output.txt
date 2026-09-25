@@ -1,0 +1,53 @@
+RODADA 4 — PARECER CEGO CODEX
+Data: 2026-09-25
+Objeto: round-4-claude-revision.md, lido integralmente e confrontado com a R3 e o código atual.
+Nota cega: 9,1/10, sem arredondamento.
+Veredito: APROVADO neste recorte de proposta. Os três blocos da R3 foram fechados de forma defensável. Não encontrei lacuna material remanescente nem erro novo que exija outra rodada.
+
+Não consultei nota/parecer independente de Claude para R4. Esta nota avalia a emenda de desenho, incorporando os compromissos anteriores que ela mantém e a aceitação integral dos três blocos da R3. Não afirma que as correções já foram implementadas: o código atual ainda contém o caminho de replay vulnerável e as copies antigas.
+
+1. IDEMPOTÊNCIA — FECHADO
+
+Conferência direta: src/modules/document-archive/application/document-archive-service.ts:1188-1194 compara payloadHash no lookup inicial; :1233-1237 relê o vencedor e devolve resultSnapshot sem comparar. O registro idempotente e o pedido são criados condicionalmente na mesma transação, junto do outbox (:1214-1225). O adapter real, persistence/dynamodb-document-archive-store.ts:31-34, faz get com ConsistentRead: true.
+
+A R4 corrige precisamente a diferença entre os dois caminhos. O fingerprint identifica a intenção submetida, incluindo initialInviteDelivery normalizado para DEFAULT quando ausente; resolvedInitialInviteDelivery identifica a decisão efetiva persistida. A resolução de A22 só acontece depois de um lookup sem registro.
+
+Interleaving concreto: duas chamadas K+EMAIL e K+MANUAL, ambas válidas, leem ausência. A transação vencedora grava seu fingerprint, modo e snapshot. A perdedora encontra a condição do registro idempotente rejeitada, relê esse registro e compara seu próprio fingerprint com o vencedor. São diferentes: ConflictError, sem devolver sucesso com o pedido alheio. A comparação funciona em qualquer ordem de vitória. Se as duas entradas forem iguais, a perdedora pode devolver o snapshot vencedor.
+
+K+DEFAULT criado quando A22=EMAIL continua devolvendo o snapshot EMAIL depois de A22 mudar para MANUAL: o fingerprint permanece DEFAULT e o replay não resolve nem revalida o default atual. EMAIL explícito e DEFAULT são intenções distintas nessa semântica, mesmo quando resolvem para EMAIL; isso é coerente com a opção de comparação por input adotada. Não há mais ambiguidade entre input e resultado.
+
+Os critérios de aceitação cobrem o bug concorrente e a estabilidade do replay. São obrigações da implementação futura, não testes executados nesta revisão.
+
+2. COPY DE SÉRIES, AVULSAS E A22 — FECHADO
+
+Conferi frontend/src/routes/subjects/SubjectRequests.tsx:392-394 e :502, além de RequestDeliverySettings.tsx:39-42, :58 e da nota sobre alteração do padrão. As promessas atuais realmente precisam mudar nos locais apontados.
+
+A R4 acrescenta o formulário compartilhado de criação/edição de séries (:502), condicionando o uso do e-mail ao envio automático e explicando a criação sem envio no outro modo. Mantém a correção avulsa já aceita e substitui a promessa de compartilhamento externo de MANUAL por supressão de envio. O PageHeader deixa de apontar para o fluxo retirado; a preferência passa a ser apresentada como aplicável somente a novas solicitações/materializações, sem reenvio retroativo.
+
+Leio essa emenda junto da aceitação integral do bloco 3 da R3: inclui trocar a promessa de envio “no momento da criação” pela semântica assíncrona e informar o modo efetivamente persistido nos resultados avulsos e de “Gerar agora”. Isso não depende de conceder acesso ao GET administrativo a quem cria pedidos. MANUAL continua sem link disponível nesta versão, conforme o compromisso anterior mantido; não é anunciado como entrega manual funcional.
+
+Assim, séries e avulsas estão cobertas no contrato proposto. Não exijo mockup, override na série ou implementação do link para aprovar este recorte.
+
+3. INVENTÁRIO, AUTORIZAÇÃO E PRODUTORES — FECHADO
+
+Conferência direta dos pontos corrigidos:
+
+- Chasing: producer e materializer existem em src/modules/subject/application/document-chasing-producer.ts e document-chasing-materializer.ts; dispatch fica em src/workers/document-chasing-dispatch/dispatch.ts. advance-after-submission-evidence.ts opera DocumentSubmission legado; domain/document-chasing.ts define suas ocorrências/intents. A classificação como exclusivos é correta. O materializer de recorrência de document-archive permanece distinto.
+- G01/build/infra: scripts/build-lambdas.ts:65-66 contém os dois handlers; infra/main.tf:2202 contém guest_documents_handler e :2261-2266 o event source de chasing. infra/modules/api-gateway/main.tf:559-592 contém integração, rotas públicas e permissão G01. A referência :443-471 realmente não era esse conjunto. A extensão até :592 apenas completa o bloco de permissão já nomeado, sem lacuna de desenho.
+- A retirada inclui as referências dependentes desses recursos, pelo critério aceito de zero referência ativa: por exemplo, argumentos do módulo API em infra/main.tf:1142-1143 e route_settings/depends_on em infra/modules/api-gateway/main.tf:36,51. Não trato a lista de linhas como autorização para deixar referências órfãs, nem exijo inventário linha a linha nesta rodada.
+- Pepper: random_password.guest_token_pepper também alimenta notifications, memberships e BFF, além de subjects e handlers legados. Preservar o recurso e retirar somente usos exclusivos evita a remoção indevida do segredo compartilhado.
+- Composição: subject.ts:41-47 separa SubjectService de RequirementService/itemLookup. buildSubjectDeps sobrevive parcialmente; buildDocumentRequestDeps, buildGuestSubmissionDeps, buildSubjectWorkerDeps e buildDocumentChasingDispatchDeps compõem o domínio retirado e podem sair após a migração de A22. Adapters genéricos importados por eles não se tornam exclusivos por isso.
+- BFF/schema/testes: proxy-allowlist.ts contém A22, CRUD de subjects e as rotas legadas lado a lado. schema-validator.ts importa contratos de chasing, assignments, pedidos legados, submissão e preferência A22. test/contract/schemas.test.ts tem contratos de A22 e assignments; test/unit/subject tem testes de preferência e chasing. A distinção preservar/migrar A22 versus remover contratos exclusivos está correta; não se apaga o intervalo inteiro da allowlist nem os testes do módulo indiscriminadamente.
+- GET público de A22: document-request-service.ts:250-256 autoriza tanto GET quanto PUT com tenant:configure-document-request-delivery; authorization.ts:278,316 limita a OWNER. A R4 preserva literalmente essa autorização HTTP e separa a leitura interna. Para o worker, o tenant vem da série persistida; para o caminho interativo, do contexto já autorizado. Não há endpoint novo sem authorize().
+- Séries: buildMaterializeAttemptEntries é síncrono, recebe dados e monta pedido + atualização OCC da série + outbox (:80-140). Os dois chamadores reais são DocumentRequestRecurrenceService.materializeAttempt (:324-333) e runDocumentRequestRecurrenceMaterializer (:69-71). Resolver antes, nos dois chamadores, e passar o modo como parâmetro preserva esse encaixe e a transação existente. O método interno de leitura é uma dependência a ligar nesses chamadores na implementação; não exige RequestContext no scheduler nem I/O dentro do builder.
+
+O inventário está correto e suficiente para fechar as precisões pedidas na R3. A compilação, busca de referências remanescentes e testes de integração continuam sendo gates da retirada efetiva, não evidência já produzida.
+
+4. NOTA E GATE
+
+9,1/10 é julgamento desta proposta, não média fabricada dos eixos nem nota global da aplicação. A consistência do replay, a integração dos produtores e a honestidade da interface atendem agora aos critérios que impediam o 9,0 na R3. Não mantenho NEEDS FIXES por hábito e não peço quinta rodada sem achado real.
+
+Meu lado atingiu o gate. O protocolo só pode ser declarado encerrado quando AMBOS registrarem nota >=9,0, sem arredondar; não presumo a nota independente de Claude. Permanecem as decisões de produto já atribuídas a Marcelo (vínculo com ExpirationItem, retirada completa, matriz manter/abandonar/adiar), além da formalização posterior em ADR/decisions-log. Elas não são novos defeitos desta emenda. Este parecer não implementa nem autoriza por si só a retirada.
+
+Encerramento: aplicada a skill .claude/skills/task-checklist/SKILL.md e lida a checklist completa. Unidade produzida: parecer não normativo por leitura, enquadrado na exceção de revisão read-only do §0; nenhum código, infra ou contrato foi alterado. Arquitetura, Engenharia, Contexto, Segurança, Produto e independência da avaliação foram examinados no escopo acima; SRE limitado ao wiring, sem prova operacional; Privacidade/Jurídico sem alteração ou avaliação autônoma. Não executei testes nem deploy. Não há fechamento de marco/roadmap. Alterações preexistentes foram preservadas.
+DoD: item=parecer cego R4 da retirada A10; risco=artefato de revisão sem mudança funcional, proposta A nível 6/B nível 5; evidência=R4 integral, confronto com R3 e leitura direta dos caminhos citados; lacunas=nenhuma material nos três blocos, implementação e decisões de produto ainda pendentes; nota Codex=9,1/10; gate conjunto=depende do registro independente de Claude >=9,0.

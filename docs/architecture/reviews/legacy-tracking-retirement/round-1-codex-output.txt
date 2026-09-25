@@ -1,0 +1,94 @@
+RODADA 1 — CRÍTICA ADVERSARIAL CODEX
+Data: 2026-09-25
+Objeto: round-1-claude-proposal.md, lido integralmente antes da investigação.
+Estado: NÃO APROVADA; requer proposta corrigida e tréplica.
+
+1. NOTA CEGA
+
+Nota global: 5,8/10, sem arredondamento. Não consultei nota nem parecer de Claude além da proposta fornecida. Esta nota avalia a proposta, não a qualidade global do sistema.
+
+A direção de simplificar a conformidade em um modelo é defensável. Porém, duas premissas essenciais estão erradas: os dois caminhos de DocumentRequest NÃO usam o mesmo serviço nem persistem a mesma entidade lógica; o override citado NÃO está disponível no backend utilizado por A14. Além disso, nem o endpoint legado aceita hoje esse campo pelo contrato HTTP. Isso muda o escopo e o risco da Decisão B e impede tratar a retirada como eliminação de duplicação funcional integral.
+
+Aplicação da rubrica docs/engineering/joint-review-criteria.md (pesos canônicos mantidos; nota global é julgamento da proposta, não média inventada entre eixos):
+- Arquitetura: Domain Fit & Simplicity (8%) favorece consolidar; Data Model & Consistency (13%) e Event & Integration Correctness (11%) são os principais pontos de reprovação, pela confusão entre dois modelos e pipelines. Modifiability & Evolvability (7%) melhora com retirada completa, mas o inventário atual não permite executá-la corretamente. Architecture Governance & Traceability (7%) exige ADR e reconciliação de decisões existentes.
+- Qualidade de Engenharia: Code Correctness & Defensive Design (11%), Test Effectiveness & Coverage Discipline (15%) e Documentation–Implementation Drift Control (6%) não estão atendidos pela fundamentação: faltou percorrer UI → API → handler → serviço → schema. Uma mudança apenas no formulário falharia no contrato. Delivery, Release & Recovery Discipline (11%) requer delimitar a remoção dos componentes efetivamente exclusivos do legado e verificar o fluxo remanescente.
+- Governança de Produto e Serviço Multi-tenant: Transparência, Usabilidade & Acessibilidade (10%) e Evolução Unificada & Controle de Customização (8%) favorecem uma experiência única, mas “entrega manual” precisa resultar em um link utilizável, e não apenas impedir envio. A perda de capacidades está subestimada. A decisão humana foi corretamente preservada, mas deve receber premissas corrigidas.
+- Segurança/AppSec: considerar a fronteira de credenciais ao desenhar B; não foi demonstrada vulnerabilidade nova nesta leitura. Não se deve romper a separação existente apenas para reproduzir o retorno de token do legado.
+
+2. VERIFICAÇÃO DIRETA DOS CINCO PONTOS
+
+Ponto 1 — CONFIRMADO COM RESSALVA DE CRONOLOGIA.
+src/modules/subject/application/requirement-service.ts:2-7 declara expressamente M9, link/unlink manual e MISSING ↔ SATISFIED; esclarece que DocumentRequest/guest upload seria M10. src/modules/subject/domain/requirement-assignment.ts:29-38 define RequirementAssignment, status persistido e linkedItemId; :51-52 usa SK REQASSIGN#.
+src/modules/document-archive/domain/requirement.ts:2-4 atribui o modelo novo a D-143/D9; :46 declara explicitamente que RequirementAssignment é o conceito mais antigo e distinto. :35 define os cinco status novos; :199-208 deriva o status de applicability, estado ACCEPTED da evidência e validUntil. São modelos distintos e o assignment é mais antigo. O cabeçalho de M9, sozinho, NÃO prova que o Requirement novo surgiu em M10: ali M10 designa DocumentRequest/guest upload do próprio legado. Preferir a proveniência D-143/D9 ao rótulo impreciso “M10+”.
+
+Ponto 2 — CONFIRMADO.
+Busca direta com rg -n 'ExpirationItem|expirationItem|linkedItemId' frontend/src/routes/subjects/RequirementDetail.tsx retornou zero correspondências (exit 1 = nenhuma ocorrência). Resultado negativo refere-se ao arquivo inteiro, portanto não há uma linha positiva para citar. A capacidade antiga está demonstrada em src/modules/subject/application/requirement-service.ts:154-165 e :190-219, onde itemExists valida a existência no tenant e a mutação grava/remove linkedItemId. Isso confirma a ausência nessa tela; não transforma, por si só, toda outra capacidade de A10 em duplicação.
+
+Ponto 3 — REFUTADO; BLOQUEADOR CENTRAL.
+Caminho legado:
+  frontend/src/hooks/useCreateLegacyDocumentRequest.ts:2,14
+  → frontend/src/api/subjects.ts:105-106 (POST /subjects/.../requirements/{assignmentId}/document-requests)
+  → src/modules/subject/http/document-request-handlers.ts:44-54
+  → src/modules/subject/application/document-request-service.ts:92.
+Caminho A14:
+  frontend/src/routes/subjects/SubjectRequests.tsx:362,379
+  → frontend/src/api/documentRequests.ts:12-14 (POST /document-archive/requirements/{subjectId}/{requirementId}/document-requests)
+  → src/modules/document-archive/http/document-archive-handlers.ts:505-514
+  → src/modules/document-archive/application/document-archive-service.ts:1184.
+São DocumentRequestService e DocumentArchiveService, respectivamente. O primeiro persiste REQASSIGN#{assignmentId}#DOCREQ#{id} (src/modules/subject/domain/document-request.ts:40); o segundo persiste DOCREQUEST#{id} (src/modules/document-archive/domain/document-request.ts:115-116). Compartilhar o nome DocumentRequest/entityType não os torna a mesma linha nem o mesmo contrato.
+O legado retorna guestToken e status de entrega (:52-54 do handler); A14 retorna apenas documentRequest (:513-514 do seu handler), cria registro de idempotência e outbox para emissão assíncrona (:1188-1225 do serviço). “100% duplicação funcional” é falso. Contar ocorrências de “Legacy” não identifica o grafo de chamadas.
+
+Ponto 4 — CONFIRMADO NO SENTIDO ESTREITO; REFUTADO NO SENTIDO AMPLO DA PROPOSTA.
+Buscas em src por RequirementAssignment, requirementAssignmentKey, REQASSIGN#, linkedItemId e assignment.status não encontraram outro consumidor de regra de negócio que decida pelo MISSING/SATISFIED ou pelo linkedItemId fora do próprio RequirementService. O vínculo está no tipo (:38) e nas mutações/auditoria do serviço (:165,184,205,216,219). Não há evidência de que o núcleo de vencimentos leia esse vínculo para seus lembretes.
+Mas é falso que só o worker leia RequirementAssignment além daquele serviço:
+- src/modules/subject/application/document-request-service.ts:94 e :437-439 exige assignment existente e ativo para criar solicitações; :358-370 também o usa ao listar.
+- src/modules/subject/application/guest-submission-service.ts:110-125 lê assignment, rejeita ausente/deletado e usa requirementName na resposta pública.
+- src/workers/document-chasing-dispatch/dispatch.ts:135-136 lê assignment para compor o NOME do requisito na mensagem. A descrição de que o usa apenas para “resolver o DocumentRequest associado” também é imprecisa. De fato não consulta seu status manual.
+Dependência de existência/identidade/nome é diferente de dependência do status. Ambas precisam constar no inventário de retirada.
+
+Ponto 5 — PARCIALMENTE CONFIRMADO, COM DUAS LIMITAÇÕES BLOQUEANTES.
+O serviço legado aceita override: src/modules/subject/domain/document-request-delivery-preference.ts:18 define DEFAULT | MANUAL | EMAIL; :38-40 resolve override explícito, depois preferência do tenant, depois MANUAL. src/modules/subject/domain/document-request.ts:49 declara o input; src/modules/subject/application/document-request-service.ts:101-103 o aplica. :205-210 mostra fallback pelo kill switch e retorno manual. Testes unitários chamam esse serviço diretamente, por exemplo test/unit/subject/document-request-initial-invite.test.ts:84,109.
+Entretanto:
+(a) schemas/api/create-document-request-request.v1.json:7-12 proíbe propriedades extras e só admite recipientEmail, recipientDisplayName e deadline. O handler legado valida o body antes de chamar o serviço (src/modules/subject/http/document-request-handlers.ts:49). Logo o suporte interno não equivale a suporte HTTP. O Ajv não remove automaticamente o campo: src/shared/contracts/schema-validator.ts:147 configura strict/allErrors, sem removeAdditional.
+(b) A14 usa outro serviço: seu input em src/modules/document-archive/application/document-archive-service.ts:469-480 não tem override. schemas/api/docarchive-request-create-request.v1.json:7-12 também proíbe extras e não contém initialInviteDelivery; seu handler valida em :510. A busca por initialInviteDelivery no módulo document-archive não encontrou implementação.
+Portanto, a afirmação “só o frontend nunca envia” está errada para os dois endpoints, por motivos diferentes.
+
+3. ACHADOS ADICIONAIS E CORREÇÕES EXIGIDAS
+
+F1 — B exige desenho de backend e entrega manual real, não só RadioGroup (bloqueador).
+A busca de useDocumentRequestDeliveryPreference em SubjectRequests.tsx retornou zero ocorrências, refutando também “já buscado nesta tela hoje”. O formulário exige e-mail (:373-375), envia recipientEmail (:379) e promete envio (:394). O worker novo pula requisições sem destinatário (src/workers/guest-credential-delivery/deliver.ts:108) e usa esse destinatário no envio (:130); ele não resolve o override legado.
+Simplesmente omitir recipientEmail NÃO entrega um link ao operador. O handler de A14 não devolve token; o próprio cabeçalho da tela (:19-25) documenta a separação da tabela de entrega e a ausência de acesso tenant-facing ao estado de entrega. Já A10 constrói e apresenta link manual em frontend/src/routes/subjects/Tracking.tsx:515-516,555-557.
+A próxima proposta deve definir: política efetiva por solicitação; onde DEFAULT é resolvido e como retries preservam a escolha; participação do campo no contrato/idempotência (hash atual em document-archive-service.ts:1188); comportamento de EMAIL sem destinatário; como MANUAL produz um link acessível por operador autorizado sem romper a fronteira de credenciais; relação com reemissão após rejeição e exclusão explícita ou inclusão de séries. Manter o escopo inicial restrito a avulsas é defensável, mas deve ser declarado. Atualizar rótulos/erros sem alegar entrega efetiva apenas pela criação.
+
+F2 — O inventário de retirada está incompleto (alto).
+Além de RequirementService, há DocumentRequestService, GuestSubmissionService, DocumentSubmission e a família de chasing vinculada a assignmentId. Evidências: src/modules/subject/domain/document-submission.ts:43; src/modules/subject/domain/document-chasing.ts:52,123; src/workers/submission-finalizer/finalizer.ts:38; src/workers/submission-malware-result/result-processor.ts:36. src/runtime/aws/composition/subject.ts:46,72,94 instancia os três serviços. src/runtime/aws/handlers/subjects-handler.ts:120-136 roteia submissions, criação/listagem/leitura/revogação/chasing e preferência de entrega.
+Remover só arquivos listados na proposta deixa imports, rotas e consumidores sem domínio. A nova proposta precisa mapear dependências exclusivas versus compartilhadas em runtime, BFF, infra, schemas, workers e testes, preservando explicitamente TrackedSubject e o pipeline novo. Não é necessário inventar migração de produção: dev sintético pode ser resetado. O problema é coerência do código e dos recursos que continuarem ativos.
+A22 merece destino explícito: seus handlers ainda dependem de DocumentRequestService (src/modules/subject/http/document-request-handlers.ts:58-74). Apagar o legado e dizer “A22 permanece como está” não explica quem passa a consumir sua política.
+
+F3 — A perda de capacidades não se resume ao vínculo com ExpirationItem (alto).
+A10 tem link manual imediato/fallback de e-mail e timeline de chasing (Tracking.tsx:11-13,515-516,555-557). O backend legado expõe revogação individual (document-request-handlers.ts:115-123). A API de A14 em frontend/src/api/documentRequests.ts expõe criação/leitura e operações de série, não um equivalente de revogação individual nem a timeline legada.
+Isso não exige conservar o legado. Exige uma matriz de capacidades: manter no novo fluxo, abandonar por decisão explícita ou adiar. Recorrência de solicitações não prova equivalência com chasing de uma solicitação pendente. Não se pode pedir a Marcelo que aprove “só perdemos o vínculo” com essa omissão.
+
+F4 — Critérios de saída da futura implementação precisam ser nomeados (médio).
+Para A: ausência de referências ativas aos componentes retirados; contratos/BFF/runtime/infra coerentes; criação → emissão → G02 → submissão → revisão → status de Requirement funcionando; núcleo de ExpirationItem preservado.
+Para B: testes de contrato do endpoint real e integração do fluxo DEFAULT/MANUAL/EMAIL, precedência por tenant, autorização, retries/idempotência e resultado manual utilizável. Teste unitário do resolver antigo não prova A14. Gates FE-G1..FE-G5 se aplicam quando houver implementação frontend. Esta revisão não executou testes nem deploy e não os apresenta como evidência de implementação pronta.
+
+4. RESPOSTAS TÉCNICAS ÀS PERGUNTAS DE PRODUTO
+
+Pergunta 1 — Minha recomendação é descartar o vínculo legado sem criar substituto por antecipação, condicionada à confirmação de Marcelo de que evidência sem documento não é um caso necessário. O vínculo atual comprova existência do item no tenant, não sua validade documental (requirement-service.ts:159-165); não é suficiente para satisfazer o modelo novo baseado em evidência ACCEPTED/validUntil. Se o caso real for necessário, precisa de semântica explícita no Requirement, sem assumir que um item rastreado constitui prova. Ausência de consumidor de código não prova ausência de valor de produto.
+
+Pergunta 2 — Sou favorável à retirada completa, em vez de manter indefinidamente uma tela oculta e dois modelos ativos. Mas a aprovação deve abranger um inventário corrigido e a decisão explícita sobre link manual, revogação e chasing. G01 pertence ao fluxo legado e pode sair junto dele; não confundir G01 com as credenciais/G02 do document-archive. Não há requisito técnico aqui para conservar dados sintéticos ou compatibilidade de produção inexistente. A escolha final continua sendo de Marcelo; esta crítica não a substitui.
+
+5. RISCO E PESQUISA
+
+Decisão A: concordo com Nível 6, pelo gatilho real de mudança fundamental do modelo de conformidade e retirada de contratos/capacidades. A justificativa “não reversível sem recriar código deletado” é fraca: Git permite recuperar código. O custo relevante está na decisão de domínio e na recomposição das integrações. Nível 6 exige ADR formal e atualização de decisions-log.md, além do protocolo completo; a proposta deve incluir esses entregáveis.
+
+Decisão B: discordo de Nível 3-4 para o escopo efetivo. O backend de destino não suporta a escolha; será no mínimo Nível 5 por mudança de contrato e integração. Se a solução para entrega manual mudar a fronteira de acesso a credenciais, o desenho concreto pode justificar Nível 6. Não classificar pelo widget visual enquanto o fluxo real não está definido.
+
+Pesquisa externa considerada: NÃO é defensável para A, por consolidar modelos internos já existentes. Para B, aceito NÃO apenas se reutilizar políticas e fronteiras já aprovadas com referências precisas. Caso se proponha uma nova postura de exposição/emissão de credenciais para entrega manual, reavaliar como SIM PARCIAL antes da próxima proposta e pesquisar a parte de segurança pertinente. Esta rodada verifica código local e não decide comportamento específico de AWS nem inventa um desenho de credenciais.
+
+6. ENCERRAMENTO DESTA TAREFA
+
+Crítica concluída; decisão arquitetural NÃO concluída. Pendências para tréplica: corrigir os pontos 3/5 e o inventário de consumidores, explicitar capacidades abandonadas/preservadas e redesenhar B sobre o pipeline real. As duas respostas de produto permanecem com Marcelo.
+Aplicada .claude/skills/task-checklist/SKILL.md: item é revisão por leitura com registro não normativo, enquadrado na exceção de inventário/pesquisa do §0; sem implementação, aprovação de decisão, fechamento de roadmap ou marco. Arquitetura, Engenharia, Contexto, Segurança, Governança de IA (independência) e Produto considerados acima; Privacidade, SRE e Jurídico sem avaliação autônoma de controles nesta rodada. Nenhum outro arquivo foi alterado por esta tarefa.
+DoD: item=crítica adversarial R1; risco=artefato de revisão, sem mudança funcional (A proposta nível 6; B ao menos 5); evidência=leitura direta e buscas rg com referências acima, cinco pontos respondidos; lacunas=proposta não aprovada, tréplica e decisões humanas pendentes; testes de implementação não aplicáveis.
