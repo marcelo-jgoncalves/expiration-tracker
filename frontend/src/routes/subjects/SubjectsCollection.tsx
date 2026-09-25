@@ -88,10 +88,10 @@ export function SubjectsCollection() {
       <PageHeader
         title="Fornecedores"
         above={<span className="ov-eyebrow">Relacionamentos e conformidade</span>}
-        description="Terceiros que precisam manter documentação em dia com você."
+        description="Acompanhe organizações e pessoas que precisam manter a documentação em dia com você."
         actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget("new")}>Novo fornecedor</Button> : undefined}
       />
-      <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um s? lugar." description="Encontre rapidamente quem precisa da sua atenção e mantenha cada cadastro organizado."
+      <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um só lugar." description="Encontre rapidamente quem precisa da sua atenção e mantenha cada cadastro organizado."
         summary={<><strong>{activeQuery.data?.subjects.length.toLocaleString("pt-BR") ?? "?"}</strong><span>cadastros ativos carregados</span></>} />
       <div className="ov-subjects-heading"><div><h2>Seus cadastros</h2><p>Consulte e gerencie os registros da sua organização.</p></div>
       <Toolbar>
@@ -131,7 +131,16 @@ export function SubjectsCollection() {
               {
                 key: "tags",
                 header: "Tags",
-                render: (s) => (s.tags.length ? s.tags.slice(0, 2).join(", ") + (s.tags.length > 2 ? ` +${s.tags.length - 2}` : "") : "—"),
+                render: (s) =>
+                  s.tags.length ? (
+                    <span className="ov-subject-tags">
+                      {s.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="u-text-secondary">Sem tags</span>
+                  ),
               },
               {
                 key: "actions",
@@ -183,7 +192,7 @@ function RowActions({ subject, canWrite, canDelete, onEdit }: { subject: Tracked
         atual não oferece restauração" / no undo in this interface), same destructive-confirmation
         posture as every other Dialog usage in this codebase (Reports.tsx, ...). */}
     {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} variant="alertdialog" onClose={() => { if (!pending) setAction(undefined); }}>
-      <p>{action === "archive" ? `O cadastro de ${subject.displayName} sair? da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} ser? marcado como excluído e deixar? de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
+      <p>{action === "archive" ? `O cadastro de ${subject.displayName} sairá da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} será marcado como excluído e deixará de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
       <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
       {action === "delete" && <TextField label="Digite o nome do cadastro para confirmar" value={confirmation} onChange={setConfirmation} />}
       {failure && <p role="alert">{failure}</p>}
