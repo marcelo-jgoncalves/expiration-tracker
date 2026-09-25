@@ -1,0 +1,48 @@
+﻿.ov-shell {
+  --color-text-primary: #14121f;
+  --color-text-secondary: #55507a;
+  --color-text-link: #4c1d95;
+  --color-border-subtle: #e8e4f1;
+  --color-action-primary: #4c1d95;
+  --color-action-primary-hover: #3b1677;
+  --color-surface-page: #f8f7fc;
+  --color-focus-ring: #a78bfa;
+  --shadow-accent-glow: none;
+  background: #f8f7fc;
+}
+.ov-shell .app-shell__desktop-nav { width: 256px; flex: none; }
+.ov-shell .app-shell__nav { width: 256px; min-height: 100dvh; padding: 28px 16px 16px; gap: 0; }
+.ov-shell .app-shell__main { padding: 37px clamp(24px,3.4vw,62px) 65px; max-width: 1840px; }
+.ov-shell .app-shell__wordmark { padding: 0; margin: 0 0 20px 9px; display: block; }
+.app-shell__wordmark img { width: 183px; height: 57px; object-fit: contain; }
+.app-shell__group-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; margin: 15px 12px 7px; color: #55507a; }
+.ov-shell .app-shell__link { min-height: 41px; padding: 10px 12px; font-size: 12px; font-weight: 600; gap: 10px; border-radius: 10px; }
+.ov-shell .app-shell__link[aria-current="page"] { background: #f1ebff; color: #4c1d95; font-weight: 800; box-shadow: none; }
+.ov-shell .app-shell__icon-button { min-width: 44px; min-height: 44px; }
+.ov-shell .app-shell__footer { margin-top: 16px; padding-top: 16px; flex-wrap: wrap; }
+.ov-shell .app-shell__footer-name { font-size: 11px; }
+.ov-shell .app-shell__footer-role { font-size: 10px; }
+.ov-shell .ui-page-header { border: 0; padding: 0; margin-bottom: 28px; align-items: center; }
+.ov-shell .ui-page-header h1 { font-size: clamp(27px,2.5vw,37px); font-weight: 700; letter-spacing: -.052em; }
+.ov-shell .ui-page-header__description { font-size: 12px; margin-top: 9px; }
+.ov-shell .ui-page-header__back { margin-bottom: 9px; }
+.ov-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .13em; color: #55507a; text-transform: uppercase; }
+.ov-shell .ui-panel { border-radius: 15px; box-shadow: none; border-color: #e8e4f1; }
+.ov-shell .ui-button { box-shadow: none; font-weight: 700; border-radius: 10px; min-height: 44px; }
+.ov-shell :focus-visible { outline-width: 3px; outline-offset: 2px; }
+.app-shell__menu, .app-shell__close { display: none; background: white; border: 1px solid #e8e4f1; color: #4c1d95; border-radius: 10px; width: 44px; height: 44px; align-items: center; justify-content: center; cursor: pointer; }
+@media(max-width:900px) {
+  .ov-shell .app-shell__desktop-nav { display:none; }
+  .ov-shell .app-shell__main { padding: 27px; }
+  .app-shell__menu { display:flex; margin-bottom:18px; }
+  .app-shell__close { display:flex; }
+  .app-shell__mobile-nav .ui-dialog-backdrop { padding:0; justify-content:flex-start; align-items:stretch; }
+  .app-shell__mobile-nav .ui-dialog { width:256px; max-width:90vw; max-height:100dvh; border-radius:0; padding:0; }
+  .app-shell__mobile-nav .ui-dialog__title { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .app-shell__mobile-nav .app-shell__nav { width:100%; flex-direction:column; flex-wrap:nowrap; align-items:stretch; height:auto; max-height:none; position:static; }
+  .app-shell__mobile-nav .app-shell__nav-spacer { display:block; }
+}
+@media(max-width:650px) {
+  .ov-shell .app-shell__main { padding:20px 17px 45px; }
+  .ov-shell .ui-page-header h1 { font-size:28px; }
+}

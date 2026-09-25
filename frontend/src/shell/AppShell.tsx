@@ -10,7 +10,7 @@
  * anchors, no single hierarchy) - the same structural nav convention already established in
  * prototype/app.js's structuralNav(), carried into real routing rather than reinvented.
  */
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
@@ -19,7 +19,9 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { OrganizationSwitcher } from "../components/OrganizationSwitcher.js";
 import { initialsFor, presentMembershipRole } from "../api/presentation.js";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
+import { Dialog } from "../components/ui/Dialog.js";
+import "./OmniShell.css";
 import { getVisibleNavItems } from "./navigation.js";
 
 /** Sidebar identity card + logout (Marcelo, 2026-09-21, matches `prototype/03 - Fornecedor
@@ -30,6 +32,8 @@ import { getVisibleNavItems } from "./navigation.js";
  * the role alone rather than showing nothing. */
 function SidebarUserFooter() {
   const { logout } = useAuth();
+  const [leaving, setLeaving] = useState(false);
+  const [failure, setFailure] = useState(false);
   const { displayName, email } = useActiveOrganization();
   const role = useCurrentMembershipRole();
   const roleLabel = role ? presentMembershipRole(role) : undefined;
@@ -47,12 +51,13 @@ function SidebarUserFooter() {
         </span>
       ) : null}
       <span className="app-shell__footer-text">
-        <span className="app-shell__footer-name">{primary}</span>
+        <span className="app-shell__footer-name" title={primary}>{primary}</span>
         {secondary ? <span className="app-shell__footer-role">{secondary}</span> : null}
       </span>
-      <button type="button" className="app-shell__icon-button" aria-label="Sair" onClick={() => void logout()}>
+      <button type="button" className="app-shell__icon-button" aria-label="Sair" disabled={leaving} onClick={() => { setLeaving(true); setFailure(false); void logout().catch(() => setFailure(true)).finally(() => setLeaving(false)); }}>
         <LogOut size={17} strokeWidth={2} aria-hidden="true" />
       </button>
+      {failure && <p role="alert">N?o foi poss?vel sair. Tente novamente.</p>}
     </div>
   );
 }
@@ -89,42 +94,55 @@ export function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
   useFocusMainOnRouteChange(mainRef);
 
-  return (
-    <div className="app-shell">
-      <a href="#surface-content" className="skip-link">
-        Pular para o conteúdo
-      </a>
-      {/* A plain vertical list of links on desktop, a wrapping row when narrow (CSS only) -
-          visually simple, stable and predictable, so it orients without competing with the
-          operational content. `NavLink` supplies aria-current="page" itself; the visual
-          current-page treatment is tint + weight + an inset bar, never colour alone.
-          Declarative + RBAC-aware (D-2xx, Block 0, navigation.ts): the list itself is data, and
-          an item the current role cannot act on at all is omitted here, never rendered-disabled
-          (p0-screen-inventory-plan.md §2.1). `item.to` is org-relative (`/overview`, not
-          `/app/:orgId/overview`) - resolved through `useOrgPath()` here, the same helper every
-          screen's internal links use, so clicking the nav itself never round-trips through
-          `LegacyOrgRedirect` (found in the Block 0 Codex review round: the first draft left
-          these bare, which silently remounted AppShell - and the focus-management fix above -
-          on every single nav click). */}
-      <nav className="app-shell__nav" aria-label="Navegação principal">
-        <span className="app-shell__wordmark">Expiration Tracker</span>
-        {visibleNavItems.map((item) => (
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    mainRef.current?.setAttribute("inert", "");
+    return () => {
+      document.body.style.overflow = oldOverflow;
+      mainRef.current?.removeAttribute("inert");
+    };
+  }, [menuOpen]);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 901px)");
+    const close = () => { if (media.matches) setMenuOpen(false); };
+    media.addEventListener("change", close);
+    return () => media.removeEventListener("change", close);
+  }, []);
+
+  const groups = [
+    { label: "Espa?o de trabalho", ids: ["overview", "items", "subjects", "requirements", "reviews"] },
+    { label: "Gest?o", ids: ["imports", "document-types", "requirement-templates", "request-delivery", "activity", "reports"] },
+    { label: "Organiza??o", ids: ["members", "notification-preferences", "settings"] },
+  ];
+  function navigation(mobile = false) {
+    return <nav className="app-shell__nav" id={mobile ? "mobile-navigation" : undefined} aria-label="Navega??o principal">
+      <NavLink to={orgPath("/overview")} className="app-shell__wordmark"><img src="/brand/omnivence.png" alt="OmniVence ? Gest?o inteligente de vencimentos" /></NavLink>
+      {mobile && <button className="app-shell__close" aria-label="Fechar menu" onClick={() => setMenuOpen(false)}><X aria-hidden="true" /></button>}
+      {groups.map(group => <div className="app-shell__group" key={group.label}>
+        <p className="app-shell__group-label">{group.label}</p>
+        {visibleNavItems.filter(item => group.ids.includes(item.id)).map(item =>
           <NavLink key={item.id} to={orgPath(item.to)} end={item.end} className={navLinkClassName}>
-            {/* ADR-0015: icon is always decorative (aria-hidden) - the text label alongside it
-                is the real accessible name, never the icon alone. */}
-            <item.icon size={18} strokeWidth={2} aria-hidden="true" />
-            {item.label}
-          </NavLink>
-        ))}
-        <span className="app-shell__nav-spacer" />
-        <OrganizationSwitcher />
-        <SidebarUserFooter />
-      </nav>
-      <main className="app-shell__main" id="surface-content" tabIndex={-1} ref={mainRef}>
-        <ErrorBoundary>
-          <Outlet />
-        </ErrorBoundary>
-      </main>
-    </div>
-  );
+            <item.icon size={17} strokeWidth={2} aria-hidden="true" />{item.label}
+          </NavLink>)}
+      </div>)}
+      <span className="app-shell__nav-spacer" />
+      <OrganizationSwitcher />
+      <SidebarUserFooter />
+    </nav>;
+  }
+
+  return <div className="app-shell ov-shell">
+    <a href="#surface-content" className="skip-link">Pular para o conte?do</a>
+    <div className="app-shell__desktop-nav">{navigation()}</div>
+    <main className="app-shell__main" id="surface-content" tabIndex={-1} ref={mainRef}>
+      <button className="app-shell__menu" aria-label="Abrir menu" aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen(true)}><Menu aria-hidden="true" /></button>
+      <ErrorBoundary><Outlet /></ErrorBoundary>
+    </main>
+    {menuOpen && <div className="app-shell__mobile-nav"><Dialog title="Menu" onClose={() => setMenuOpen(false)}>{navigation(true)}</Dialog></div>}
+  </div>;
 }
