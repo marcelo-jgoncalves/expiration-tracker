@@ -151,7 +151,7 @@ export function CreateItem() {
           </Section>
         </Panel>
         <Panel padded>
-          <Section heading="Complementos" headingId="create-item-complement" description="Tudo aqui é opcional e pode ser preenchido depois." icon={List}>
+          <Section heading="Complementos" headingId="create-item-complement" description="Tudo aqui é opcional e pode ser preenchido depois." icon={List} annotation={<span className="ov-create-optional" aria-hidden="true">Opcional</span>}>
             <div className="create-item__grid">
               <div className="create-item__grid-full">
                 <TextField

@@ -59,6 +59,6 @@
 .ov-create-item .ui-field__hint { font-size:10px; }
 .ov-create-item .ui-form__actions { margin-top:24px; gap:22px; }
 .ov-create-item .ui-form__actions .ui-button { min-height:47px; font-size:12px; }
-.ov-create-optional { margin-left:auto; font-size:10px; background:#f8f7fc; border-radius:20px; padding:7px 11px; color:#55507a; }
+.ov-create-optional { margin-left:auto; font-size:10px; font-weight:700; background:#f8f7fc; border-radius:20px; padding:7px 11px; color:#716b86; }
 @media(min-width:651px) { .ov-create-item .create-item__grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:650px) { .ov-create-item .ui-panel--padded { padding:23px 19px; } .ov-create-item .create-item__grid { grid-template-columns:1fr; gap:18px; } .ov-create-optional { display:none; } .ov-create-item .ui-form__actions { flex-wrap:wrap; } }
