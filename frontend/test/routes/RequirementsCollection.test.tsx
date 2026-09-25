@@ -73,6 +73,23 @@ describe("RequirementsCollection (A11)", () => {
     expect(screen.getByRole("button", { name: /^Todos/ })).toHaveTextContent("3");
   });
 
+  it("the row 'Ver' action opens the RequirementDetail modal instead of navigating to a route", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("/search?")) {
+        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirement()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
+      }
+      if (path.includes("/document-requests")) return Promise.resolve({ documentRequests: [] });
+      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [requirement()] });
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ver" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Ver" }));
+
+    expect(await screen.findByRole("dialog", { name: "CND Federal" })).toBeInTheDocument();
+  });
+
   it("shows the EMPTY_TRUE state when the organization has no requirements at all", async () => {
     getMock.mockResolvedValue({ items: [], cursor: null });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");

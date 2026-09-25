@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
-import { ItemDocuments } from "../../../src/routes/items/ItemDocuments.js";
+import { ItemDocumentsDialog } from "../../../src/routes/items/ItemDocuments.js";
 import type { ExpirationItem, ItemDocument, MembershipRole } from "../../../src/api/types.js";
 
 const { getMock, postMock, deleteMock } = vi.hoisted(() => ({
@@ -77,7 +77,7 @@ describe("ItemDocuments (A07)", () => {
         return Promise.reject(new Error("unexpected path " + path));
       });
       mockAsRole(role);
-      const { unmount } = renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+      const { unmount } = renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
       await waitFor(() => expect(screen.getByText("contrato.pdf")).toBeInTheDocument());
       unmount();
     }
@@ -90,7 +90,7 @@ describe("ItemDocuments (A07)", () => {
       return Promise.reject(new Error("unexpected path " + path));
     });
     mockAsRole("VIEWER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("Nenhum arquivo anexado ainda.")).toBeInTheDocument());
     expect(screen.queryByLabelText("Selecionar arquivo")).not.toBeInTheDocument();
@@ -103,7 +103,7 @@ describe("ItemDocuments (A07)", () => {
       return Promise.reject(new Error("unexpected path " + path));
     });
     mockAsRole("MEMBER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("contrato.pdf")).toBeInTheDocument());
     expect(screen.getByLabelText("Selecionar arquivo")).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe("ItemDocuments (A07)", () => {
     });
     deleteMock.mockResolvedValue(undefined);
     mockAsRole("ADMIN");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Excluir" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
@@ -135,7 +135,7 @@ describe("ItemDocuments (A07)", () => {
     });
     deleteMock.mockRejectedValue(new Error("network down"));
     mockAsRole("ADMIN");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Excluir" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
@@ -163,7 +163,7 @@ describe("ItemDocuments (A07)", () => {
       return Promise.reject(new Error("unexpected path " + path));
     });
     mockAsRole("OWNER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("a.pdf")).toBeInTheDocument());
     expect(screen.getByText("Aguardando envio")).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe("ItemDocuments (A07)", () => {
       return Promise.reject(new Error("unexpected path " + path));
     });
     mockAsRole("VIEWER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("b.pdf")).toBeInTheDocument());
     expect(screen.getAllByRole("button", { name: "Baixar" })).toHaveLength(1);
@@ -209,7 +209,7 @@ describe("ItemDocuments (A07)", () => {
       return Promise.reject(new Error("unexpected path " + path));
     });
     mockAsRole("VIEWER");
-    renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+    renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Baixar" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Baixar" }));
@@ -236,7 +236,7 @@ describe("ItemDocuments (A07)", () => {
         return Promise.reject(new Error("unexpected path " + path));
       });
       mockAsRole("OWNER");
-      renderAtRoute("/items/:itemId/documents", <ItemDocuments />, "/items/item-1/documents");
+      renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
       await waitFor(() => expect(screen.getByLabelText("Selecionar arquivo")).toBeInTheDocument());
     }
 

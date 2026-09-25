@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
 import { SubjectHub } from "../../../src/routes/subjects/SubjectHub.js";
 import type { TrackedSubject } from "../../../src/api/types.js";
@@ -8,6 +8,16 @@ const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 vi.mock("../../../src/api/apiClient.js", () => ({
   apiClient: { get: getMock, post: vi.fn() },
 }));
+
+const { fetchOrganizationsMock } = vi.hoisted(() => ({ fetchOrganizationsMock: vi.fn() }));
+vi.mock("../../../src/api/organizations.js", () => ({
+  fetchOrganizations: fetchOrganizationsMock,
+  selectOrganization: vi.fn(),
+}));
+
+function mockAsRole(role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER") {
+  fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role, version: 1 }] });
+}
 
 function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
   return {
@@ -27,6 +37,7 @@ function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
 
 beforeEach(() => {
   getMock.mockReset();
+  fetchOrganizationsMock.mockReset();
   getMock.mockImplementation((path: string) => {
     if (path.includes("/compliance")) {
       return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
@@ -89,6 +100,17 @@ describe("SubjectHub (A09)", () => {
     // dashes now too (e.g. a loading MetricCard before its query resolves).
     const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
     expect(section?.querySelector(".ui-compliance__percent")?.textContent).toBe("—");
+  });
+
+  it("'Editar fornecedor' opens the SubjectFormDialog modal pre-filled, instead of navigating to a route", async () => {
+    mockAsRole("OWNER");
+    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Editar fornecedor" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Editar fornecedor" }));
+
+    expect(await screen.findByRole("dialog", { name: "Editar fornecedor" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/^Nome/)).toHaveValue("Conservare Facilities ME"));
   });
 
   it("shows the archived InlineNotice for an ARCHIVED subject", async () => {

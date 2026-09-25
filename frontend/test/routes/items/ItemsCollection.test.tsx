@@ -158,4 +158,14 @@ describe("ItemsCollection", () => {
     expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeEnabled();
   });
 
+  it("the row 'Renovar' action opens the RenewItemDialog modal instead of navigating to a route", async () => {
+    getMock.mockResolvedValue({ items: [item({ itemId: "item-1", name: "Apólice de Seguro" })] });
+    renderAtRoute("/items", <ItemsCollection />, "/items");
+
+    const renewButton = await screen.findByRole("button", { name: /Renovar Apólice de Seguro/ });
+    fireEvent.click(renewButton);
+
+    expect(await screen.findByRole("dialog", { name: "Renovar vencimento" })).toBeInTheDocument();
+  });
+
 });

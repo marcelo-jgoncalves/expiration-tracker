@@ -66,7 +66,7 @@ beforeEach(() => {
 
 describe("RequirementDetail", () => {
   it("renders the requirement's name/status and its sent requests", async () => {
-    renderAtRoute("/subjects/:subjectId/requirements/:requirementId", <RequirementDetail />, "/subjects/subject-1/requirements/req-1");
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Certidão Negativa de Débitos Trabalhistas" })).toBeInTheDocument());
     expect(screen.getByText("Pendente")).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("RequirementDetail", () => {
   });
 
   it("shows the 'no linked document' notice when evidenceVersionId is absent", async () => {
-    renderAtRoute("/subjects/:subjectId/requirements/:requirementId", <RequirementDetail />, "/subjects/subject-1/requirements/req-1");
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("Ainda não há documento vinculado a este requisito.")).toBeInTheDocument());
   });
@@ -85,21 +85,21 @@ describe("RequirementDetail", () => {
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [requirement({ evidenceVersionId: "ver-1", status: "SATISFIED" })] });
       return Promise.reject(new Error(`unexpected path ${path}`));
     });
-    renderAtRoute("/subjects/:subjectId/requirements/:requirementId", <RequirementDetail />, "/subjects/subject-1/requirements/req-1");
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Certidão Negativa de Débitos Trabalhistas" })).toBeInTheDocument());
     expect(screen.queryByText("Ainda não há documento vinculado a este requisito.")).not.toBeInTheDocument();
   });
 
   it("shows an honest not-found state for a requirementId that isn't in this subject's list", async () => {
-    renderAtRoute("/subjects/:subjectId/requirements/:requirementId", <RequirementDetail />, "/subjects/subject-1/requirements/req-missing");
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-missing" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText("Este requisito não foi encontrado.")).toBeInTheDocument());
   });
 
   it("opens the new-request dialog and creates a request scoped to this requirement (no requirement picker - already fixed by the URL)", async () => {
     postMock.mockResolvedValue({ documentRequest: documentRequest({ documentRequestId: "dr-2" }) });
-    renderAtRoute("/subjects/:subjectId/requirements/:requirementId", <RequirementDetail />, "/subjects/subject-1/requirements/req-1");
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Nova solicitação" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Nova solicitação" }));
