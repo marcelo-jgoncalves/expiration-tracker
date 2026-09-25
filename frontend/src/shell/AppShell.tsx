@@ -10,7 +10,7 @@
  * anchors, no single hierarchy) - the same structural nav convention already established in
  * prototype/app.js's structuralNav(), carried into real routing rather than reinvented.
  */
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useAuth } from "../auth/AuthContext.js";
@@ -97,7 +97,14 @@ export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) - the "Abrir menu" button that opens this dialog lives
+  // INSIDE `main`, and `Dialog.tsx` restores focus to it from its own (passive) unmount effect.
+  // An inert element's descendants are unfocusable, so `main`'s `inert` attribute MUST already
+  // be gone before that focus-restore runs, or it silently no-ops and focus is lost to the
+  // document body. Layout effect cleanups run synchronously at commit, before any passive
+  // effect (Dialog's included) fires - ordering this one first, deterministically, rather than
+  // relying on incidental effect-scheduling order between two unrelated components.
+  useLayoutEffect(() => {
     if (!menuOpen) return;
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
