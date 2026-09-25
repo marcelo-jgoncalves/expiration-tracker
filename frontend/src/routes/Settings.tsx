@@ -1,279 +1,124 @@
-/**
- * Settings (Wave B2B-10 "settings" scope item) - Organization displayName/timezone, the one
- * writer this wave adds to the backend (`update-organization-settings.ts`, OWNER-only). Replaces
- * the honest `NotImplementedPlaceholder` this route previously rendered.
- */
-import { useEffect, useState, type FormEvent } from "react";
-import { Check, HardDrive, IdCard, LogOut, Trash2 } from "lucide-react";
+﻿import { useEffect, useState, type FormEvent } from "react";
+import { Building2, HardDrive, IdCard, LogOut, Trash2 } from "lucide-react";
 import { useOrganizationsList } from "../hooks/useOrganizationsList.js";
+import { useMembers } from "../hooks/useMembers.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
-import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useUpdateOrganizationSettings } from "../hooks/useUpdateOrganizationSettings.js";
 import { useLeaveOrganization } from "../hooks/useLeaveOrganization.js";
 import { useCloseOrganization } from "../hooks/useCloseOrganization.js";
 import { useStorageQuota } from "../hooks/useStorageQuota.js";
-import { formatBytesAsGb } from "../api/presentation.js";
 import { ApiError, isConflict, isLastOwnerError, isResponsibilityReassignmentRequiredError } from "../api/errors.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
-import { REMINDER_LOCAL_TIME_OPTIONS, FALLBACK_DEFAULT_LOCAL_TIME } from "../lib/reminderDefaults.js";
 import { Button } from "../components/ui/Button.js";
 import { TextField } from "../components/forms/TextField.js";
-import { SelectField } from "../components/forms/SelectField.js";
+import { Dialog } from "../components/ui/Dialog.js";
+import { UnsavedChangesGuard } from "../components/UnsavedChangesGuard.js";
+import type { UsableOrganization } from "../api/session.js";
+import "./Settings.css";
 
-/** A19 "seção de armazenamento" - the same `docarchive:read` (READ_ONLY_ROLES, every role)
- * summary A03's conditional card links to, always visible here (not threshold-gated) since
- * Settings/Organização is the dedicated place to check usage regardless of how close to the
- * limit it currently is. Unlike A03's card (a secondary, non-blocking signal that silently
- * omits itself on failure), this is the DEDICATED section for storage - Codex block-review
- * finding (D-256): silently returning null on error/loading made an authorization failure or a
- * real backend outage indistinguishable from "no storage data exists", with no retry path.
- * `Section`'s own heading/title always renders, so the failure is never silently invisible. */
+export function formatStorageBytes(bytes: number): string {
+  if (bytes < 1024) return bytes.toLocaleString("pt-BR") + " B";
+  const units = ["KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
+  return (bytes / 1024 ** (index + 1)).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + " " + units[index];
+}
+
 function StorageSection() {
   const query = useStorageQuota();
-
-  if (query.isPending) {
-    return (
-      <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
-        <Panel padded>
-          <CollectionSkeleton rows={1} label="Carregando uso de armazenamento…" />
-        </Panel>
-      </Section>
-    );
-  }
-
-  if (query.isError) {
-    return (
-      <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
-        <ErrorState message="Não foi possível carregar o uso de armazenamento." onRetry={() => void query.refetch()} />
-      </Section>
-    );
-  }
-
-  const usage = query.data.usage;
-  const percent = Math.round(usage.usedPercent * 100);
-
-  return (
-    <Section heading="Armazenamento" headingId="storage-usage" icon={HardDrive}>
-      <Panel padded>
-        <p>
-          {formatBytesAsGb(usage.usedBytes + usage.reservedBytes)} de {formatBytesAsGb(usage.limitBytes)} usados ({percent}%)
-        </p>
-        <progress value={Math.min(usage.usedPercent, 1)} max={1} aria-label="Percentual de armazenamento utilizado" style={{ width: "100%" }} />
-        {usage.warningLevel === "OVER" ? (
-          <InlineNotice tone="critical" announce="status">
-            Novos uploads bloqueados até liberar espaço — arquivos existentes não são afetados.
-          </InlineNotice>
-        ) : null}
-      </Panel>
-    </Section>
-  );
+  const usage = query.data?.usage;
+  const used = usage ? usage.usedBytes + usage.reservedBytes : 0;
+  const finiteQuota = usage && Number.isFinite(usage.limitBytes) && usage.limitBytes > 0;
+  const percent = finiteQuota ? used / usage.limitBytes * 100 : undefined;
+  return <Section heading="Armazenamento" headingId="storage-usage" description="Acompanhe o espaço usado pelos arquivos da organização." icon={HardDrive}>
+    <Panel padded>
+      {query.isPending ? <CollectionSkeleton rows={1} label="Carregando uso de armazenamento…" /> : query.isError || !usage ? <ErrorState message="Não foi possível carregar o uso de armazenamento." onRetry={() => void query.refetch()} /> :
+        <><div className="ov-storage-summary"><strong>{formatStorageBytes(used)}{finiteQuota ? " de " + formatStorageBytes(usage.limitBytes) : ""} utilizados</strong>{percent !== undefined && <span>{percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% utilizado</span>}</div>
+          {percent !== undefined && <progress value={Math.max(0, Math.min(percent, 100))} max={100} aria-label="Percentual de armazenamento utilizado" />}
+          <p>{finiteQuota ? formatStorageBytes(Math.max(0, usage.limitBytes - used)) + " disponíveis" : "Limite de armazenamento não disponível."}</p>
+          {usage.warningLevel === "OVER" && <InlineNotice tone="critical">Novos uploads bloqueados até liberar espaço — arquivos existentes não são afetados.</InlineNotice>}
+        </>}
+    </Panel>
+  </Section>;
 }
 
-/** Wave B2B-14 (D-120) - `handleLeaveOrganization` has been fully wired end-to-end (Lambda,
- * API Gateway route, proxy allowlist) since Wave B2B-8/D-099, but no frontend call site ever
- * existed. Visible to every role (not gated like the displayName form below, which is
- * OWNER-only) - the backend's own last-owner guard is the real authority on when leaving is
- * actually allowed, never re-implemented here. */
-function LeaveOrganizationSection() {
+function OrganizationActions({ organization }: { organization: UsableOrganization }) {
   const leave = useLeaveOrganization();
-
-  // D-122/D-125: minimal error-message parity for ResponsibilityReassignmentRequiredError, same
-  // small polish D-120 did for LastOwnerError - no reassignment UI here (out of scope).
-  const errorMessage = leave.isError
-    ? isLastOwnerError(leave.error)
-      ? "Você é o único Owner desta organização - promova outra pessoa a Owner antes de sair."
-      : isResponsibilityReassignmentRequiredError(leave.error)
-        ? "Você ainda é responsável por itens de vencimento ativos - reatribua-os antes de sair."
-        : "Não foi possível sair da organização. Tente novamente."
-    : undefined;
-
-  return (
-    <Section heading="Sair da organização" headingId="leave-organization" icon={LogOut}>
-      <Panel padded>
-        <p>Você perderá o acesso a esta organização imediatamente.</p>
-        <Button variant="danger" icon={LogOut} onClick={() => leave.mutate()} pending={leave.isPending}>
-          {leave.isPending ? "Saindo…" : "Sair da organização"}
-        </Button>
-        {errorMessage ? (
-          <InlineNotice tone="critical" announce="alert">
-            {errorMessage}
-          </InlineNotice>
-        ) : null}
-      </Panel>
-    </Section>
-  );
+  const close = useCloseOrganization();
+  const members = useMembers();
+  const [action, setAction] = useState<"leave" | "close">();
+  const [confirmation, setConfirmation] = useState("");
+  const pending = leave.isPending || close.isPending;
+  const lastOwner = organization.role === "OWNER" && members.data?.members.filter(member => member.status === "ACTIVE" && member.role === "OWNER").length === 1;
+  const error = action === "leave" ? leave.error : close.error;
+  const message = isLastOwnerError(error) ? "Você é o único Owner desta organização. Promova outra pessoa a Owner antes de sair." : isResponsibilityReassignmentRequiredError(error) ? "Você ainda é responsável por vencimentos ativos. Reatribua-os antes de sair." : isConflict(error) ? "A organização foi alterada ou já está em encerramento. Recarregue antes de continuar." : "Não foi possível concluir a operação. Tente novamente.";
+  return <section className="ov-organization-actions" aria-labelledby="important-actions">
+    <span className="ov-eyebrow">Gerenciamento da organização</span><h2 id="important-actions">Ações importantes</h2><p>Confira os efeitos antes de alterar seu acesso ou encerrar a organização.</p>
+    <div className="ov-organization-action-grid">
+      <article><LogOut aria-hidden="true" /><h3>Sair da organização</h3><p>Você perderá o acesso a esta organização. Os dados e demais membros permanecerão nela.</p>{lastOwner && <p>Você é o único Owner. Promova outra pessoa a Owner antes de sair.</p>}<Button variant="secondary" disabled={lastOwner} onClick={() => setAction("leave")}>Sair da organização</Button></article>
+      {organization.role === "OWNER" && <article><Trash2 aria-hidden="true" /><h3>Encerrar organização</h3><p>O acesso será bloqueado e os dados ficarão em recuperação por 30 dias. Após esse prazo, a exclusão definitiva será iniciada. Para solicitar recuperação durante o prazo, contate o suporte.</p><Button variant="secondary" onClick={() => { setConfirmation(""); setAction("close"); }}>Encerrar organização</Button></article>}
+    </div>
+    {action && <Dialog title={action === "leave" ? "Sair da organização?" : "Encerrar organização?"} onClose={() => { if (!pending) setAction(undefined); }}>
+      <Button disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
+      <p>{action === "leave" ? `Você perderá o acesso à organização “${organization.displayName}”. Os dados e demais membros permanecerão nela.` : `O acesso de todos os membros de “${organization.displayName}” será bloqueado. Os dados serão mantidos por 30 dias para recuperação e depois entrarão em exclusão definitiva.`}</p>
+      {action === "close" && <><p>Identificador: <code>{organization.organizationId}</code></p><TextField label="Identificador da organização" value={confirmation} onChange={setConfirmation} required /></>}
+      {error && <InlineNotice tone="critical" announce="alert">{message}</InlineNotice>}
+      {close.isSuccess && <InlineNotice tone="success" announce="status">Encerramento solicitado. O processo de recuperação e exclusão foi iniciado.</InlineNotice>}
+      <Button variant="danger" pending={pending} disabled={action === "close" && (confirmation !== organization.organizationId || close.isSuccess)} onClick={() => { if (pending) return; if (action === "leave") leave.mutate(); else close.mutate(organization.organizationId); }}>{pending ? "Processando…" : action === "leave" ? "Sair da organização" : "Encerrar organização"}</Button>
+    </Dialog>}
+  </section>;
 }
 
-/**
- * W3-07 (D-124). Closing the organization starts a physical, irreversible purge of every piece of
- * tenant data - by far the most destructive action in the product, and unlike "leave", nothing
- * about it can be undone by an administrator afterwards.
- *
- * Confirmation shape (the one piece D-121 Rodada 1 explicitly left to UI judgment rather than the
- * protocol): type-to-confirm the organization id, not a two-step dialog. A dialog's second click
- * is muscle memory; typing the identifier requires the person to actually read WHICH organization
- * they are destroying, which is the failure mode that matters most here now that a user can belong
- * to several. The same token is re-validated server-side against the resolved organization
- * (`organization-lifecycle-handlers.ts`), so this is a real precondition and not UI theatre.
- *
- * OWNER-only visibility is a convenience, never the control: `organization:close` is OWNER_ROLES
- * in the authorization matrix and that check runs inside the service regardless of what the client
- * chooses to render - same posture as the displayName form below.
- */
-function CloseOrganizationSection({ organizationId }: { organizationId: string }) {
-  const close = useCloseOrganization();
-  const [confirmation, setConfirmation] = useState("");
-  const confirmed = confirmation.trim() === organizationId;
-
-  if (close.isSuccess) {
-    return (
-      <Section heading="Encerrar organização" headingId="close-organization" icon={Trash2}>
-        <Panel padded>
-          <InlineNotice tone="success" announce="status">
-            Encerramento iniciado. Os dados desta organização serão apagados em definitivo; o acesso já foi encerrado.
-          </InlineNotice>
-        </Panel>
-      </Section>
-    );
+function OrganizationForm({ organization, reload }: { organization: UsableOrganization; reload: () => void }) {
+  const update = useUpdateOrganizationSettings();
+  const [base, setBase] = useState(organization);
+  const [name, setName] = useState(organization.displayName);
+  const [time, setTime] = useState(organization.defaultReminderLocalTime ?? "");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const dirty = name !== base.displayName || time !== (base.defaultReminderLocalTime ?? "");
+  const editable = organization.role === "OWNER";
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (update.isPending || !editable) return;
+    const errors: Record<string, string> = {};
+    if (!name.trim()) errors["name"] = "Informe o nome da organização.";
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) errors["time"] = "Selecione um horário válido para os novos lembretes.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) { document.getElementById(errors["name"] ? "organization-name" : "organization-time")?.focus(); return; }
+    try {
+      const saved = await update.mutateAsync({ displayName: name.trim(), defaultReminderLocalTime: time, expectedVersion: base.version });
+      setBase({ ...base, ...saved }); setName(saved.displayName); reload();
+    } catch { /* The mutation exposes the failure without discarding local values. */ }
   }
-
-  return (
-    <Section heading="Encerrar organização" headingId="close-organization" icon={Trash2}>
-      <Panel padded>
-        <p>
-          Esta ação apaga em definitivo todos os dados desta organização - vencimentos, documentos e histórico. Não há como desfazer nem recuperar depois.
-        </p>
-        <p>
-          Para confirmar, digite o identificador da organização: <code>{organizationId}</code>
-        </p>
-        <TextField label="Identificador da organização" value={confirmation} onChange={setConfirmation} />
-        <Button variant="danger" icon={Trash2} onClick={() => close.mutate(organizationId)} pending={close.isPending} disabled={!confirmed || close.isPending}>
-          {close.isPending ? "Encerrando…" : "Encerrar organização definitivamente"}
-        </Button>
-        {close.isError ? (
-          <InlineNotice tone="critical" announce="alert">
-            {isConflict(close.error)
-              ? "Esta organização já está sendo encerrada, já foi encerrada, ou está bloqueada - entre em contato com o suporte."
-              : "Não foi possível encerrar a organização. Tente novamente."}
-          </InlineNotice>
-        ) : null}
+  return <>
+    <UnsavedChangesGuard dirty={dirty} />
+    <div className="ov-organization-context"><Building2 aria-hidden="true" /><div><strong>{base.displayName}</strong><span>Organização atual</span></div></div>
+    <Section heading="Dados da organização" headingId="organization-settings" description="Informações que identificam seu espaço de trabalho." icon={IdCard}>
+      <Panel>
+        {editable ? <form onSubmit={event => void submit(event)} noValidate>
+          <div className="ov-settings-fields"><TextField id="organization-name" label="Nome da organização" value={name} onChange={setName} required hint="Este nome aparece para os membros da organização." error={fieldErrors["name"]} maxLength={200} />
+            <TextField id="organization-time" type="time" label="Horário padrão de novos lembretes" value={time} onChange={setTime} required hint="Usado ao criar um lembrete, salvo quando outro horário for escolhido." error={fieldErrors["time"]} /></div>
+          <div className="ov-settings-save"><p>As alterações se aplicam à sua organização.</p><Button type="submit" variant="primary" pending={update.isPending}>{update.isPending ? "Salvando…" : "Salvar alterações"}</Button></div>
+          {update.isSuccess && !dirty && <InlineNotice tone="success" announce="status">Configurações salvas.</InlineNotice>}
+          {update.isError && <InlineNotice tone="critical" announce="alert">{isConflict(update.error) ? "As configurações mudaram em outra sessão. Recarregue para revisar os valores atuais." : update.error instanceof ApiError && update.error.category === "NETWORK" ? "Não foi possível conectar. Verifique sua conexão e tente novamente." : "Não foi possível salvar as configurações agora. Tente novamente em alguns instantes."}{isConflict(update.error) && <Button onClick={reload}>Recarregar</Button>}</InlineNotice>}
+        </form> : <div className="ov-settings-fields"><div><strong>Nome da organização</strong><p>{base.displayName}</p></div><div><strong>Horário padrão de novos lembretes</strong><p>{base.defaultReminderLocalTime ?? "Não configurado"}</p></div><p>Somente o Owner da organização pode alterar essas configurações.</p></div>}
       </Panel>
     </Section>
-  );
+  </>;
 }
 
 export function Settings() {
   const { organizationId } = useActiveOrganization();
-  const organizationsQuery = useOrganizationsList();
-  const role = useCurrentMembershipRole();
-  const update = useUpdateOrganizationSettings();
-
-  const activeOrganization = organizationsQuery.data?.organizations.find((org) => org.organizationId === organizationId);
-  const [displayName, setDisplayName] = useState("");
-  const [defaultReminderLocalTime, setDefaultReminderLocalTime] = useState(FALLBACK_DEFAULT_LOCAL_TIME);
-
-  // Rehydrates the form whenever the underlying organization data changes (initial load, or a
-  // successful save elsewhere) - never overwrites in-progress typing on every render, only when
-  // the SOURCE value itself changes. `exhaustive-deps` proposes `[activeOrganization]`, which
-  // would re-run (and clobber in-progress typing) on every refetch even when displayName itself
-  // is unchanged, since `organizationsQuery.data` is a fresh object reference each time.
-  useEffect(() => {
-    if (activeOrganization) setDisplayName(activeOrganization.displayName);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrganization?.displayName]);
-
-  useEffect(() => {
-    if (activeOrganization) setDefaultReminderLocalTime(activeOrganization.defaultReminderLocalTime ?? FALLBACK_DEFAULT_LOCAL_TIME);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrganization?.defaultReminderLocalTime]);
-
-  const header = <PageHeader title="Configurações" description="Nome da sua organização." />;
-
-  if (organizationsQuery.isPending) {
-    return (
-      <>
-        {header}
-        <Panel padded>
-          <CollectionSkeleton label="Carregando configurações…" />
-        </Panel>
-      </>
-    );
-  }
-
-  if (organizationsQuery.isError || !activeOrganization) {
-    const message = organizationsQuery.error instanceof ApiError ? organizationsQuery.error.message : "Não foi possível carregar as configurações.";
-    return (
-      <>
-        {header}
-        <ErrorState message={message} onRetry={() => void organizationsQuery.refetch()} />
-      </>
-    );
-  }
-
-  if (role !== "OWNER") {
-    return (
-      <>
-        {header}
-        <Panel padded>
-          <p>
-            Organização: <strong>{activeOrganization.displayName}</strong>
-          </p>
-          <p>Somente o Owner da organização pode alterar essas configurações.</p>
-        </Panel>
-        <StorageSection />
-        <LeaveOrganizationSection />
-      </>
-    );
-  }
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!activeOrganization) return;
-    // A version already returned by a previous successful save in THIS session takes
-    // precedence over the list's (now stale) value - avoids a guaranteed OCC conflict on a
-    // second consecutive save without a full page reload in between.
-    const expectedVersion = update.data?.version ?? activeOrganization.version;
-    update.mutate({ displayName, defaultReminderLocalTime, expectedVersion });
-  }
-
-  return (
-    <>
-      {header}
-      {/* Único Panel sem um Section por cima até 2026-09-20 (achado real, tela Configurações) -
-          StorageSection/LeaveOrganizationSection/CloseOrganizationSection logo abaixo sempre
-          tiveram heading próprio; agrupar este também deixa a hierarquia da página consistente. */}
-      <Section heading="Dados da organização" headingId="organization-settings" icon={IdCard}>
-        <Panel padded>
-          <form onSubmit={handleSubmit}>
-            <TextField label="Nome da organização" value={displayName} onChange={setDisplayName} required />
-            <SelectField
-              label="Horário padrão de novos lembretes"
-              value={defaultReminderLocalTime}
-              onChange={setDefaultReminderLocalTime}
-              options={REMINDER_LOCAL_TIME_OPTIONS}
-              required
-            />
-            <Button type="submit" variant="primary" icon={Check} pending={update.isPending}>
-              {update.isPending ? "Salvando…" : "Salvar"}
-            </Button>
-            {update.isSuccess ? (
-              <InlineNotice tone="success" announce="status">
-                Configurações atualizadas.
-              </InlineNotice>
-            ) : null}
-            {update.isError ? (
-              <InlineNotice tone="critical" announce="alert">
-                {isConflict(update.error) ? "Alguém mais alterou a organização - recarregue a página e tente novamente." : "Não foi possível salvar as configurações."}
-              </InlineNotice>
-            ) : null}
-          </form>
-        </Panel>
-      </Section>
-      <StorageSection />
-      <LeaveOrganizationSection />
-      <CloseOrganizationSection organizationId={activeOrganization.organizationId} />
-    </>
-  );
+  const organizations = useOrganizationsList();
+  const active = organizations.data?.organizations.find(org => org.organizationId === organizationId);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => { document.title = "Configurações · OmniVence"; }, []);
+  return <div className="ov-settings">
+    <PageHeader title="Configurações" above={<span className="ov-eyebrow">Administração</span>} description="Gerencie os dados, os lembretes e o armazenamento da sua organização." />
+    {organizations.isPending ? <CollectionSkeleton label="Carregando configurações…" /> : !active ? <ErrorState message="Não foi possível carregar as configurações." onRetry={() => void organizations.refetch()} /> : <>
+      <OrganizationForm key={organizationId + ":" + revision} organization={active} reload={() => { void organizations.refetch().then(result => { if (result.isSuccess) setRevision(value => value + 1); }); }} />
+      <StorageSection /><OrganizationActions key={organizationId} organization={active} />
+    </>}
+  </div>;
 }
