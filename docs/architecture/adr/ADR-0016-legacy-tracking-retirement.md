@@ -1,6 +1,8 @@
 # ADR-0016 — Retirada do "Rastreamento legado" (A10) e governança de entrega de solicitação por A22 em `document-archive`
 
-**Status**: `APPROVED` via protocolo Claude↔Codex (nota cega final Claude 9,2/Codex 9,1, 4 rodadas) — Decisão A (nível 6) e Decisão B, escopo (b) (nível 5). **Implementação NÃO iniciada**: aguarda confirmação de Marcelo em 2 pontos de produto nomeados abaixo. | **Data**: 2026-09-25 | **Type**: Type 1 (`change-risk-scale.md` nível 6 para A) | **Decisor**: Marcelo (produto), Claude+Codex (desenho técnico)
+**Status**: `IMPLEMENTADO` (2026-09-25) — `APPROVED` via protocolo Claude↔Codex (nota cega final Claude 9,2/Codex 9,1, 4 rodadas), decisão de produto de Marcelo confirmada, implementação completa em 3 commits (`627d5b04` backend, `1bbd3607` infra, `a1025b5e` frontend) na branch `develop`. Suíte completa verde: backend 3137/3137, frontend 450/450, infra `terraform test` 29/29 + 1/1 (módulo `api-gateway` tem 1 falha pré-existente e não relacionada, ver nota abaixo). | **Data**: 2026-09-25 | **Type**: Type 1 (`change-risk-scale.md` nível 6 para A) | **Decisor**: Marcelo (produto), Claude+Codex (desenho técnico)
+
+**Achado real durante a implementação, fora de escopo, não corrigido**: `infra/modules/api-gateway/tests/api_gateway.tftest.hcl` já esperava 6 rotas `/items/{itemId}/documents*` antes desta mudança, mas `main.tf` já tinha 7 desde D-313 (rota `download`, 2026-09-21) — a asserção nunca foi atualizada. Confirmado pré-existente (não introduzido por esta decisão). Fix de uma linha pendente, registrado como pendência mecânica separada.
 
 Pedido de Marcelo (2026-09-25, sessão de port de `prototype/novasTelas`): avaliar se o "Rastreamento
 legado" (A10, `Tracking.tsx`) ainda faz sentido, e permitir que o operador escolha a forma de
