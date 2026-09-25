@@ -204,12 +204,13 @@ module "bulk_actions_handler" {
   tags                  = { Project = local.project_name, Environment = var.environment }
 }
 
-# M10 (D-037): pepper de hash do guest token. Achado real de revisão adversarial (Codex):
-# GUEST_TOKEN_PEPPER precisa chegar a QUALQUER Lambda que valide/emita token de convidado -
-# faltava aqui, o que quebraria o cold start de subjects_handler e guest_documents_handler em
-# runtime real. Trade-off consciente (registrado, não escondido): valor vai como env var
-# Lambda (nunca hardcoded/commitado), não via Secrets Manager fetch em runtime - proporcional
-# ao estágio atual sem dado real de tenant em risco. Upgrade fica como follow-up.
+# Pepper de hash do guest token. ADR-0016 Decision A (2026-09-25) retired
+# subjects_handler/guest_documents_handler's own use of this pepper (M10 guest-upload, fully
+# removed) - it is now shared only by the handlers still doing guest-token-adjacent hashing
+# (notifications_handler/memberships_handler below). Trade-off consciente (registrado, não
+# escondido): valor vai como env var Lambda (nunca hardcoded/commitado), não via Secrets
+# Manager fetch em runtime - proporcional ao estágio atual sem dado real de tenant em risco.
+# Upgrade fica como follow-up.
 resource "random_password" "guest_token_pepper" {
   length  = 64
   special = false
@@ -218,36 +219,21 @@ resource "random_password" "guest_token_pepper" {
 module "subjects_handler" {
   source = "./modules/lambda-function"
 
-  # M9 (D-036/D-040): TrackedSubject + RequirementAssignment + ItemWatch (watchers ficam no
-  # items_handler existente, reaproveitando a mesma Lambda de expiration - ver api-gateway).
-  # Sem capability nova alem da geral: GSI7 e tenant-scoped, ja incluido em
-  # tenant_facing_read_write_policy_json (dynamo-table module).
-  function_name  = "${local.name_prefix}-subjects-handler"
-  handler_name   = "subjects-handler"
-  source_dir     = "${local.dist_dir}/subjects-handler"
-  adot_layer_arn = var.adot_layer_arn
-  environment_variables = merge(local.common_env, {
-    GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
-    # M10 cluster 4 (D-049): mecanismo de convite inicial automatizado é sempre implementado -
-    # SES_FROM_ADDRESS/SES_CONFIGURATION_SET sempre wireados (reaproveita o MESMO SES já usado
-    # por EmailDeliveryWorker/DocumentChasingDispatch, nenhum recurso novo), mas o ENVIO real
-    # só acontece se o kill switch abaixo estiver true - default false em todos os ambientes.
-    DOCUMENT_REQUEST_INITIAL_INVITE_EMAIL_ENABLED = tostring(var.document_request_initial_invite_email_enabled)
-    SES_FROM_ADDRESS                              = var.ses_from_address
-    SES_CONFIGURATION_SET                         = module.ses_notifications.configuration_set_name
-    # Block 7 (G01, D-267) - the condition that justified leaving this unset ("frontend não tem
-    # milestone atribuído ainda", D-047) is now obsolete: G01's real frontend page exists and
-    # consumes this exact link. Same var.app_origin + path convention as the guest_upload_base_url
-    # wired for document_archive_guest_handler above, never a second competing source of truth.
-    GUEST_UPLOAD_BASE_URL        = "${var.app_origin}/guest/document-requests"
-    REMINDER_DUE_WORK_TABLE_NAME = module.reminder_due_work_table.table_name
-  })
+  # TrackedSubject CRUD only. ADR-0016 Decision A (2026-09-25) retired RequirementAssignment/
+  # DocumentRequest(subject)/guest-upload (M9/M10 cluster 4) this handler used to also serve —
+  # the GUEST_TOKEN_PEPPER/SES/GUEST_UPLOAD_BASE_URL/REMINDER_DUE_WORK_TABLE_NAME wiring that
+  # supported those is retired with them (A14's document-archive equivalent has its own,
+  # separate wiring — document_archive_handler below). Sem capability nova alem da geral: GSI7
+  # e tenant-scoped, ja incluido em tenant_facing_read_write_policy_json (dynamo-table module).
+  function_name         = "${local.name_prefix}-subjects-handler"
+  handler_name          = "subjects-handler"
+  source_dir            = "${local.dist_dir}/subjects-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  environment_variables = local.common_env
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
-    data.aws_iam_policy_document.ses_send_email.json,
     module.table.gsi4_read_policy_json,
-    module.reminder_due_work_table.write_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -308,11 +294,10 @@ module "memberships_handler" {
   adot_layer_arn = var.adot_layer_arn
   environment_variables = merge(local.common_env, {
     GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
-    # Wave B2B-14 (D-120): mesmo padrão de subjects_handler acima - SES_FROM_ADDRESS/
-    # SES_CONFIGURATION_SET/INVITATION_BASE_URL sempre wireados (reaproveita o MESMO SES já
-    # usado por EmailDeliveryWorker/DocumentChasingDispatch, nenhum recurso novo), mas o ENVIO
-    # real só acontece se o kill switch abaixo estiver true - default false em todos os
-    # ambientes.
+    # Wave B2B-14 (D-120): SES_FROM_ADDRESS/SES_CONFIGURATION_SET/INVITATION_BASE_URL sempre
+    # wireados (reaproveita o MESMO SES já usado por EmailDeliveryWorker, nenhum recurso novo),
+    # mas o ENVIO real só acontece se o kill switch abaixo estiver true - default false em
+    # todos os ambientes.
     MEMBERSHIP_INVITE_EMAIL_ENABLED = tostring(var.membership_invite_email_enabled)
     SES_FROM_ADDRESS                = var.ses_from_address
     SES_CONFIGURATION_SET           = module.ses_notifications.configuration_set_name
@@ -676,7 +661,6 @@ module "dispatch_outbox_relay" {
   # M11 (D-042) adds a third destination; BLOCKER-B adds a fourth, same reasoning.
   environment_variables = merge(local.common_env, {
     DISPATCH_QUEUE_URL                         = module.dispatch_queue.queue_url
-    DOCUMENT_CHASING_DISPATCH_QUEUE_URL        = module.document_chasing_dispatch_queue.queue_url
     IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
@@ -695,7 +679,6 @@ module "dispatch_outbox_relay" {
   policy_documents_json = [
     module.table.tenant_facing_read_write_policy_json,
     module.dispatch_queue.send_policy_json,
-    module.document_chasing_dispatch_queue.send_policy_json,
     module.import_commit_queue.send_policy_json,
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
@@ -723,7 +706,6 @@ module "outbox_sweeper" {
   environment_variables = merge(local.common_env, {
     DISPATCH_QUEUE_URL                         = module.dispatch_queue.queue_url
     EMAIL_DELIVER_QUEUE_URL                    = module.email_deliver_queue.queue_url
-    DOCUMENT_CHASING_DISPATCH_QUEUE_URL        = module.document_chasing_dispatch_queue.queue_url
     IMPORT_COMMIT_QUEUE_URL                    = module.import_commit_queue.queue_url
     REMINDER_MATERIALIZATION_TRIGGER_QUEUE_URL = module.reminder_materialization_trigger_queue.queue_url
     IMPORT_PARSE_QUEUE_URL                     = module.import_parse_dispatch_queue.queue_url
@@ -743,11 +725,10 @@ module "outbox_sweeper" {
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
   # M4 extends this SAME privileged role to also send to the notification email queue
   # (m4-notification-engine-design.md §7.4: one sweeper covering multiple destinations, not a
-  # second sweeper querying the same global GSI6 partition) - M10 cluster 4 extends it again
-  # for document-chasing-dispatch, M11 (D-042) once more for import-commit, BLOCKER-B once
-  # more for the reminder-materialization-trigger queue, D-192 slice 9 once more for the
-  # import-parse-dispatch queue, D-193 item 6/9 once more for the
-  # requirement-evidence-refresh queue, D-204 fatia 3 once more for the
+  # second sweeper querying the same global GSI6 partition) - M11 (D-042) extends it once more
+  # for import-commit, BLOCKER-B once more for the reminder-materialization-trigger queue,
+  # D-192 slice 9 once more for the import-parse-dispatch queue, D-193 item 6/9 once more for
+  # the requirement-evidence-refresh queue, D-204 fatia 3 once more for the
   # report-subscription-delivery queue, and D-205 fatia 2 once more for the dossier-export
   # queue, same reasoning.
   policy_documents_json = [
@@ -755,7 +736,6 @@ module "outbox_sweeper" {
     module.table.gsi6_read_policy_json,
     module.dispatch_queue.send_policy_json,
     module.email_deliver_queue.send_policy_json,
-    module.document_chasing_dispatch_queue.send_policy_json,
     module.import_commit_queue.send_policy_json,
     module.reminder_materialization_trigger_queue.send_policy_json,
     module.import_parse_dispatch_queue.send_policy_json,
@@ -841,9 +821,10 @@ module "document_archive_handler" {
 
 # --- DocumentArchiveGuestHandler: /document-archive/guest/document-requests/{token}* -------
 # (D-143 Decision 4, D-146) — SEPARATE Lambda from document_archive_handler above, no Cognito
-# authorizer, same isolation posture as guest_documents_handler (subject module's M10
-# precedent). Own pepper (never GUEST_TOKEN_PEPPER — a distinct credential/session shape in a
-# distinct module, no reason to share a secret whose blast radius would then span both).
+# authorizer (the project's public-route precedent — the retired subject module's own
+# guest_documents_handler used to be the other one, ADR-0016 Decision A). Own pepper (never
+# GUEST_TOKEN_PEPPER — a distinct credential/session shape in a distinct module, no reason to
+# share a secret whose blast radius would then span both).
 resource "random_password" "document_archive_guest_access_pepper" {
   length  = 64
   special = false
@@ -1139,8 +1120,6 @@ module "api" {
   subjects_function_name               = module.subjects_handler.function_name
   memberships_invoke_arn               = module.memberships_handler.live_alias_invoke_arn
   memberships_function_name            = module.memberships_handler.function_name
-  guest_documents_invoke_arn           = module.guest_documents_handler.live_alias_invoke_arn
-  guest_documents_function_name        = module.guest_documents_handler.function_name
   imports_invoke_arn                   = module.imports_handler.live_alias_invoke_arn
   imports_function_name                = module.imports_handler.function_name
   document_archive_invoke_arn          = module.document_archive_handler.live_alias_invoke_arn
@@ -1880,15 +1859,14 @@ module "schedule" {
 module "observability" {
   source = "./modules/reminder-observability"
 
-  reminder_producer_function_name         = module.reminder_producer.function_name
-  reminder_dispatch_function_name         = module.reminder_dispatch.function_name
-  reminder_reconciliation_function_name   = module.reminder_reconciliation.function_name
-  dispatch_outbox_relay_function_name     = module.dispatch_outbox_relay.function_name
-  outbox_sweeper_function_name            = module.outbox_sweeper.function_name
-  document_chasing_dispatch_function_name = module.document_chasing_dispatch_handler.function_name
-  dispatch_queue_name                     = module.dispatch_queue.queue_name
-  alert_topic_arn                         = module.alert_topic.topic_arn
-  tags                                    = { Project = local.project_name, Environment = var.environment }
+  reminder_producer_function_name       = module.reminder_producer.function_name
+  reminder_dispatch_function_name       = module.reminder_dispatch.function_name
+  reminder_reconciliation_function_name = module.reminder_reconciliation.function_name
+  dispatch_outbox_relay_function_name   = module.dispatch_outbox_relay.function_name
+  outbox_sweeper_function_name          = module.outbox_sweeper.function_name
+  dispatch_queue_name                   = module.dispatch_queue.queue_name
+  alert_topic_arn                       = module.alert_topic.topic_arn
+  tags                                  = { Project = local.project_name, Environment = var.environment }
 }
 
 # --- Cost governance ------------------------------------------------------------------------
@@ -2195,75 +2173,12 @@ module "documents_handler" {
   tags = { Project = local.project_name, Environment = var.environment }
 }
 
-# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) ------------------
-# PRIMEIRA Lambda do projeto atrás de rota pública (sem JWT) - reusa exatamente a mesma
-# capability de presign de documents_handler (mesmo bucket de quarentena), nunca uma nova.
-
-module "guest_documents_handler" {
-  source = "./modules/lambda-function"
-
-  function_name  = "${local.name_prefix}-guest-documents-handler"
-  handler_name   = "guest-documents-handler"
-  source_dir     = "${local.dist_dir}/guest-documents-handler"
-  adot_layer_arn = var.adot_layer_arn
-  environment_variables = merge(local.common_env, {
-    QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
-    GUEST_TOKEN_PEPPER     = random_password.guest_token_pepper.result
-  })
-  policy_documents_json = [
-    module.table.tenant_facing_read_write_policy_json,
-    data.aws_iam_policy_document.documents_presign_quarantine_put.json,
-  ]
-  tags = { Project = local.project_name, Environment = var.environment }
-}
-
-# --- DocumentChasingDispatch: automated document chasing (M10 cluster 4, D-039/D-046/D-048) -
-
-module "document_chasing_dispatch_queue" {
-  source = "./modules/sqs-worker-queue"
-
-  queue_name               = "${local.name_prefix}-document-chasing-dispatch"
-  consumer_timeout_seconds = 10
-  aws_region               = var.aws_region
-  aws_account_id           = var.aws_account_id
-  alert_topic_arn          = module.alert_topic.topic_arn
-  tags                     = { Project = local.project_name, Environment = var.environment }
-}
-
-module "document_chasing_dispatch_handler" {
-  source = "./modules/lambda-function"
-
-  # Worker de dispatch+delivery fundido (D-048: chasing v1 é single-channel, sem lease/retry -
-  # não justifica um par dispatch/delivery separado como o de M3/M4). Reaproveita o mesmo SES
-  # já usado por EmailDeliveryWorker (mesma policy data.aws_iam_policy_document.ses_send_email,
-  # mesmo configuration set) - nenhum recurso SES novo.
-  function_name  = "${local.name_prefix}-document-chasing-dispatch"
-  handler_name   = "document-chasing-dispatch-handler"
-  source_dir     = "${local.dist_dir}/document-chasing-dispatch-handler"
-  adot_layer_arn = var.adot_layer_arn
-  environment_variables = merge(local.common_env, {
-    GUEST_TOKEN_PEPPER    = random_password.guest_token_pepper.result
-    SES_FROM_ADDRESS      = var.ses_from_address
-    SES_CONFIGURATION_SET = module.ses_notifications.configuration_set_name
-    # Block 7 (G01, D-267) - see subjects_handler's own comment on this same variable; the
-    # D-047 condition that justified leaving it unset is now obsolete.
-    GUEST_UPLOAD_BASE_URL = "${var.app_origin}/guest/document-requests"
-  })
-  reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
-  policy_documents_json = [
-    module.table.tenant_facing_read_write_policy_json,
-    module.document_chasing_dispatch_queue.consume_policy_json,
-    data.aws_iam_policy_document.ses_send_email.json,
-  ]
-  tags = { Project = local.project_name, Environment = var.environment }
-}
-
-resource "aws_lambda_event_source_mapping" "document_chasing_dispatch_from_queue" {
-  event_source_arn        = module.document_chasing_dispatch_queue.queue_arn
-  function_name           = module.document_chasing_dispatch_handler.live_alias_arn
-  batch_size              = 10
-  function_response_types = ["ReportBatchItemFailures"]
-}
+# ADR-0016 Decision A (2026-09-25) retired GuestDocumentsHandler (/guest/document-requests/*, M10
+# guest-upload) and DocumentChasingDispatch (automated document chasing, M10 cluster 4) in their
+# entirety - both fully substituted by document-archive's own guest access (document_archive_guest
+# module below) and A14's DocumentRequest, which has no automated-chasing equivalent (abandoned
+# capability per ADR-0016). `random_password.guest_token_pepper` is preserved (shared with other
+# handlers, never removed).
 
 # --- UploadFinalizerWorker: S3 event (via queue) -> validate + invoke ParserSandbox ---------
 

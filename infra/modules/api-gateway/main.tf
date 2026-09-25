@@ -33,22 +33,26 @@ resource "aws_apigatewayv2_stage" "default" {
   # depends_on on every *_routes resource referenced by a route_settings block below closes this
   # for future additions too, not just this one.
   depends_on = [
-    aws_apigatewayv2_route.guest_documents,
+    aws_apigatewayv2_route.document_archive_guest,
     aws_apigatewayv2_route.whatsapp_webhook,
   ]
 
   # D-051: throttling nativo do HTTP API nunca tinha sido configurado (nem para as rotas
-  # JWT-protegidas) - default conservador aplicado a todo o stage; as 2 rotas públicas
-  # /guest/* recebem um `route_settings` mais restritivo abaixo, já que são as únicas sem
+  # JWT-protegidas) - default conservador aplicado a todo o stage; as rotas públicas
+  # recebem um `route_settings` mais restritivo abaixo, já que são as únicas sem
   # autenticação JWT (HTTP API v2 não tem um recurso `aws_apigatewayv2_route_settings`
-  # separado - é um bloco aninhado repetível dentro do próprio stage).
+  # separado - é um bloco aninhado repetível dentro do próprio stage). ADR-0016 Decision A
+  # (2026-09-25) retired the /guest/document-requests/* routes that used to also throttle here
+  # (document-chasing/G01 guest-upload feature, fully removed) -
+  # /document-archive/guest/document-requests/* (document_archive_guest_routes) is the only
+  # surviving guest-facing route family.
   default_route_settings {
     throttling_burst_limit = 50
     throttling_rate_limit  = 25
   }
 
   dynamic "route_settings" {
-    for_each = local.guest_documents_routes
+    for_each = local.document_archive_guest_routes
     content {
       route_key              = "${route_settings.value.method} ${route_settings.value.path}"
       throttling_burst_limit = 10
@@ -420,7 +424,10 @@ resource "aws_lambda_permission" "documents" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/items/*/documents*"
 }
 
-# --- SubjectsHandler: /subjects* (M9, D-036/D-040 - TrackedSubject + RequirementAssignment) --
+# --- SubjectsHandler: /subjects* (TrackedSubject CRUD only) --------------------------------
+# ADR-0016 Decision A (2026-09-25) retired every RequirementAssignment/DocumentRequest(subject)/
+# guest-upload route this handler used to also serve (M9/M10 cluster 4) - see
+# document_archive_routes below for A14's replacement (/document-archive/requirements/*).
 
 resource "aws_apigatewayv2_integration" "subjects" {
   api_id                 = aws_apigatewayv2_api.this.id
@@ -435,40 +442,11 @@ locals {
     dashboard = { method = "GET", path = "/subjects/dashboard" }
     # D-194 Fatia 3 (search/filters): literal segment, same "literal beats {subjectId}" precedent
     # as "dashboard" above.
-    search      = { method = "GET", path = "/subjects/search" }
-    get_by_id   = { method = "GET", path = "/subjects/{subjectId}" }
-    update      = { method = "PUT", path = "/subjects/{subjectId}" }
-    delete      = { method = "DELETE", path = "/subjects/{subjectId}" }
-    archive     = { method = "POST", path = "/subjects/{subjectId}/archive" }
-    assign_req  = { method = "POST", path = "/subjects/{subjectId}/requirements" }
-    list_req    = { method = "GET", path = "/subjects/{subjectId}/requirements" }
-    get_req     = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
-    update_req  = { method = "PUT", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
-    delete_req  = { method = "DELETE", path = "/subjects/{subjectId}/requirements/{assignmentId}" }
-    link_item   = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/link" }
-    unlink_item = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/unlink" }
-    # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission (M10, ancorada no
-    # RequirementAssignment) nunca teve rota de leitura para o lado autenticado do tenant -
-    # mesmo gap que Document/M6 tinha antes desta sessão.
-    list_submissions = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/submissions" }
-    get_submission   = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}" }
-    # Achado real (M10 cluster 4): estas 4 rotas de DocumentRequest (lado autenticado, D-037)
-    # já tinham handler HTTP completo (document-request-handlers.ts) e roteamento real dentro
-    # do Lambda (subjects-handler.ts) desde a sessão anterior, mas NUNCA tinham sido
-    # registradas aqui - o API Gateway real nunca teria uma rota que as alcançasse (404),
-    # apesar do código estar pronto e testado. Corrigido junto das 2 rotas novas de D-049
-    # abaixo, mesmo padrão.
-    create_document_request = { method = "POST", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
-    list_document_requests  = { method = "GET", path = "/subjects/{subjectId}/requirements/{assignmentId}/document-requests" }
-    get_document_request    = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}" }
-    revoke_document_request = { method = "POST", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/revoke" }
-    # D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence,
-    # frontend/src/routes/subjects/Tracking.tsx's own documented deviation #1).
-    list_chasing_occurrences = { method = "GET", path = "/subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences" }
-    # M10 cluster 4 (D-049): preferência de TENANT (não por subject) para o convite inicial
-    # automatizado - fora do namespace /{subjectId}/... de propósito.
-    get_delivery_preference    = { method = "GET", path = "/subjects/document-request-delivery-preference" }
-    update_delivery_preference = { method = "PUT", path = "/subjects/document-request-delivery-preference" }
+    search    = { method = "GET", path = "/subjects/search" }
+    get_by_id = { method = "GET", path = "/subjects/{subjectId}" }
+    update    = { method = "PUT", path = "/subjects/{subjectId}" }
+    delete    = { method = "DELETE", path = "/subjects/{subjectId}" }
+    archive   = { method = "POST", path = "/subjects/{subjectId}/archive" }
   }
 }
 
@@ -544,60 +522,12 @@ resource "aws_lambda_permission" "memberships" {
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/organizations*"
 }
 
-# --- GuestDocumentsHandler: /guest/document-requests/{token}* (M10, D-037) -----------------
-# PRIMEIRA rota pública do projeto: authorization_type = NONE, sem authorizer JWT. Validação
-# fica inteiramente na aplicação (GuestSubmissionService#resolveToken) - decisão explícita do
-# cluster 2 (evita duplicar lógica de token/contexto num Lambda authorizer, e o risco de cache
-# stale de authorizer). D-037 originalmente exigia WAF na frente como pré-requisito - superseded
-# por D-051 (achado real: WAFv2 não suporta associação com API Gateway HTTP API v2, só REST API
-# v1/ALB/AppSync/etc. - CreateWebACL/AssociateWebACL nunca funcionariam aqui). Mitigação
-# imediata: throttling nativo por rota (`route_settings` em `aws_apigatewayv2_stage.default`
-# acima), mais restritivo que o default do stage já que estas são as únicas rotas sem
-# autenticação JWT. CloudFront+WAF fica registrado como débito técnico bloqueante antes de
-# tráfego público real de produção (não antes de `dev`).
-
-resource "aws_apigatewayv2_integration" "guest_documents" {
-  api_id                 = aws_apigatewayv2_api.this.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = var.guest_documents_invoke_arn
-  payload_format_version = "2.0"
-}
-
-locals {
-  guest_documents_routes = {
-    get_request = { method = "GET", path = "/guest/document-requests/{token}" }
-    # Block 7 (A10/G01, D-267) - same handler as get_request above, addressed at its own path so
-    # CloudFront can route the SPA's real fetch calls here without hijacking the bare page route
-    # (see guest-documents-handler.ts's own comment - identical to G02's own bare-path collision).
-    get_request_info = { method = "GET", path = "/guest/document-requests/{token}/info" }
-    start_submission = { method = "POST", path = "/guest/document-requests/{token}/uploads" }
-  }
-}
-
-resource "aws_apigatewayv2_route" "guest_documents" {
-  for_each = local.guest_documents_routes
-
-  api_id             = aws_apigatewayv2_api.this.id
-  route_key          = "${each.value.method} ${each.value.path}"
-  target             = "integrations/${aws_apigatewayv2_integration.guest_documents.id}"
-  authorization_type = "NONE"
-}
-
-resource "aws_lambda_permission" "guest_documents" {
-  statement_id  = "AllowApiGatewayInvokeGuestDocuments"
-  action        = "lambda:InvokeFunction"
-  function_name = var.guest_documents_function_name
-  principal     = "apigateway.amazonaws.com"
-  qualifier     = "live"
-  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*/guest/document-requests*"
-}
-
 # --- WhatsAppWebhookHandler: /webhooks/whatsapp (D-197 fatia 3/5, D-7) ---------------------
-# Second PUBLIC route of the project (authorization_type = NONE), same rationale as
-# guest_documents above: Meta Cloud API calls this endpoint directly with no user session.
+# A PUBLIC route of the project (authorization_type = NONE), same rationale as
+# document_archive_guest below: Meta Cloud API calls this endpoint directly with no user session.
 # Auth is entirely in application code (X-Hub-Signature-256 HMAC verification BEFORE any
 # processing for POST; hub.verify_token match for the one-time GET handshake) - never a Lambda
-# authorizer, same reasoning guest_documents already established for this project.
+# authorizer, same reasoning document_archive_guest already established for this project.
 
 resource "aws_apigatewayv2_integration" "whatsapp_webhook" {
   api_id                 = aws_apigatewayv2_api.this.id
@@ -644,13 +574,16 @@ locals {
   notifications_routes = {
     get    = { method = "GET", path = "/notifications/preferences" }
     update = { method = "PUT", path = "/notifications/preferences" }
-    # D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
-    # non-blocking gap (no real user could opt in to WhatsApp even with the rest of the
-    # program fully wired). Same Lambda/authorizer as the routes above, same action name
-    # (notification:configure) - a user managing their own channel consent.
-    whatsapp_opt_in = { method = "POST", path = "/notifications/whatsapp-opt-in" }
+    # D-332 revisão adversarial (achado real Alta, Codex): a rota `whatsapp_opt_in` direta
+    # (D-246/D-286, sem exigir confirmação de posse) REMOVIDA - continuava viva mesmo depois de
+    # D-328 introduzir a confirmação por código, contradizendo diretamente a invariante que D-328
+    # afirma garantir ("todo WhatsAppOptIn nasce possession-confirmed"): qualquer chamador
+    # autenticado ainda podia criar um registro de consentimento para um número nunca confirmado
+    # via esta rota. `whatsapp_opt_in_request_confirmation`/`whatsapp_opt_in_confirm` abaixo (D-328)
+    # são o único caminho real desde então - `WhatsAppOptInService.recordOptIn()` continua existindo
+    # como capability interna, só sem rota HTTP direta.
     # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation before
-    # recordOptIn() is called - same Lambda/authorizer/action as whatsapp_opt_in above.
+    # recordOptIn() is called - same Lambda/authorizer/action as the routes above.
     whatsapp_opt_in_request_confirmation = { method = "POST", path = "/notifications/whatsapp-opt-in/request-confirmation" }
     whatsapp_opt_in_confirm              = { method = "POST", path = "/notifications/whatsapp-opt-in/confirm" }
   }
@@ -781,6 +714,11 @@ locals {
     # storage-quota-scoping (D-2xx) - tenant-wide storage usage summary; reuses docarchive:read,
     # same "literal segment, no new Action" shape as list_review_queue above.
     get_storage_usage = { method = "GET", path = "/document-archive/storage-usage" }
+    # ADR-0016 Decision B (2026-09-25) - A22 migrated here from the retired subject module's own
+    # /subjects/document-request-delivery-preference; same literal-segment shape as
+    # get_storage_usage above.
+    get_delivery_preference    = { method = "GET", path = "/document-archive/settings/document-request-delivery" }
+    update_delivery_preference = { method = "PUT", path = "/document-archive/settings/document-request-delivery" }
 
     # D-143 Nucleus 2, entity 3/3, recurrence (Decision 8/D-147) - same Lambda, subject-scoped
     # series routes. Tenant-facing only - the guest-facing surface stays on the separate
@@ -852,10 +790,10 @@ resource "aws_lambda_permission" "document_archive" {
 }
 
 # --- DocumentArchiveGuestHandler: /document-archive/guest/document-requests/{token}* -------
-# (D-143 Decision 4, D-146) — SEPARATE Lambda from DocumentArchiveHandler, same isolation
-# posture as GuestDocumentsHandler above (authorization_type = NONE, no Cognito JWT
-# authorizer; validation happens entirely in GuestDocumentAccessService#resolveCredential/
-# resolveSession, never a Lambda authorizer, same reasoning as D-037's comment above).
+# (D-143 Decision 4, D-146) — SEPARATE Lambda from DocumentArchiveHandler, the project's public
+# (authorization_type = NONE, no Cognito JWT authorizer) route precedent; validation happens
+# entirely in GuestDocumentAccessService#resolveCredential/resolveSession, never a Lambda
+# authorizer.
 
 resource "aws_apigatewayv2_integration" "document_archive_guest" {
   api_id                 = aws_apigatewayv2_api.this.id

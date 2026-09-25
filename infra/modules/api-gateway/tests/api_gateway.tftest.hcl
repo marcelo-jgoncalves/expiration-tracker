@@ -17,30 +17,28 @@ run "jwt_authorizer_attached_to_every_route" {
   command = apply
 
   variables {
-    api_name                      = "expiration-tracker-test-api"
-    user_pool_id                  = "us-east-1_testpool"
-    user_pool_client_id           = "test-client-id"
-    aws_region                    = "us-east-1"
-    test_ping_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
-    test_ping_function_name       = "test-ping"
-    items_invoke_arn              = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
-    items_function_name           = "items"
-    reminders_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
-    reminders_function_name       = "reminders"
-    notifications_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
-    notifications_function_name   = "notifications"
-    documents_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
-    documents_function_name       = "documents"
-    subjects_invoke_arn           = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
-    subjects_function_name        = "subjects"
-    memberships_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:memberships/invocations"
-    memberships_function_name     = "memberships"
-    guest_documents_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:guest-documents/invocations"
-    guest_documents_function_name = "guest-documents"
-    imports_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
-    imports_function_name         = "imports"
-    export_invoke_arn             = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:export/invocations"
-    export_function_name          = "export"
+    api_name                    = "expiration-tracker-test-api"
+    user_pool_id                = "us-east-1_testpool"
+    user_pool_client_id         = "test-client-id"
+    aws_region                  = "us-east-1"
+    test_ping_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:test-ping/invocations"
+    test_ping_function_name     = "test-ping"
+    items_invoke_arn            = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:items/invocations"
+    items_function_name         = "items"
+    reminders_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:reminders/invocations"
+    reminders_function_name     = "reminders"
+    notifications_invoke_arn    = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:notifications/invocations"
+    notifications_function_name = "notifications"
+    documents_invoke_arn        = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:documents/invocations"
+    documents_function_name     = "documents"
+    subjects_invoke_arn         = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:subjects/invocations"
+    subjects_function_name      = "subjects"
+    memberships_invoke_arn      = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:memberships/invocations"
+    memberships_function_name   = "memberships"
+    imports_invoke_arn          = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:imports/invocations"
+    imports_function_name       = "imports"
+    export_invoke_arn           = "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:export/invocations"
+    export_function_name        = "export"
     # Pre-existing gap found while wiring D-206/D-207 (this test file's variables block
     # never followed D-195/D-143's additions to variables.tf) - filled in here (mock
     # values only, no production change) so this module's own `terraform test` can run at
@@ -199,8 +197,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.notifications) == 5
-    error_message = "Expected exactly 5 /notifications* routes (get/update preferences, whatsapp-opt-in, request-confirmation, confirm)"
+    condition     = length(aws_apigatewayv2_route.notifications) == 4
+    error_message = "Expected exactly 4 /notifications* routes (get/update preferences, request-confirmation, confirm)"
   }
 
   assert {
@@ -211,14 +209,16 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "PUT /notifications/preferences route must exist"
   }
 
-  # D-246/D-286: recordOptIn() existed since D-5 with no HTTP route - closes the named,
-  # non-blocking gap in the WhatsApp roadmap item.
+  # D-332 revisão adversarial (achado real Alta, Codex): a rota direta de opt-in (D-246/D-286, sem
+  # exigir confirmação de posse) foi REMOVIDA - contradizia a invariante que D-328 afirma garantir
+  # ("todo WhatsAppOptIn nasce possession-confirmed"). Asserção NEGATIVA (nunca positiva) para
+  # nunca deixar a rota voltar sem essa checagem sendo notada.
   assert {
-    condition = contains(
+    condition = !contains(
       [for r in aws_apigatewayv2_route.notifications : r.route_key],
       "POST /notifications/whatsapp-opt-in",
     )
-    error_message = "POST /notifications/whatsapp-opt-in route must exist"
+    error_message = "POST /notifications/whatsapp-opt-in (bypass sem confirmação de posse) nunca deve voltar a existir - D-332"
   }
 
   # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): phone-ownership confirmation routes.
@@ -312,7 +312,9 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "GET /items/{itemId}/documents/{documentId} route must exist"
   }
 
-  # Every /subjects* route exists and is JWT-authorized (M9, D-036/D-040).
+  # Every /subjects* route exists and is JWT-authorized (TrackedSubject CRUD only — ADR-0016
+  # Decision A, 2026-09-25, retired every RequirementAssignment/DocumentRequest(subject)/
+  # guest-upload route this handler used to also serve).
   assert {
     condition = alltrue([
       for r in aws_apigatewayv2_route.subjects : r.authorization_type == "JWT" && r.authorizer_id == aws_apigatewayv2_authorizer.jwt.id
@@ -321,58 +323,8 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.subjects) == 23
-    error_message = "Expected exactly 23 /subjects* routes (create, dashboard, search, get, update, delete, archive, assign_req, list_req, get_req, update_req, delete_req, link_item, unlink_item, create/list/get/revoke_document_request, list_chasing_occurrences, get/update_delivery_preference, list/get_submission)"
-  }
-
-  # D-288: closes the A10 timeline gap (no route existed to read DocumentChasingOccurrence).
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "GET /subjects/{subjectId}/document-requests/{documentRequestId}/chasing-occurrences",
-    )
-    error_message = "GET .../document-requests/{documentRequestId}/chasing-occurrences route must exist"
-  }
-
-  # BLOCKER-A (segunda metade, 2026-08-25): DocumentSubmission read routes.
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions",
-    )
-    error_message = "GET .../submissions route (list) must exist"
-  }
-
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "GET /subjects/{subjectId}/requirements/{assignmentId}/submissions/{submissionId}",
-    )
-    error_message = "GET .../submissions/{submissionId} route (get) must exist"
-  }
-
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "POST /subjects/{subjectId}/requirements/{assignmentId}/document-requests",
-    )
-    error_message = "POST .../document-requests route (create) must exist - achado real, faltava desde a sessão M10 anterior"
-  }
-
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "GET /subjects/document-request-delivery-preference",
-    )
-    error_message = "GET /subjects/document-request-delivery-preference route must exist (D-049)"
-  }
-
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.subjects : r.route_key],
-      "POST /subjects/{subjectId}/requirements/{assignmentId}/link",
-    )
-    error_message = "POST /subjects/{subjectId}/requirements/{assignmentId}/link route must exist"
+    condition     = length(aws_apigatewayv2_route.subjects) == 7
+    error_message = "Expected exactly 7 /subjects* routes (create, dashboard, search, get, update, delete, archive)"
   }
 
   # Every /organizations/members*, /organizations/invitations* route exists and is
@@ -436,36 +388,11 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "POST /organizations/members/leave route must exist"
   }
 
-  # /guest/document-requests/* routes (M10, D-037) are the project's first PUBLIC routes —
-  # no JWT authorizer, auth happens inside the handler via the opaque guest token.
-  assert {
-    condition = alltrue([
-      for r in aws_apigatewayv2_route.guest_documents : r.authorization_type == "NONE"
-    ])
-    error_message = "Every /guest/document-requests/* route must be public (authorization_type = NONE) — auth happens via the opaque guest token inside the handler, not API Gateway"
-  }
-
-  assert {
-    condition     = length(aws_apigatewayv2_route.guest_documents) == 3
-    error_message = "Expected exactly 3 /guest/document-requests/* routes (get_request, get_request_info, start_submission)"
-  }
-
-  assert {
-    condition = contains(
-      [for r in aws_apigatewayv2_route.guest_documents : r.route_key],
-      "POST /guest/document-requests/{token}/uploads",
-    )
-    error_message = "POST /guest/document-requests/{token}/uploads route must exist"
-  }
-
-  assert {
-    condition     = aws_lambda_permission.guest_documents.qualifier == "live"
-    error_message = "GuestDocumentsHandler invoke permission must be scoped to the 'live' alias"
-  }
-
-  # D-051: WAFv2 can't associate with an HTTP API (real deploy finding) - native throttling is
-  # the interim compensating control, tighter on the 2 public/unauthenticated guest routes than
-  # the stage default.
+  # ADR-0016 Decision A (2026-09-25) retired /guest/document-requests/* (GuestDocumentsHandler,
+  # M10 guest-upload) in its entirety - /document-archive/guest/document-requests/*
+  # (document_archive_guest, D-143 Decision 4/D-146) is now the project's only public
+  # (authorization_type = NONE) route family, and the only one native per-route throttling
+  # applies to.
   assert {
     condition     = aws_apigatewayv2_stage.default.default_route_settings[0].throttling_burst_limit == 50 && aws_apigatewayv2_stage.default.default_route_settings[0].throttling_rate_limit == 25
     error_message = "Stage default throttle must be burst=50/rate=25 (D-051)"
@@ -473,18 +400,19 @@ run "jwt_authorizer_attached_to_every_route" {
 
   assert {
     condition = alltrue([
-      for rs in aws_apigatewayv2_stage.default.route_settings : rs.throttling_burst_limit == 10 && rs.throttling_rate_limit == 5
-      if contains(["GET /guest/document-requests/{token}", "POST /guest/document-requests/{token}/uploads"], rs.route_key)
+      for rs in aws_apigatewayv2_stage.default.route_settings :
+      rs.throttling_burst_limit == 10 && rs.throttling_rate_limit == 5
+      if strcontains(rs.route_key, "/document-archive/guest/document-requests/")
     ])
-    error_message = "Both /guest/* routes must have the tighter burst=10/rate=5 throttle (D-051)"
+    error_message = "Every /document-archive/guest/document-requests/* route must have the tighter burst=10/rate=5 throttle (D-051)"
   }
 
   assert {
     condition = length([
       for rs in aws_apigatewayv2_stage.default.route_settings : rs
-      if contains(["GET /guest/document-requests/{token}", "POST /guest/document-requests/{token}/uploads"], rs.route_key)
-    ]) == 2
-    error_message = "Expected exactly 2 route-level throttle settings, one per /guest/* route"
+      if strcontains(rs.route_key, "/document-archive/guest/document-requests/")
+    ]) == 5
+    error_message = "Expected exactly 5 route-level throttle settings, one per document_archive_guest route"
   }
 
   # Every /imports* route exists and is JWT-authorized (M11, D-042).
@@ -520,5 +448,24 @@ run "jwt_authorizer_attached_to_every_route" {
   assert {
     condition     = aws_lambda_permission.imports.qualifier == "live"
     error_message = "ImportsHandler invoke permission must be scoped to the 'live' alias"
+  }
+
+  # ADR-0016 Decision B (2026-09-25): A22 migrated here from the retired subject module's own
+  # /subjects/document-request-delivery-preference - same D-117/D-120 "route added in the same
+  # commit as the handler" discipline as every other assertion of this shape in this file.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.document_archive : r.route_key],
+      "GET /document-archive/settings/document-request-delivery",
+    )
+    error_message = "GET /document-archive/settings/document-request-delivery route must exist"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.document_archive : r.route_key],
+      "PUT /document-archive/settings/document-request-delivery",
+    )
+    error_message = "PUT /document-archive/settings/document-request-delivery route must exist"
   }
 }

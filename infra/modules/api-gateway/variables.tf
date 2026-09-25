@@ -130,18 +130,8 @@ variable "memberships_function_name" {
   type        = string
 }
 
-variable "guest_documents_invoke_arn" {
-  description = "Invoke ARN of the GuestDocumentsHandler Lambda (M10, D-037) — backs /guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route, primeira do projeto."
-  type        = string
-}
-
-variable "guest_documents_function_name" {
-  description = "Function name of the GuestDocumentsHandler Lambda, for the API Gateway invoke permission."
-  type        = string
-}
-
 variable "whatsapp_webhook_invoke_arn" {
-  description = "Invoke ARN of the WhatsAppWebhookHandler Lambda (D-197 fatia 3/5, D-7) — backs GET+POST /webhooks/whatsapp, a PUBLIC (authorization_type = NONE) route, same posture as guest_documents above: Meta calls this endpoint directly (no user session), so JWT is not applicable — auth is X-Hub-Signature-256 verification entirely in application code, before any persistence."
+  description = "Invoke ARN of the WhatsAppWebhookHandler Lambda (D-197 fatia 3/5, D-7) — backs GET+POST /webhooks/whatsapp, a PUBLIC (authorization_type = NONE) route, same posture as document_archive_guest: Meta calls this endpoint directly (no user session), so JWT is not applicable — auth is X-Hub-Signature-256 verification entirely in application code, before any persistence."
   type        = string
 }
 
@@ -171,7 +161,7 @@ variable "document_archive_function_name" {
 }
 
 variable "document_archive_guest_invoke_arn" {
-  description = "Invoke ARN of the DocumentArchiveGuestHandler Lambda (D-143 Decision 4, D-146) — backs /document-archive/guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route, same posture as GuestDocumentsHandler."
+  description = "Invoke ARN of the DocumentArchiveGuestHandler Lambda (D-143 Decision 4, D-146) — backs /document-archive/guest/document-requests/{token}*, a PUBLIC (authorization_type = NONE) route."
   type        = string
 }
 
