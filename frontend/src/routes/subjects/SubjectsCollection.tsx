@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Building2, FolderArchive, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, Building2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubjectsDashboard } from "../../hooks/useSubjectsDashboard.js";
 import { useArchiveSubject } from "../../hooks/useArchiveSubject.js";
@@ -186,7 +186,7 @@ function RowActions({ subject, canWrite, canDelete, onEdit }: { subject: Tracked
 
   return <span className="ov-subject-actions">
     <IconButton size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></IconButton>
-    {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><FolderArchive size={16} aria-hidden="true" /></IconButton>}
+    {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><Archive size={16} aria-hidden="true" /></IconButton>}
     {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
     {/* alertdialog, not the default "dialog" - both actions here are irreversible ("O serviço
         atual não oferece restauração" / no undo in this interface), same destructive-confirmation
