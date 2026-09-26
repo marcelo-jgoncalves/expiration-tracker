@@ -1,11 +1,11 @@
 /**
  * A08 (Block 3, D-2xx) — create/edit form for a Fornecedor (TrackedSubject). One component
  * covers both create and edit (`isEdit = Boolean(subjectId)`), same separation
- * CreateItem/ItemDetail already use for A04/A05 — the Subject Hub (SubjectHub.tsx) stays a pure
+ * CreateItem/ItemDetail already use for A04/A05 — the Subject shell (SubjectLayout.tsx) stays a pure
  * detail/review surface, this covers both create and edit with one RBAC-checked component.
  *
  * Modal conversion (2026-09-25): short form, only ever reachable from a parent screen
- * (SubjectsCollection's "Novo fornecedor"/edit icon, SubjectHub's "Editar fornecedor") — reuses
+ * (SubjectsCollection's "Novo fornecedor"/edit icon, SubjectLayout's "Editar fornecedor") — reuses
  * the existing `Dialog` rather than two dedicated routes. On create, the caller still gets a
  * real navigation to the new subject's Hub (creating a subject is a genuinely new resource worth
  * landing on) — the modal closes and `navigate` fires, same pattern as RenewItem. On edit,

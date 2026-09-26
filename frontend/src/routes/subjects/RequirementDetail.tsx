@@ -5,7 +5,7 @@
  * já reais, nenhuma peça inventada:
  *
  *  - Não existe `GET` de um requisito único - resolvido buscando a lista do fornecedor
- *    (`useRequirementsForSubject`, já usada por SubjectHub/RequirementsCollection) e filtrando
+ *    (`useRequirementsForSubject`, já usada por SubjectLayout/RequirementsCollection) e filtrando
  *    pelo id na URL, mesmo padrão implícito que RequirementsCollection.tsx já fazia.
  *  - "Solicitações enviadas" do protótipo é real: `DocumentRequest.requirementId` já existe no
  *    contrato (SubjectRequests.tsx nunca filtrava por ele, só listava tudo do fornecedor) -
@@ -22,8 +22,8 @@
  * into an inline section on the same surface instead (`showNewRequestForm`), never a second
  * overlay.
  */
-import { useState, type FormEvent } from "react";
-import { useCreateDocumentRequest } from "../../hooks/useCreateDocumentRequest.js";
+import { useState } from "react";
+import { DeliveryModeFields, useCreateDocumentRequestForm } from "./DocumentRequestDeliveryForm.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
 import { useDocumentRequestsForSubject } from "../../hooks/useDocumentRequestsForSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -33,7 +33,6 @@ import { Button } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Dialog } from "../../components/ui/Dialog.js";
-import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
 import { ApiError } from "../../api/errors.js";
 import { presentRequirementDocStatus, presentGuestLinkState, formatAbsoluteDate } from "../../api/presentation.js";
@@ -42,35 +41,20 @@ import "./RequirementDetail.css";
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
 
+/** D-339 achado 4: adota o MESMO contrato comportamental de `CreateAvulsoDialog`
+ * (`SubjectRequests.tsx`) - antes desta correção, exigia e-mail incondicionalmente e nunca
+ * enviava `initialInviteDelivery`, prometendo um envio automático que o modo efetivo `MANUAL`
+ * (padrão do tenant) não sustentava. O requisito aqui é sempre fixo (vem de props), nunca
+ * selecionável - a única diferença real em relação a `CreateAvulsoDialog`. */
 function NewRequestForm({ subjectId, requirementId, onDone }: { subjectId: string; requirementId: string; onDone: () => void }) {
-  const mutation = useCreateDocumentRequest(subjectId);
-  const [email, setEmail] = useState("");
-  const [errors, setErrors] = useState<string[]>([]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!email.trim()) {
-      setErrors(["Informe o e-mail do destinatário."]);
-      return;
-    }
-    setErrors([]);
-    try {
-      await mutation.mutateAsync({ subjectId, requirementId, recipientEmail: email.trim() });
-      onDone();
-    } catch (err) {
-      setErrors([err instanceof ApiError ? err.message : "Não foi possível criar a solicitação."]);
-    }
-  }
+  const { email, setEmail, deliveryMode, setDeliveryMode, errors, submit, mutation } = useCreateDocumentRequestForm(subjectId, requirementId, onDone);
 
   return (
     <Panel padded>
       <Section heading="Nova solicitação" headingId="requirement-new-request">
-        <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <form onSubmit={(event) => void submit(event)} noValidate>
           <FormErrorSummary errors={errors} />
-          <TextField id="new-request-email" label="Destinatário" type="text" value={email} onChange={setEmail} required hint="E-mail que receberá o link de convidado." />
-          <InlineNotice tone="neutral">
-            Um link de convidado sem login será gerado e enviado a este e-mail. O envio é confirmado apenas como aceito pelo provedor — não como recebido.
-          </InlineNotice>
+          <DeliveryModeFields idPrefix="requirement-detail-request" email={email} onEmailChange={setEmail} deliveryMode={deliveryMode} onDeliveryModeChange={setDeliveryMode} />
           <Button type="submit" variant="primary" pending={mutation.isPending}>
             {mutation.isPending ? "Criando…" : "Criar solicitação"}
           </Button>{" "}

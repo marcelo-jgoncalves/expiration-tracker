@@ -185,18 +185,18 @@ test("E2E-B3-06: compliance panel shows a real percent with numerator/denominato
   await expect(page.getByText("3 de 4 requisitos satisfeitos")).toBeVisible();
 });
 
-test("E2E-B3-07: A09 -> A11 navigation carries ?subjectId= and A11 honors it via the per-subject query", async ({ page }) => {
+test("E2E-B3-07 (D-339): entering a Fornecedor already shows Requisitos - no extra click, no query-string navigation", async ({ page }) => {
   await mockOrganizations(page, "MEMBER");
   await page.route("**/bff/api/subjects/subj-1", (route) => route.fulfill({ json: { subject: subject() } }));
   await mockCompliance(page, { totalRequirements: 1, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 1, compliancePercent: 0 });
   await mockRequirementsForSubject(page, [requirement()]);
 
   await page.goto("/subjects/subj-1");
-  await page.getByRole("link", { name: "Requisitos documentais" }).click();
-  await expect(page).toHaveURL(/\/requirements\?subjectId=subj-1$/);
-  await expect(page.getByRole("heading", { name: "Requisitos documentais" })).toBeVisible();
-  await expect(page.getByText("Requisitos de documento deste fornecedor.")).toBeVisible();
+  // D-339: Requisitos is the default/index section of the subject shell now - reaching it never
+  // requires a click, and the URL is the plain subject route, never `/requirements?subjectId=`.
   await expect(page.getByText("Certidão Negativa de Débitos")).toBeVisible();
+  await expect(page.getByLabel("Seções de Fornecedor Alfa Ltda").getByRole("link", { name: "Requisitos" })).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveURL(/\/subjects\/subj-1$/);
 });
 
 test("E2E-B3-08: only ADMIN sees 'Excluir fornecedor' and 'Pré-visualizar dossiê' on the Hub (subject:delete / docarchive:dossier-export, both ADMIN_ROLES)", async ({ page }) => {
@@ -295,7 +295,7 @@ test("E2E-B3-12: MEMBER deletes a requirement (docarchive:requirement-delete is 
 // E2E: full A08 -> A09 -> A11 navigation chain
 // ---------------------------------------------------------------------------------------------
 
-test("E2E-B3-13: navigate A08 -> A09 -> A11 and back", async ({ page }) => {
+test("E2E-B3-13 (D-339): navigate A08 -> A09 (Requisitos already shown) -> open/close a requirement -> back", async ({ page }) => {
   await mockOrganizations(page, "ADMIN");
   await page.route("**/bff/api/subjects/dashboard**", (route) => route.fulfill({ json: { subjects: [subject()] } }));
   await page.route("**/bff/api/subjects/subj-1", (route) => route.fulfill({ json: { subject: subject() } }));
@@ -309,10 +309,16 @@ test("E2E-B3-13: navigate A08 -> A09 -> A11 and back", async ({ page }) => {
   await expect(page).toHaveURL(/\/subjects\/subj-1$/);
   await expect(page.locator("#surface-content")).toBeFocused();
 
-  await page.getByRole("link", { name: "Requisitos documentais" }).click();
-  await expect(page).toHaveURL(/\/requirements\?subjectId=subj-1$/);
+  // D-339: Requisitos is the index section - already visible, no extra navigation.
+  await expect(page.getByText("Certidão Negativa de Débitos")).toBeVisible();
 
-  await page.getByRole("link", { name: "Certidão Negativa de Débitos" }).click();
+  // D-339 achado 1: the requirement's own name opens the REQUIREMENT now (a real, addressable
+  // route), never the subject page it wrongly opened before this fix.
+  await page.getByRole("button", { name: "Certidão Negativa de Débitos" }).click();
+  await expect(page).toHaveURL(/\/subjects\/subj-1\/requirements\/req-1$/);
+  await expect(page.getByRole("dialog", { name: "Certidão Negativa de Débitos" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/\/subjects\/subj-1$/);
 
   await page.getByRole("link", { name: "← Voltar para Fornecedores" }).click();

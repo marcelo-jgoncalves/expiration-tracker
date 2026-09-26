@@ -36,7 +36,6 @@ import { useSubject } from "../../hooks/useSubject.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
 import { useDocumentRequestSeries } from "../../hooks/useDocumentRequestSeries.js";
 import { useDocumentRequestsForSubject } from "../../hooks/useDocumentRequestsForSubject.js";
-import { useCreateDocumentRequest } from "../../hooks/useCreateDocumentRequest.js";
 import { useCreateSeries } from "../../hooks/useCreateSeries.js";
 import { useCancelSeries } from "../../hooks/useCancelSeries.js";
 import { useMaterializeSeriesAttempt } from "../../hooks/useMaterializeSeriesAttempt.js";
@@ -51,25 +50,19 @@ import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Dialog } from "../../components/ui/Dialog.js";
 import { Combobox } from "../../components/ui/Combobox.js";
-import { RadioGroup } from "../../components/ui/RadioGroup.js";
+import { DeliveryModeFields, useCreateDocumentRequestForm } from "./DocumentRequestDeliveryForm.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentDocumentRequestSeriesStatus, presentGuestLinkState, formatAbsoluteDate } from "../../api/presentation.js";
-import type { DocumentRequest, DocumentRequestSeries, InitialInviteDeliveryOverride, MembershipRole, Requirement } from "../../api/types.js";
+import type { DocumentRequest, DocumentRequestSeries, MembershipRole, Requirement } from "../../api/types.js";
 import "./SubjectRequests.css";
 
 // ADR-0016 Decision B (2026-09-25): the avulso form's own per-call override of A22's tenant-wide
-// delivery default - "Usar padrão da organização" (DEFAULT) resolves against
-// `RequestDeliverySettings.tsx`'s configured preference, never a fabricated third state. Series
-// have no equivalent control (the ADR is explicit: A22 governs recorrentes with no per-series
-// override).
-const DELIVERY_OVERRIDE_OPTIONS: { value: InitialInviteDeliveryOverride; label: string; hint: string }[] = [
-  { value: "DEFAULT", label: "Usar padrão da organização", hint: "Segue a configuração em Configurações > Entrega de solicitação." },
-  { value: "MANUAL", label: "Entrega manual", hint: "Nenhum e-mail automático é enviado para esta solicitação." },
-  { value: "EMAIL", label: "E-mail automático", hint: "O link é enviado por e-mail no momento da criação, exige um destinatário." },
-];
+// delivery default lives in DocumentRequestDeliveryForm.js now (D-339 achado 4, shared with
+// RequirementDetail.tsx). Series have no equivalent control (the ADR is explicit: A22 governs
+// recorrentes with no per-series override).
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
 
@@ -107,12 +100,15 @@ export function SubjectRequests() {
   const [cancelingSeries, setCancelingSeries] = useState<DocumentRequestSeries | undefined>();
   const [viewingRequest, setViewingRequest] = useState<DocumentRequest | undefined>();
 
+  // `SubjectLayout` (a casca que envolve esta seção) já resolve o fornecedor e trata pending/erro
+  // antes de renderizar o `<Outlet>` - a checagem aqui é defensiva/redundante de propósito
+  // (mesma tolerância que o resto do app já aceita entre camadas), nunca a única fonte da
+  // identidade do fornecedor exibida (que já não é mais exibida aqui, ver D-339).
   if (subjectQuery.isPending) return <InitialLoading label="Carregando fornecedor…" />;
   if (subjectQuery.isError) {
     const message = subjectQuery.error instanceof ApiError ? subjectQuery.error.message : "Não foi possível carregar este fornecedor.";
     return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
   }
-  const subject = subjectQuery.data.subject;
 
   const requirements = requirementsQuery.data?.requirements ?? [];
   const series = seriesQuery.data?.series ?? [];
@@ -129,10 +125,12 @@ export function SubjectRequests() {
 
   return (
     <div>
+      {/* D-339: `above`/nome do fornecedor removidos - `SubjectLayout` (a casca que envolve esta
+          seção) já mostra identidade do fornecedor + "← Voltar para Fornecedores" de forma
+          persistente; repetir aqui seria duplicado. */}
       <PageHeader
-        above={<Link to={orgPath(`/subjects/${subjectId}`)}>← Voltar para {subject.displayName}</Link>}
         title="Solicitações e recorrência"
-        description={`${subject.displayName} · geração de solicitações de documento a partir de Requisitos.`}
+        description="Geração de solicitações de documento a partir de Requisitos."
         actions={
           canWrite ? (
             <>
@@ -371,13 +369,19 @@ function RequestsTable({ requests, requirementName, onView }: { requests: Docume
 }
 
 function CreateAvulsoDialog({ subjectId, requirements, onClose, showToast }: { subjectId: string; requirements: Requirement[]; onClose: () => void; showToast: (message: string) => void }) {
-  const mutation = useCreateDocumentRequest(subjectId);
   const [requirement, setRequirement] = useState<Requirement | null>(null);
-  const [email, setEmail] = useState("");
-  // ADR-0016 Decision B: DEFAULT (A22's tenant preference) is the honest default here too - never
-  // pre-selecting EMAIL, which would silently promise a send this form cannot itself guarantee.
-  const [deliveryMode, setDeliveryMode] = useState<InitialInviteDeliveryOverride>("DEFAULT");
-  const [errors, setErrors] = useState<string[]>([]);
+  // D-339 achado 4: shared contract with RequirementDetail's "Nova solicitação" -
+  // DocumentRequestDeliveryForm.tsx. requirementId is "" until a Requirement is picked below;
+  // the hook's own submit() never runs against an empty id because handleSubmit short-circuits
+  // first when `requirement` is null.
+  const { email, setEmail, deliveryMode, setDeliveryMode, errors, setErrors, submit, mutation } = useCreateDocumentRequestForm(
+    subjectId,
+    requirement?.requirementId ?? "",
+    () => {
+      showToast("Solicitação criada");
+      onClose();
+    },
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -385,26 +389,7 @@ function CreateAvulsoDialog({ subjectId, requirements, onClose, showToast }: { s
       setErrors(["Selecione um Requisito."]);
       return;
     }
-    // Client-side mirror of the backend's own rule (EMAIL, explicit or resolved via DEFAULT,
-    // requires a recipientEmail) - only enforceable here for the EXPLICIT case, since DEFAULT's
-    // real resolution depends on the org's A22 preference, which this form does not read.
-    if (deliveryMode === "EMAIL" && !email.trim()) {
-      setErrors(["Informe o e-mail do destinatário para entrega por e-mail automático."]);
-      return;
-    }
-    setErrors([]);
-    try {
-      await mutation.mutateAsync({
-        subjectId,
-        requirementId: requirement.requirementId,
-        ...(email.trim() ? { recipientEmail: email.trim() } : {}),
-        initialInviteDelivery: deliveryMode,
-      });
-      showToast("Solicitação criada");
-      onClose();
-    } catch (err) {
-      setErrors([err instanceof ApiError ? err.message : "Não foi possível criar a solicitação."]);
-    }
+    await submit(event);
   }
 
   return (
@@ -412,28 +397,7 @@ function CreateAvulsoDialog({ subjectId, requirements, onClose, showToast }: { s
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={errors} />
         <Combobox label="Requisito" required options={requirements} value={requirement} onChange={setRequirement} getOptionId={(r) => r.requirementId} getOptionLabel={(r) => r.name} />
-        <TextField
-          id="avulso-email"
-          label="Destinatário"
-          type="text"
-          value={email}
-          onChange={setEmail}
-          required={deliveryMode === "EMAIL"}
-          hint="E-mail que receberá o link de convidado, se a entrega for por e-mail."
-        />
-        <RadioGroup
-          legend="Entrega do convite inicial"
-          variant="cards"
-          options={DELIVERY_OVERRIDE_OPTIONS}
-          value={deliveryMode}
-          onChange={(value) => setDeliveryMode(value as InitialInviteDeliveryOverride)}
-          required
-        />
-        {/* ADR-0016 Decision B: never promises unconditional e-mail - the effective mode follows
-            the organization's A22 configuration unless explicitly overridden above. */}
-        <InlineNotice tone="neutral">
-          O link de convidado sem login é sempre gerado. O envio automático por e-mail (quando aplicável) é confirmado apenas como aceito pelo provedor — não como recebido.
-        </InlineNotice>
+        <DeliveryModeFields idPrefix="avulso" email={email} onEmailChange={setEmail} deliveryMode={deliveryMode} onDeliveryModeChange={setDeliveryMode} />
         <Button type="submit" variant="primary" pending={mutation.isPending}>
           {mutation.isPending ? "Criando…" : "Criar solicitação"}
         </Button>{" "}

@@ -1,0 +1,50 @@
+Voce e o Codex, no protocolo de revisao adversarial Claude<->Codex deste repositorio
+(expiration-tracker/OmniVence, AGENTS.md secao 4). Rodada 1 (critica cega) de uma decisao de
+UX/navegacao de frontend (nivel 5 na escala de docs/engineering/change-risk-scale.md - introduz
+um padrao de navegacao novo, dificil de reverter depois de replicado, mas nao muda modelo de
+dados/contrato de API).
+
+CONTEXTO: Marcelo (dono do produto) reclamou diretamente: "Isso nao esta nada intuitivo. Todo
+esse fluxo e telas depois que clicamos em um fornecedor especifico precisa ser auditado e
+melhorado. Esta confuso e pouco intuitivo, com muitas telas pequenas." Pediu explicitamente para
+acionar este protocolo.
+
+Leia PRIMEIRO minha proposta completa em
+docs/architecture/reviews/subject-detail-flow-redesign-scoping/claude-round1-proposal.md - ja
+descreve o escopo (nenhum documento aprovado cobre esse fluxo hoje - confirmado por grep em
+docs/frontend/omnivence-screen-implementation.md), 5 achados reais com evidencia de arquivo:linha,
+e uma direcao proposta (substituir o padrao atual "hub de cards -> paginas desconectadas de nivel
+superior" por uma casca persistente de fornecedor com abas reais).
+
+SUA TAREFA: critique como o lado independente do protocolo - leia o codigo real por si mesmo
+antes de avaliar, nao confie so na minha descricao:
+- frontend/src/routes/subjects/SubjectHub.tsx (o hub atual, `MetricCardGrid` com 3 cards)
+- frontend/src/routes/RequirementsCollection.tsx (destino de 2 dos 3 cards, incluindo o overlay
+  `viewingRequirement`/`RequirementDetail` sem rota propria)
+- frontend/src/routes/subjects/SubjectRequests.tsx (A14, ja tem breadcrumb "Voltar para {nome}")
+- frontend/src/routes/subjects/DossierExport.tsx (A17, ja tem breadcrumb "Voltar para {nome}")
+- frontend/src/components/ui/Layout.tsx (confirme minha leitura de que NENHUM componente de
+  abas/tablist real existe hoje - `StatusFilter` e explicitamente documentado como NAO sendo isso)
+- frontend/src/App.tsx (as rotas reais em torno de `subjects/:subjectId/*`, e como rotas aninhadas
+  com `<Outlet>` ja sao usadas em `app/:orgId/*` para confirmar se o mecanismo que proponho
+  (rota-container com Outlet + tablist) e coerente com o que o roteador ja faz em outro nivel)
+- prototype/novasTelas/OmniVence-fornecedores-especificacao-implementacao.md (confirme que o
+  escopo dessa especificacao e SO a listagem, nao o detalhe pos-clique)
+
+Aplique julgamento de UX/arquitetura de frontend (nao ha criterio fixo pra isso em
+joint-review-criteria.md - use seu proprio julgamento de qualidade + os principios gerais de
+docs/engineering/principles.md, ex: nao super-engenheirar, reaproveitar padrao existente antes de
+inventar um novo). De uma nota de 0 a 10 pra proposta (direcao, nao pixel-perfect - isso e uma
+proposta de MECANISMO, a especificacao detalhada fica pra depois da direcao aprovada). Responda:
+
+1. Os 5 achados que citei sao reais? Verifique cada um por leitura direta, aponte qualquer coisa
+   que eu tenha entendido errado ou exagerado.
+2. A direcao proposta (casca persistente + abas reais + Requisitos/Documentos fundidos + rota
+   propria pro RequirementDetail) e a correta, ou existe um mecanismo mais simples/mais alinhado
+   ao que o app ja tem? Responda diretamente as 3 perguntas em aberto que deixei no fim do
+   documento.
+3. Algum achado NOVO que eu nao encontrei (leia o codigo, nao invente hipoteses)?
+4. Isso e mesmo nivel 5, ou deveria ser nivel 6 (Type 1 mais pesado) ou nivel 4 (nao precisava do
+   protocolo completo)?
+
+Responda em portugues, comecando com "Nota: X/10", formato aberto depois disso.

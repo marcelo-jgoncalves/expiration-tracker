@@ -1,33 +1,25 @@
 /**
- * A09 — Hub do fornecedor (Block 3, D-2xx). Replaces the narrow BLOCKER-C `SubjectDetail`
- * (legacy `RequirementAssignment` review queue, A10's domain) with the full hub per the
- * post-audit spec: Compliance panel (SLF-01-adjacent composition, `MetricCardGrid` for the
- * destination-cards grid), `subject:delete` surface (was missing pre-audit), links to A11
- * (filtered by `?subjectId=`, honored on A11's side), A12 documents (degrades to A11 until a
- * dedicated Documents Collection exists - same spec-named fallback), and a link to A17's full
- * dossier export wizard (`docarchive:dossier-export`, ADMIN_ROLES exclusive, D-205 - no assignee
- * exception). A17 shipped in Block 10 (D-2xx) with the real confirm/generate/download flow - this
- * Hub previously had its own preview-only inline stub (`DossierExportAction`, Block 3) since
- * generation didn't exist yet; that stub is gone, replaced by this plain link now that A17 is the
- * real, complete screen.
+ * D-339 (redesenho do fluxo de detalhe de Fornecedor, item 35) — casca persistente que substitui
+ * o antigo "hub de cards" (`SubjectHub.tsx`, aposentado por este arquivo). Identidade do
+ * fornecedor (nome/tipo/ações) e a navegação local (Requisitos/Solicitações) nunca desmontam ao
+ * trocar de seção - mesmo mecanismo `<Outlet>` já usado por `AppShell.tsx`, um nível mais fundo.
+ * Conformidade deixa de ser uma seção própria (2 cliques para ver qualquer conteúdo real) e vira
+ * um resumo compacto sempre visível acima da seção ativa.
  *
- * A14 (Requests & Recurrence, Block 6) and A10 (Legacy Tracked Requirements, Block 7, D-267) both
- * shipped real screens and are both real `MetricCardGrid` entries below - the "requests" card was
- * stuck as a non-interactive "Em breve" placeholder text long after A14 actually shipped (holistic
- * frontend review finding, fixed here) until this comment/fix.
+ * "Exportar dossiê" continua sendo uma AÇÃO com rota própria, nunca uma seção da navegação local
+ * (D-339 fechamento, Rodada 2/3): `DossierExport.tsx` usa `runId` na própria URL para retomar
+ * geração após sair/recarregar - migrar para dentro desta casca exigiria uma reconciliação
+ * própria dessa propriedade, fora de escopo aqui.
  */
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
-import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
-import { useDocumentRequestSeries } from "../../hooks/useDocumentRequestSeries.js";
 import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
-import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncStates.js";
+import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
-import { MetricCardGrid, type MetricCardData } from "../../components/MetricCardGrid.js";
 import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
@@ -36,18 +28,20 @@ import { presentSubjectType } from "../../api/presentation.js";
 import { SubjectFormDialog } from "./SubjectForm.js";
 import "./SubjectHub.css";
 
-export function SubjectHub() {
+function isRequirementsSectionActive(pathname: string, basePath: string): boolean {
+  return pathname === basePath || pathname.startsWith(`${basePath}/requirements`);
+}
+
+export function SubjectLayout() {
   const { subjectId } = useParams<{ subjectId: string }>();
   const orgPath = useOrgPath();
   const navigate = useNavigate();
+  const location = useLocation();
   const role = useCurrentMembershipRole();
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
   const canAdmin = role === "OWNER" || role === "ADMIN";
 
   const subjectQuery = useSubject(subjectId ?? "");
-  const complianceQuery = useSubjectCompliance(subjectId ?? "");
-  const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
-  const seriesQuery = useDocumentRequestSeries(subjectId ?? "");
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
@@ -61,13 +55,14 @@ export function SubjectHub() {
   if (subjectQuery.isError) {
     const error = subjectQuery.error;
     if (error instanceof ApiError && error.category === "NOT_FOUND") {
-      return <EmptyState kind="unavailable" message="Este fornecedor não foi encontrado." action={<Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>} />;
+      return <EmptyStateNotFound orgPath={orgPath} />;
     }
     const message = error instanceof ApiError ? error.message : "Não foi possível carregar este fornecedor.";
     return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
   }
 
   const subject = subjectQuery.data.subject;
+  const identifierLabel = subject.type === "COMPANY" || subject.type === "VENDOR" ? "CNPJ" : "Identificador";
 
   async function handleDelete() {
     try {
@@ -78,51 +73,6 @@ export function SubjectHub() {
       setDeleteError(err instanceof ApiError ? err.message : "Não foi possível excluir este fornecedor.");
     }
   }
-
-  const identifierLabel = subject.type === "COMPANY" || subject.type === "VENDOR" ? "CNPJ" : "Identificador";
-
-  const cards: MetricCardData[] = [
-    {
-      id: "requirements",
-      label: "Requisitos documentais",
-      to: orgPath(`/requirements?subjectId=${encodeURIComponent(subjectId)}`),
-      srDescription: "Ver requisitos documentais deste fornecedor",
-      critical: (complianceQuery.data?.compliance.missingCount ?? 0) > 0,
-      status: requirementsQuery.isPending
-        ? { kind: "loading" }
-        : requirementsQuery.isError
-          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
-          : { kind: "value", value: requirementsQuery.data.requirements.length },
-    },
-    {
-      id: "documents",
-      label: "Documentos",
-      // A12's dedicated Documents Collection doesn't exist yet - degrades to the same
-      // requirements list, filtered, per the spec's own named fallback.
-      to: orgPath(`/requirements?subjectId=${encodeURIComponent(subjectId)}`),
-      srDescription: "Ver documentos/evidências vinculados a este fornecedor",
-      status: requirementsQuery.isPending
-        ? { kind: "loading" }
-        : requirementsQuery.isError
-          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void requirementsQuery.refetch() }
-          : { kind: "value", value: requirementsQuery.data.requirements.filter((r) => r.evidenceVersionId).length },
-    },
-    {
-      // A14 (Block 6, D-2xx) shipped with real routes (`/subjects/:subjectId/requests`) long
-      // before this file was last touched (Blocks 7/10) - this card was stuck as a non-interactive
-      // "Em breve" placeholder the whole time (holistic frontend review finding, D-27x), leaving
-      // A14 unreachable from its intended A09 entry point even though the screen itself worked.
-      id: "requests",
-      label: "Solicitações e recorrência",
-      to: orgPath(`/subjects/${subjectId}/requests`),
-      srDescription: "Ver solicitações de documento e séries recorrentes deste fornecedor",
-      status: seriesQuery.isPending
-        ? { kind: "loading" }
-        : seriesQuery.isError
-          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void seriesQuery.refetch() }
-          : { kind: "value", value: seriesQuery.data.series.filter((s) => s.status === "ACTIVE").length },
-    },
-  ];
 
   return (
     <div>
@@ -159,18 +109,46 @@ export function SubjectHub() {
 
       <CompliancePanel subjectId={subjectId} />
 
-      <MetricCardGrid cards={cards} />
+      {/* D-339: navegação local, nunca desmonta ao trocar de seção - identidade/ações acima
+          ficam fixas. "Requisitos" (index) é a seção padrão de entrada, fechando o clique
+          intermediário que o hub de cards antigo exigia. Cálculo manual de "ativo" (em vez de
+          `NavLink`'s `end`) porque a rota de detalhe de requisito
+          (`/requirements/:requirementId`) é uma IRMÃ do índice, não uma filha dele - "Requisitos"
+          precisa continuar destacado nela também (Codex, Rodada 3: "permanece visualmente ativo
+          durante a navegação para um requisito específico"). */}
+      <nav className="subject-layout__nav" aria-label={`Seções de ${subject.displayName}`}>
+        <Link
+          to={orgPath(`/subjects/${subjectId}`)}
+          className="subject-layout__nav-link"
+          aria-current={isRequirementsSectionActive(location.pathname, orgPath(`/subjects/${subjectId}`)) ? "page" : undefined}
+        >
+          Requisitos
+        </Link>
+        <Link
+          to={orgPath(`/subjects/${subjectId}/requests`)}
+          className="subject-layout__nav-link"
+          aria-current={location.pathname.startsWith(orgPath(`/subjects/${subjectId}/requests`)) ? "page" : undefined}
+        >
+          Solicitações
+        </Link>
+      </nav>
+
+      <Outlet />
     </div>
   );
 }
 
+function EmptyStateNotFound({ orgPath }: { orgPath: (path: string) => string }) {
+  return (
+    <Panel padded>
+      <p>Este fornecedor não foi encontrado.</p>
+      <Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>
+    </Panel>
+  );
+}
 
 /** Design system §48 - a destructive confirmation names the resource and the consequence, and
- * initial focus lands on Cancel (never the destructive action) - done via a ref/effect rather
- * than the `autoFocus` prop (`jsx-a11y/no-autofocus` - the rule's own reasoning about screen
- * readers announcing focus jumps unexpectedly does not apply to a dialog that only exists
- * because the user just triggered it, but the codebase has no other precedent to follow yet, so
- * this stays the more conservative, lint-clean form). */
+ * initial focus lands on Cancel (never the destructive action). */
 function DeleteConfirmDialog({
   subjectName,
   deleteError,
@@ -193,13 +171,7 @@ function DeleteConfirmDialog({
 
   return (
     <div role="alertdialog" aria-label={`Excluir ${subjectName}`}>
-      {/* Codex Block 3 review round 1 finding 11: the backend may refuse this (deleteSubject has
-          no active-requirement-linkage guard today per SubjectsCollection.tsx's own comment, but
-          a future guard or a genuine backend error is always possible) - never phrase this as a
-          guaranteed cascade. */}
       <p>Excluir &quot;{subjectName}&quot; permanentemente? Esta ação não pode ser desfeita, se concluída. Se houver requisitos ativos vinculados, a exclusão pode ser recusada pelo servidor.</p>
-      {/* Holistic frontend review finding: `handleDelete` used to `return` silently on a
-          conflict, leaving this dialog open with no feedback at all. */}
       {isConflict ? <p role="alert">Este fornecedor foi alterado por outra pessoa — feche e reabra este diálogo para ver o estado atual antes de tentar excluir de novo.</p> : null}
       {deleteError ? <p role="alert">{deleteError}</p> : null}
       <button ref={cancelRef} type="button" className="ui-button ui-button--secondary" onClick={onCancel}>
@@ -238,10 +210,6 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
               {satisfiedCount} de {totalRequirements} requisitos satisfeitos
             </span>
           </div>
-          {/* Mesma taxonomia de tom já estabelecida em presentRequirementDocStatus - satisfeito é
-              "neutral" (um vínculo registrado, não prova de correção), nunca "success" (StatusBadge.
-              tsx: success fica reservado para um estado que realmente prove "tudo certo", que este
-              domínio ainda não tem). */}
           <ul className="ui-compliance__breakdown">
             <li>
               <StatusBadge presentation={{ label: `${satisfiedCount} satisfeito(s)`, tone: "neutral" }} />

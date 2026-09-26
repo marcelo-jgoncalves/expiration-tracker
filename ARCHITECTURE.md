@@ -1,9 +1,9 @@
-# ARCHITECTURE.md — Expiration Tracker
+# ARCHITECTURE.md — OmniVence
 
 Documento final consolidado conforme seção 61 do prompt mestre (`docs/00-prompt-mestre.md`). Produzido ao final de um processo Claude↔Codex de proposta → crítica → tréplica → nota independente às cegas, repetido em 16 entregáveis (14 originais + Threat Model + Implementation Blueprint), todos aprovados com nota ≥9.0 de ambos os "engenheiros" (Design Maturity Score, rubrica A — ver seção "Status Final" abaixo para o que isso significa e o que ainda falta).
 
 ## Executive Summary
-Expiration Tracker é um micro-SaaS de controle de vencimentos, renovações e obrigações recorrentes ("Cadastre o que não pode vencer. Nós lembramos você."), voltado a pessoas físicas, autônomos, MEIs e pequenas empresas. A arquitetura é serverless-first na AWS: Lambda em monólito modular, DynamoDB on-demand single-table, S3 com quarentena de documentos, notificações por e-mail/Telegram/WhatsApp desacopladas por adapter, extração de dados por IA/OCR com confirmação humana obrigatória em baixa confiança. Toda decisão foi debatida independentemente por dois "engenheiros" (Claude e Codex), com pelo menos uma rodada de crítica real e correção em praticamente todo entregável.
+OmniVence é um micro-SaaS de controle de vencimentos, renovações e obrigações recorrentes ("Cadastre o que não pode vencer. Nós lembramos você."), voltado a pessoas físicas, autônomos, MEIs e pequenas empresas. A arquitetura é serverless-first na AWS: Lambda em monólito modular, DynamoDB on-demand single-table, S3 com quarentena de documentos, notificações por e-mail/Telegram/WhatsApp desacopladas por adapter, extração de dados por IA/OCR com confirmação humana obrigatória em baixa confiança. Toda decisão foi debatida independentemente por dois "engenheiros" (Claude e Codex), com pelo menos uma rodada de crítica real e correção em praticamente todo entregável.
 
 ## Product Context
 Ver `docs/00-prompt-mestre.md` seções 4–8. Resumo: itens com prazo/validade (certificados, contratos, seguros, alvarás, documentos de veículos, domínios, etc.), múltiplos alertas configuráveis, upload de documento com extração assistida por IA, dashboard, auditoria.

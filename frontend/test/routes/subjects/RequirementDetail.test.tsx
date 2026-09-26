@@ -107,7 +107,49 @@ describe("RequirementDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Criar solicitação" }));
 
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith("/document-archive/requirements/subject-1/req-1/document-requests", expect.objectContaining({ recipientEmail: "fornecedor@example.com" })),
+      expect(postMock).toHaveBeenCalledWith(
+        "/document-archive/requirements/subject-1/req-1/document-requests",
+        expect.objectContaining({ recipientEmail: "fornecedor@example.com", initialInviteDelivery: "DEFAULT" }),
+      ),
     );
+  });
+
+  // D-339 achado 4: before this fix, this form required an email unconditionally and never sent
+  // initialInviteDelivery - promising an automatic send the effective tenant delivery mode
+  // (MANUAL, in this test) would never honor. Now shares CreateAvulsoDialog's full contract.
+  it("offers the same 3-way delivery choice as 'Nova solicitação avulsa', and submits MANUAL with no recipientEmail", async () => {
+    postMock.mockResolvedValue({ documentRequest: documentRequest({ documentRequestId: "dr-2" }) });
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Nova solicitação" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Nova solicitação" }));
+
+    expect(screen.getByLabelText("Usar padrão da organização")).toBeInTheDocument();
+    expect(screen.getByLabelText("Entrega manual")).toBeInTheDocument();
+    expect(screen.getByLabelText("E-mail automático")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Entrega manual"));
+    fireEvent.click(screen.getByRole("button", { name: "Criar solicitação" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/document-archive/requirements/subject-1/req-1/document-requests",
+        expect.objectContaining({ initialInviteDelivery: "MANUAL" }),
+      ),
+    );
+    const [, body] = postMock.mock.calls[0]!;
+    expect(body).not.toHaveProperty("recipientEmail");
+  });
+
+  it("rejects EMAIL delivery without a recipientEmail before ever submitting", async () => {
+    renderAtRoute("", <RequirementDetail subjectId="subject-1" requirementId="req-1" onClose={() => {}} />, "/");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Nova solicitação" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Nova solicitação" }));
+    fireEvent.click(screen.getByLabelText("E-mail automático"));
+    fireEvent.click(screen.getByRole("button", { name: "Criar solicitação" }));
+
+    await waitFor(() => expect(screen.getByText("Informe o e-mail do destinatário para entrega por e-mail automático.")).toBeInTheDocument());
+    expect(postMock).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,36 @@
+Voce e o Codex, Rodada 2 do mesmo protocolo de revisao adversarial (subject-detail-flow
+redesign). Na Rodada 1 voce deu nota 7,5/10 e apontou: (a) premissa errada - existe design
+aprovado anterior em docs/frontend/prototype-screen-specs/A09-subject-hub.md que descreve um hub
+de cards, nao abas; (b) mecanismo recomendado: rota-container + Outlet + NavLink (nao ARIA
+tablist), reaproveitando AppShell.tsx:137; (c) Conformidade deveria ser resumo compacto ACIMA de
+Requisitos, nao uma secao propria - Requisitos como entrada padrao; (d) "Documentos" like
+destino duplicado deve sumir mas o acesso real a documentos NAO pode ser descartado; (e) 4
+achados novos reais (link do nome do requisito abre o recurso errado; campo de subjectId editavel
+na criacao escopada permite trocar fornecedor silenciosamente; evidencia vinculada sem link pro
+documento; "Nova solicitacao" com comportamento inconsistente entre RequirementDetail e
+SubjectRequests); (f) faltou declaracao formal E-014.
+
+Leia minha Rodada 2 completa em
+docs/architecture/reviews/subject-detail-flow-redesign-scoping/claude-round2-proposal.md - tentei
+incorporar TODOS os seus pontos, nao só concordar por concordar. Verifique por leitura direta do
+codigo se a incorporacao esta correta e completa:
+
+- Aceito integralmente a premissa corrigida (A09 spec existe) mas argumento que o pedido direto
+  de Marcelo (autoridade final de produto, AGENTS.md secao 1) supera esse spec de 2026-09-09
+  nunca validado com ele navegando o fluxo real (User Validation nao iniciada,
+  docs/frontend/README.md) - valido este raciocinio, ou e uma forma de contornar sua critica sem
+  justificativa real?
+- Mecanismo: rota-container+Outlet+NavLink, Conformidade fundida como resumo acima de Requisitos
+  (secao padrao de entrada, fecha 1 clique em vez de 2), Solicitacoes como 2a secao, Dossie
+  continua rota propria (aceito seu ponto sobre runId retomavel), RequirementDetail ganha rota
+  propria.
+- Os 4 achados: verifique se minhas correcoes propostas (nome do requisito abre o requisito nao
+  o fornecedor; subjectId vem do contexto da rota, nunca campo de formulario, dentro da casca;
+  link real pro documento antes de remover o destino Documentos; RequirementDetail reaproveita o
+  mesmo RadioGroup/opcoes de entrega que SubjectRequests ja usa) sao as corretas, ou ha problema
+  nelas.
+- Declaracao E-014 SIM PARCIAL que escrevi - adequada?
+
+De uma nota de 0 a 10. Se for divergencia real que impeca >=9, seja especifico sobre o que ainda
+falta. Se convergir, diga isso claramente ("CONVERGIDO"). Responda em portugues, comecando com
+"Nota: X/10".
