@@ -402,7 +402,7 @@ async function phase4(browser, state) {
       // Node directly (no page.evaluate needed - S3 has its own CORS/auth via the presigned URL,
       // reachable straight from this script's own network context).
       const putRes = await fetch(fileSpec.uploadUrl, { method: "PUT", headers: fileSpec.requiredHeaders, body: bytes });
-      if (!putRes.ok) throw new Error(`PUT do arquivo falhou: HTTP ${putRes.status}`);
+      if (!putRes.ok) throw new Error(`PUT do arquivo falhou: HTTP ${putRes.status} — ${await putRes.text()}`);
 
       const committed = requireOk(await apiCall(page, "POST", `/document-archive/documents/${documentId}/versions/${seq}/commit`, { expectedVersion }, csrfToken, orgId), "commitar versão");
       state.uploadedDocuments.push({ documentId, seq, requirementName: req.name, subjectName: req._subjectName });
