@@ -65,16 +65,31 @@ describe("Settings", () => {
     await waitFor(() => expect(screen.getByText("Configurações salvas.")).toBeInTheDocument(), { timeout: 3000 });
   });
 
-  // Sessão 2026-09-20: organização sem `defaultReminderLocalTime` (criada antes desta feature)
-  // cai para "09:00" - mutação que removeria o `?? FALLBACK_DEFAULT_LOCAL_TIME` deixaria o campo
-  // vazio/undefined em vez do fallback.
-  // Mutation: inventing a missing organization reminder time would fail this case.
-  it("requires an explicit time when no organization default exists", async () => {
+  // Item 11 adversarial review (2026-09-25) real finding: this test used to assert the field
+  // rendered EMPTY for an organization created before this feature existed
+  // (`defaultReminderLocalTime` absent) - an empty string fails the HH:mm validation below,
+  // which meant such an organization could not save ANY change (even just editing the name)
+  // without the owner first picking a time. Fixed: the field now pre-fills with the same
+  // `FALLBACK_DEFAULT_LOCAL_TIME` the rest of the app already uses for this case, so the form
+  // starts valid/submittable without forcing an unrelated edit.
+  // Mutation: reverting to an empty initial value, or to any value other than the fallback,
+  // would fail this case.
+  it("pre-fills the fallback time (never empty) when no organization default exists, and allows saving without touching it", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+    patchMock.mockResolvedValue({ organizationId: "org-1", displayName: "Acme Corp", timezone: "America/Sao_Paulo", defaultReminderLocalTime: "09:00", version: 2 });
 
     renderAtRoute("/settings", <Settings />, "/settings");
 
-    await waitFor(() => expect(screen.getByLabelText(/Horário padrão de novos lembretes/)).toHaveValue(""));
+    await waitFor(() => expect(screen.getByLabelText(/Horário padrão de novos lembretes/)).toHaveValue("09:00"));
+
+    // Only the name is edited - the time field is never touched, proving it does not block an
+    // unrelated save.
+    fireEvent.change(screen.getByLabelText(/Nome da organização/), { target: { value: "Acme Corp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/organizations/settings", { method: "PATCH", body: { displayName: "Acme Corp", defaultReminderLocalTime: "09:00" }, expectedVersion: 1 }),
+    );
   });
 
   // Mutação: ler `activeOrganization.defaultReminderLocalTime` errado (ex. sempre o fallback)

@@ -9,8 +9,18 @@ import { AppError, ValidationError, toAppError } from "../../../shared/errors/ap
 import { AuthorizationDeniedError } from "../../identity/domain/authorization.js";
 import { AuthorizationError } from "../../../shared/errors/app-error.js";
 import { auditAuthorizationDenied } from "../../../shared/observability/security-audit.js";
+import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 import type { RequestContextResolver, ValidatedClaims } from "../../identity/application/resolve-request-context.js";
 import type { UpdateOrganizationSettingsInput, UpdateOrganizationSettingsService } from "../application/update-organization-settings.js";
+
+const UPDATE_SETTINGS_SCHEMA_ID = "https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json";
+
+function validateAgainstSchema(schemaId: string, body: unknown): void {
+  const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
+  if (!valid) {
+    throw new ValidationError("Request body failed schema validation.", { errors });
+  }
+}
 
 export interface HttpRequest<TBody = unknown> {
   requestId: string;
@@ -72,6 +82,7 @@ function requireExpectedVersion(req: HttpRequest): number {
 export async function handleUpdateOrganizationSettings(deps: OrganizationSettingsHttpDeps, req: HttpRequest<UpdateOrganizationSettingsInput>): Promise<HttpResponse> {
   return withErrorMapping(async () => {
     if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(UPDATE_SETTINGS_SCHEMA_ID, req.body);
     const expectedVersion = requireExpectedVersion(req);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const organization = await deps.updateSettings.update(context, req.body, expectedVersion);

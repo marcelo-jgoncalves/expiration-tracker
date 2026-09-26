@@ -16,6 +16,7 @@ import { TextField } from "../components/forms/TextField.js";
 import { Dialog } from "../components/ui/Dialog.js";
 import { UnsavedChangesGuard } from "../components/UnsavedChangesGuard.js";
 import type { UsableOrganization } from "../api/session.js";
+import { FALLBACK_DEFAULT_LOCAL_TIME } from "../lib/reminderDefaults.js";
 import "./Settings.css";
 
 export function formatStorageBytes(bytes: number): string {
@@ -74,9 +75,13 @@ function OrganizationForm({ organization, reload }: { organization: UsableOrgani
   const update = useUpdateOrganizationSettings();
   const [base, setBase] = useState(organization);
   const [name, setName] = useState(organization.displayName);
-  const [time, setTime] = useState(organization.defaultReminderLocalTime ?? "");
+  // Item 11 adversarial review (2026-09-25) real finding: an empty string here failed the
+  // HH:mm validation below, blocking ANY save (even an unrelated displayName edit) for an
+  // organization created before this feature existed (`defaultReminderLocalTime` absent) -
+  // the same fallback the rest of the app already uses for that case, not a real default.
+  const [time, setTime] = useState(organization.defaultReminderLocalTime ?? FALLBACK_DEFAULT_LOCAL_TIME);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const dirty = name !== base.displayName || time !== (base.defaultReminderLocalTime ?? "");
+  const dirty = name !== base.displayName || time !== (base.defaultReminderLocalTime ?? FALLBACK_DEFAULT_LOCAL_TIME);
   const editable = organization.role === "OWNER";
   async function submit(event: FormEvent) {
     event.preventDefault();

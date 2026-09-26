@@ -1598,6 +1598,37 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid organization-settings-update-request.v1 with a single field", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "Acme Ltda" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid organization-settings-update-request.v1 with all fields", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "Acme Ltda", timezone: "America/Sao_Paulo", defaultReminderLocalTime: "10:30" });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with no fields (item 11 review: minProperties guard)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with a non-string defaultReminderLocalTime (item 11 review: was an uncaught TypeError/500 before this schema existed)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { defaultReminderLocalTime: 123 });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with a malformed defaultReminderLocalTime", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { defaultReminderLocalTime: "25:00" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "X", bogus: true });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid docarchive-documenttype-deprecate-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-deprecate-request.v1.json", { expectedVersion: 1 });
     expect(errors).toEqual([]);
