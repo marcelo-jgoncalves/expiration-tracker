@@ -10,10 +10,15 @@
   font-weight: var(--font-weight-medium);
   min-height: var(--control-height-md);
   padding: var(--space-3) var(--space-5);
-  /* 2026-09-20 (Marcelo, achado na tela Fornecedores): pill em vez de --radius-md - reverte a
-     regra do ADR-0015 ("pill só para badge") especificamente para botões, decisão dele
-     diretamente sobre estética, não uma correção de acessibilidade. */
-  border-radius: var(--radius-pill);
+  /* 2026-09-26 (Marcelo, protótipo "OmniVence-fornecedor-detalhe" - "no protótipo não tem mais
+     pills e sim cards. construa com fidelidade total ao protótipo. os botões 'Editar fornecedor'
+     será o padrão para todos os botões claros. O 'Excluir fornecedor' será o padrão para botões
+     vermelhos... tudo deve ser aplicado nos botões similares"): substitui a regra de 2026-09-20
+     abaixo (pill) app-wide, não só na tela de origem do pedido - `--radius-sm` (o cantoarredondado
+     "card", nunca mais totalmente circular nas pontas) é agora o formato padrão de TODO botão do
+     app. Histórico: 2026-09-20, achado na tela Fornecedores, tinha revertido a regra do ADR-0015
+     ("pill só para badge") especificamente para botões - essa decisão foi substituída por esta. */
+  border-radius: var(--radius-sm);
   border: var(--border-width-thin) solid transparent;
   cursor: pointer;
   text-decoration: none;
@@ -58,21 +63,24 @@
   color: var(--color-text-on-accent);
 }
 
+/* 2026-09-26 (Marcelo, mesmo pedido do comentário de `.ui-button` acima): "Editar fornecedor" é
+   agora o padrão de TODO botão claro do app - fundo branco, borda lilás clara, texto roxo (nunca
+   mais texto neutro/cinza-escuro), realce lilás claro no hover. */
 .ui-button--secondary {
   background: var(--color-surface-default);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-interactive);
+  color: var(--color-text-link);
+  border-color: var(--color-accent-200);
 }
 .ui-button--secondary:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-strong);
-  /* Same `a:hover` specificity fight as `--primary` above - without this, a secondary
-     `ButtonLink` picked up the link-purple hover color instead of staying neutral dark text. */
-  color: var(--color-text-primary);
+  background: var(--color-surface-selected);
+  border-color: var(--color-accent-200);
+  /* Same `a:hover` specificity fight as `--primary` above - sem isso, um `ButtonLink` secundário
+     herdava a cor de hover genérica de link em vez de continuar roxo. */
+  color: var(--color-text-link);
 }
 .ui-button--secondary:active:not(:disabled) {
-  background: var(--color-surface-subtle);
-  color: var(--color-text-primary);
+  background: var(--color-accent-100);
+  color: var(--color-text-link);
 }
 
 /* Tertiary is a low-emphasis ACTION, still a button — it keeps a hover surface so it is not
@@ -89,15 +97,19 @@
   color: var(--color-action-primary-pressed);
 }
 
-/* Destructive actions never look neutral (mission §33). */
+/* 2026-09-26 (Marcelo, mesmo pedido do comentário de `.ui-button` acima): "Excluir fornecedor" é
+   agora o padrão de TODO botão vermelho/de exclusão do app - discreto (texto+borda vermelhos,
+   fundo transparente), NUNCA mais um bloco vermelho sólido permanente. Ainda nunca neutro (mission
+   §33 continua valendo - é vermelho, só não é mais um preenchimento sólido). */
 .ui-button--danger {
-  background: var(--color-action-danger);
-  color: var(--color-text-on-accent);
+  background: transparent;
+  color: var(--color-status-critical-fg);
+  border-color: var(--color-status-critical-border);
 }
 .ui-button--danger:hover:not(:disabled) {
-  background: var(--color-action-danger-hover);
+  background: var(--color-status-critical-bg);
   /* Same `a:hover` specificity fight as `--primary` above. */
-  color: var(--color-text-on-accent);
+  color: var(--color-status-critical-fg);
 }
 
 .ui-button:disabled {

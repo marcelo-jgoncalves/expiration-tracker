@@ -170,7 +170,10 @@ test("E2E-B3-05: compliance panel shows '-' (never 0%) when totalRequirements is
 
   await page.goto("/subjects/subj-1");
   await expect(page.getByRole("heading", { name: "Conformidade" })).toBeVisible();
-  await expect(page.locator("#compliance-heading").locator("..")).toContainText("—");
+  // Item 37 (fidelidade total ao protótipo): a grade de conformidade (percentual+indicadores) é
+  // uma seção `<section aria-labelledby="compliance-heading">`, não mais um irmão imediato do
+  // heading - localiza pelo `aria-labelledby`, nunca por `..` (frágil a mudança de estrutura).
+  await expect(page.locator('section[aria-labelledby="compliance-heading"]')).toContainText("—");
   await expect(page.getByText("0%")).toHaveCount(0);
 });
 

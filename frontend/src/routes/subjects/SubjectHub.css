@@ -1,74 +1,216 @@
-/* A09 - Compliance panel (Marcelo, 2026-09-21, protótipo "03 - Fornecedor Detalhe"). Reuses
-   design-system spacing/color tokens only, no new visual language - same discipline as
-   ItemDocuments.css. Never a donut/progress-bar visualization (Overview.tsx's own "KPI theater"
-   doctrine, mission §29) - the percentage is a plain stat, the breakdown is 3 StatusBadges. */
-.ui-compliance {
-  display: flex;
-  flex-wrap: wrap;
+/* A09 - Detalhe do fornecedor (item 37, 2026-09-26): reescrito para fidelidade visual total ao
+   protótipo `prototype/novasTelas/OmniVence-fornecedor-detalhe-prototipo.html`, por pedido direto
+   de Marcelo ("no protótipo não tem mais pills e sim cards. construa com fidelidade total ao
+   protótipo"). O formato/cor dos botões (pill→retangular, perigo sólido→discreto) virou o PADRÃO
+   DE TODO O APP nesta mesma sessão (`Button.css` - "Editar fornecedor"/"Excluir fornecedor" como
+   referência de todo botão claro/vermelho), não fica só aqui. O que continua escopado só a esta
+   tela: altura/peso de fonte exatos do protótipo (abaixo) e a doutrina "nunca donut/barra de
+   progresso" (mission §29, decisão antiga deste mesmo arquivo) ganha uma exceção pontual aqui - a
+   barra de progresso do protótipo é reproduzida abaixo, só neste card. Cores dos indicadores usam
+   os hex literais do protótipo (não os tokens `--color-status-*`, que são um tom levemente
+   diferente) - mesma prática já usada por outras telas com CSS bespoke própria (`Login.css`,
+   `Overview.css`). */
+
+.subject-layout__back {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-5);
+  gap: 7px;
+  min-height: var(--control-height-sm); /* WCAG 2.5.8 - alvo mínimo, mesmo padrão do resto do app */
+  color: var(--color-accent-700);
+  font-size: var(--font-size-100);
+  font-weight: 800;
+  text-decoration: none;
+  margin-bottom: var(--space-6);
+}
+.subject-layout__back:hover {
+  text-decoration: underline;
 }
 
-.ui-compliance__stat {
+.subject-layout__eyebrow {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+/* Reescala só o H1 desta tela (via `PageHeader` real, nunca o `h1` global de base.css) - mesmo
+   padrão de override escopado que `Login.css`/`Overview.css` já usam para seus próprios heróis. */
+.subject-layout .ui-page-header__text h1 {
+  font-size: clamp(1.8125rem, 2.7vw, 2.5rem); /* 29px-40px, mesmo clamp do protótipo */
+  letter-spacing: -0.055em;
+  line-height: 1.2;
+}
+
+.subject-layout__org-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.subject-layout__type-badge {
+  font-size: var(--font-size-100);
+  color: #4c1d95;
+  background: #f1ebff;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-weight: 800;
+}
+
+.subject-layout__org-meta > span:last-child {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+}
+
+/* Forma/cor dos botões (`ui-button--secondary`/`--danger`, `Button.css`) já são o padrão do app
+   inteiro desde 2026-09-26 - só altura/peso de fonte dos botões do CABEÇALHO ficam escopados a
+   esta tela, para bater exatamente com os 41px/800 do protótipo. Escopado a
+   `.ui-page-header__actions` especificamente (nunca `.subject-layout .ui-button` sozinho) -
+   um seletor mais largo bateria também nos botões `size="sm"` da lista de Requisitos (dentro do
+   `<Outlet>`, também descendente de `.subject-layout`), inflando-os para 41px sem necessidade. */
+.subject-layout .ui-page-header__actions .ui-button {
+  min-height: 41px;
+  font-size: var(--font-size-100);
+  font-weight: 800;
+}
+
+.subject-layout__compliance {
+  padding: 23px 25px;
+}
+
+.subject-layout__compliance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.subject-layout__compliance-head h2 {
+  font-size: var(--font-size-400);
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.subject-layout__compliance-head span {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+}
+
+.subject-layout__compliance-grid {
+  display: grid;
+  grid-template-columns: minmax(205px, 1.35fr) repeat(3, minmax(125px, 1fr));
   gap: var(--space-3);
 }
 
-.ui-compliance__percent {
-  font-variant-numeric: tabular-nums;
-  font-size: var(--font-size-900);
-  line-height: var(--line-height-900);
+@media (max-width: 1160px) {
+  .subject-layout__compliance-grid {
+    grid-template-columns: 1fr;
+  }
+  .subject-layout__compliance-grid > :not(.subject-layout__progress-card) {
+    grid-column: span 1;
+  }
+}
+
+.subject-layout__progress-card {
+  border: 1px solid var(--color-border-subtle);
+  background: #fbfafe; /* hex literal do protótipo - --color-surface-subtle é um cinza, não lilás */
+  border-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-5);
+}
+
+.subject-layout__progress-card strong {
+  display: block;
+  font-size: 1.75rem; /* 28px */
+  letter-spacing: -0.06em;
+  line-height: 1.15;
   font-weight: var(--font-weight-semibold);
 }
 
-.ui-compliance__breakdown {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-/* Item 37 (novo protótipo+spec de detalhe de fornecedor, 2026-09-26) - nota de rodapé do card de
-   conformidade (spec §3), mesmo tom secundário do resto do painel. */
-.subject-layout__compliance-note {
-  margin: var(--space-4) 0 0;
+.subject-layout__progress-card p {
   font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+  margin: var(--space-2) 0 var(--space-4);
 }
 
-/* Selo "Hub do fornecedor" (spec §3) - fica abaixo do link Voltar, dentro do mesmo slot `above`
-   de PageHeader (nunca lado a lado, único detalhe onde essa combinação aparece hoje). */
-.subject-layout__eyebrow {
+.subject-layout__progress-track {
+  height: 6px;
+  border-radius: 6px;
+  background: #eae5f4;
+  overflow: hidden;
+}
+
+.subject-layout__progress-fill {
   display: block;
-  margin-top: var(--space-2);
+  background: var(--color-accent-700);
+  height: 100%;
+  transition: width var(--duration-fast, 0.2s) var(--easing-standard);
+}
+
+.subject-layout__indicator {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  padding: var(--space-4) var(--space-4);
+  background: var(--color-surface-default);
+}
+
+.subject-layout__indicator b {
+  display: block;
+  font-size: 1.3125rem; /* 21px */
+  line-height: 1.1;
+  margin-bottom: var(--space-3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.subject-layout__indicator span {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+/* Hex literais do protótipo, não os tokens --color-status-* (tom levemente diferente) - ver
+   comentário do topo do arquivo. */
+.subject-layout__indicator--ok b {
+  color: #047857;
+}
+.subject-layout__indicator--warn b {
+  color: #a94a05;
+}
+.subject-layout__indicator--bad b {
+  color: #b91c1c;
+}
+
+.subject-layout__compliance-note {
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: var(--space-4) 0 0;
 }
 
 /* D-339 (redesenho do fluxo de detalhe de Fornecedor) - navegação local persistente
    (Requisitos/Solicitações), sempre visível abaixo do painel de Conformidade e acima da seção
-   ativa. Mesmos tokens de cor já usados no hover roxo de IconButton (nunca uma cor nova). */
+   ativa. Continua rota real (Link+Outlet, decisão do item 35/D-339, WAI-ARIA APG citado) - só a
+   APARÊNCIA foi realinhada ao protótipo (item 37), nunca o mecanismo de navegação. */
 .subject-layout__nav {
   display: flex;
-  gap: var(--space-2);
-  margin: var(--space-5) 0 var(--space-5);
-  border-bottom: 1px solid var(--color-border-default);
+  gap: 22px;
+  margin: var(--space-7) 0 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .subject-layout__nav-link {
   display: inline-block;
-  padding: var(--space-3) var(--space-4);
-  font-weight: var(--font-weight-semibold);
+  padding: 0 3px var(--space-4);
+  font-size: var(--font-size-100);
+  font-weight: 800;
   color: var(--color-text-secondary);
   border-bottom: 2px solid transparent;
   text-decoration: none;
 }
 
 .subject-layout__nav-link:hover {
-  color: var(--color-text-primary);
+  color: var(--color-action-primary-pressed);
 }
 
 .subject-layout__nav-link[aria-current="page"] {
   color: var(--color-action-primary-pressed);
-  border-bottom-color: var(--color-action-primary-pressed);
+  border-bottom-color: var(--color-accent-600);
 }

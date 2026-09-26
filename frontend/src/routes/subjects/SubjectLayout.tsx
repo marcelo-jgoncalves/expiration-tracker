@@ -18,8 +18,18 @@
  * bookmarkable, não um painel de abas client-side - Marcelo confirmou manter a rota. A spec também
  * descreve Solicitações como lista somente-leitura, mas a tela real (`SubjectRequests.tsx`, A14)
  * já tem séries recorrentes/avulso/materialização aprovados antes deste protótipo existir -
- * Marcelo confirmou manter A14 como está. Gaps reais adotados desta rodada: selo "HUB DO
- * FORNECEDOR", `<title>` dinâmico, texto exato do card de conformidade.
+ * Marcelo confirmou manter A14 como está.
+ *
+ * Segunda rodada do item 37 (mesmo dia): Marcelo pediu fidelidade visual TOTAL ao protótipo
+ * ("no protótipo não tem mais pills e sim cards"), depois estendeu explicitamente "Editar
+ * fornecedor"/"Excluir fornecedor" como padrão de TODO botão claro/vermelho do app inteiro - o
+ * formato retangular e as cores de `.ui-button--secondary`/`--danger` mudaram em `Button.css`
+ * (global, não só aqui). O que continua escopado só a esta tela (`.subject-layout`, raiz deste
+ * componente), em `SubjectHub.css`: altura/peso de fonte exatos do protótipo, e a grade de
+ * conformidade com barra de progresso (reverte a doutrina "nunca donut/progresso" da mission
+ * §29, só para este card). O link Voltar sai do slot `above` de `PageHeader` (que passa a levar
+ * só o selo) para replicar o protótipo: Voltar acima de TODO o cabeçalho, não só da coluna de
+ * texto.
  */
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
@@ -30,9 +40,8 @@ import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
-import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
+import { PageHeader, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
-import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import { SubjectFormDialog } from "./SubjectForm.js";
@@ -79,7 +88,6 @@ export function SubjectLayout() {
   }
 
   const subject = subjectQuery.data.subject;
-  const identifierLabel = subject.type === "COMPANY" || subject.type === "VENDOR" ? "CNPJ" : "Identificador";
 
   async function handleDelete() {
     try {
@@ -92,16 +100,22 @@ export function SubjectLayout() {
   }
 
   return (
-    <div>
+    <div className="subject-layout">
+      {/* Item 37: Voltar sai do slot `above` de PageHeader e vira seu próprio bloco, acima de TODO
+          o cabeçalho (texto + ações) - mesma posição do protótipo, nunca só acima da coluna de
+          texto. `ButtonLink` trocado por `Link` puro (mesmo alvo mínimo via `.subject-layout__back`,
+          que já reserva `--control-height-sm`, WCAG 2.5.8) - o protótipo não trata Voltar como um
+          botão. */}
+      <Link to={orgPath("/subjects")} className="subject-layout__back">← Voltar para Fornecedores</Link>
       <PageHeader
-        above={
-          <>
-            <ButtonLink variant="secondary" size="sm" to={orgPath("/subjects")}>← Voltar para Fornecedores</ButtonLink>
-            <span className="ov-eyebrow subject-layout__eyebrow">Hub do fornecedor</span>
-          </>
-        }
+        above={<span className="ov-eyebrow subject-layout__eyebrow">Hub do fornecedor</span>}
         title={subject.displayName}
-        description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
+        description={
+          <span className="subject-layout__org-meta">
+            <span className="subject-layout__type-badge">{presentSubjectType(subject.type)}</span>
+            <span>Documentos e solicitações em um só lugar</span>
+          </span>
+        }
         actions={
           <>
             {canWrite ? <Button variant="secondary" onClick={() => setShowEdit(true)}>Editar fornecedor</Button> : null}{" "}
@@ -228,34 +242,41 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
   const hasDenominator = compliancePercent !== null;
 
   return (
-    <Section heading="Conformidade documental" headingId="compliance-heading" description="Panorama dos requisitos aplicáveis.">
-      <Panel padded>
-        <div className="ui-compliance">
-          <div className="ui-compliance__stat">
-            <span
-              className="ui-compliance__percent"
-              aria-label={hasDenominator ? `${compliancePercent}% - ${satisfiedCount} de ${totalRequirements} requisitos aplicáveis satisfeitos` : "Conformidade não calculada: nenhum requisito aplicável cadastrado"}
-            >
-              {hasDenominator ? `${compliancePercent}%` : "—"}
-            </span>
-            <span className="u-text-secondary" aria-hidden="true">
-              {hasDenominator ? `${satisfiedCount} de ${totalRequirements} requisitos satisfeitos` : "Nenhum requisito aplicável cadastrado"}
-            </span>
+    <section className="ui-panel subject-layout__compliance" aria-labelledby="compliance-heading">
+      {/* Item 37 (segunda rodada, fidelidade total ao protótipo): grade de 4 colunas
+          (percentual+barra de progresso | 3 indicadores coloridos) substitui o resumo em linha +
+          3 `StatusBadge` pill de antes, só nesta seção - exceção pontual à doutrina "nunca
+          donut/progresso" (mission §29), pedido direto de Marcelo. */}
+      <div className="subject-layout__compliance-head">
+        <h2 id="compliance-heading">Conformidade documental</h2>
+        <span>Panorama dos requisitos aplicáveis</span>
+      </div>
+      <div className="subject-layout__compliance-grid">
+        <div className="subject-layout__progress-card">
+          <strong
+            aria-label={hasDenominator ? `${compliancePercent}% - ${satisfiedCount} de ${totalRequirements} requisitos aplicáveis satisfeitos` : "Conformidade não calculada: nenhum requisito aplicável cadastrado"}
+          >
+            {hasDenominator ? `${compliancePercent}%` : "—"}
+          </strong>
+          <p aria-hidden="true">{hasDenominator ? `${satisfiedCount} de ${totalRequirements} requisitos satisfeitos` : "Nenhum requisito aplicável cadastrado"}</p>
+          <div className="subject-layout__progress-track">
+            <span className="subject-layout__progress-fill" style={{ width: hasDenominator ? `${compliancePercent}%` : "0%" }} />
           </div>
-          <ul className="ui-compliance__breakdown">
-            <li>
-              <StatusBadge presentation={{ label: `${satisfiedCount} satisfeito(s)`, tone: "neutral" }} />
-            </li>
-            <li>
-              <StatusBadge presentation={{ label: `${expiringSoonCount} vencendo em breve`, tone: "warning" }} />
-            </li>
-            <li>
-              <StatusBadge presentation={{ label: `${missingCount} em falta`, tone: "danger" }} />
-            </li>
-          </ul>
         </div>
-        <p className="subject-layout__compliance-note u-text-secondary">A conformidade é calculada a partir dos requisitos aplicáveis deste fornecedor.</p>
-      </Panel>
-    </Section>
+        <div className="subject-layout__indicator subject-layout__indicator--ok">
+          <b>{satisfiedCount}</b>
+          <span>Requisitos satisfeitos</span>
+        </div>
+        <div className="subject-layout__indicator subject-layout__indicator--warn">
+          <b>{expiringSoonCount}</b>
+          <span>Vencendo em breve</span>
+        </div>
+        <div className="subject-layout__indicator subject-layout__indicator--bad">
+          <b>{missingCount}</b>
+          <span>Em falta</span>
+        </div>
+      </div>
+      <p className="subject-layout__compliance-note">A conformidade é calculada a partir dos requisitos aplicáveis deste fornecedor.</p>
+    </section>
   );
 }
