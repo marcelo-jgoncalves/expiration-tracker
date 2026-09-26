@@ -1003,6 +1003,24 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // Real bug found by scripts/seed-dev-demo-data.mjs's first live run against dev (2026-09-26):
+  // `externalId` (CNPJ/identificador externo - a real, load-bearing field in
+  // tracked-subject.ts's own `CreateSubjectInput`, with a dedupe pointer mechanism, and a real
+  // "CNPJ/identificador externo" input on SubjectForm.tsx's create screen) was never listed in
+  // this schema, which has `additionalProperties: false` - every real creation with a CNPJ
+  // filled in 400'd with a generic "must NOT have additional properties", not a field-specific
+  // error, silently breaking subject creation with a CNPJ end to end. Mutation: removing
+  // `externalId` from the schema's `properties` again makes this test fail.
+  it("accepts a create-subject-request with externalId (CNPJ)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "VENDOR",
+      displayName: "Comércio Vale Verde Ltda",
+      externalId: "12.345.678/0001-90",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
   it("accepts a valid update-subject-request", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
       notes: "Contato principal: financeiro@acme.com",
