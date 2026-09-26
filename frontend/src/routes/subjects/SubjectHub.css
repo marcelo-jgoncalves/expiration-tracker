@@ -31,6 +31,20 @@
   padding: 0;
 }
 
+/* Item 37 (novo protótipo+spec de detalhe de fornecedor, 2026-09-26) - nota de rodapé do card de
+   conformidade (spec §3), mesmo tom secundário do resto do painel. */
+.subject-layout__compliance-note {
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-100);
+}
+
+/* Selo "Hub do fornecedor" (spec §3) - fica abaixo do link Voltar, dentro do mesmo slot `above`
+   de PageHeader (nunca lado a lado, único detalhe onde essa combinação aparece hoje). */
+.subject-layout__eyebrow {
+  display: block;
+  margin-top: var(--space-2);
+}
+
 /* D-339 (redesenho do fluxo de detalhe de Fornecedor) - navegação local persistente
    (Requisitos/Solicitações), sempre visível abaixo do painel de Conformidade e acima da seção
    ativa. Mesmos tokens de cor já usados no hover roxo de IconButton (nunca uma cor nova). */

@@ -117,3 +117,10 @@
   justify-content: flex-end;
   margin: 0 0 var(--space-5);
 }
+
+/* Item 37 (novo protótipo+spec de detalhe de fornecedor, 2026-09-26, spec §3/§6/§11) - contador
+   de resultados junto da busca, distinto do total "Requisitos (N)" da seção. */
+.requirements-search-result-count {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-100);
+}

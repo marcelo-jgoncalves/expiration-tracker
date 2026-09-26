@@ -163,6 +163,12 @@ export function RequirementsCollection() {
   } else {
     requirements = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
   }
+  // Item 37 (spec §3/§6): "Requisitos (N)" no hub do fornecedor é sempre o TOTAL sem busca - antes
+  // desta correção, a anotação usava `requirements.length` (já filtrado por busca), então digitar
+  // na busca mudava o total exibido no título da seção, contradizendo a regra explícita da spec
+  // ("a busca não altera... o total global"). O contador de resultados filtrados vive à parte,
+  // junto do campo de busca.
+  const subjectTotalCount = filterSubjectId ? (subjectQuery.data?.requirements.length ?? 0) : undefined;
 
   return (
     <div>
@@ -235,15 +241,47 @@ export function RequirementsCollection() {
             an e2e fixture using that exact real-sounding name on this same page
             (E2E-B3-07, block3-subjects-requirements.spec.ts) - getByText("Certidão Negativa de
             Débitos") matched both the hint and the actual row. */}
-        <TextField id="requirements-search" label="Buscar por nome" value={searchTerm} onChange={setSearchTerm} hint="Vazio mostra todos os requisitos." />
+        <TextField
+          id="requirements-search"
+          label={filterSubjectId ? "Buscar por nome do requisito" : "Buscar por nome"}
+          value={searchTerm}
+          onChange={setSearchTerm}
+          hint="Vazio mostra todos os requisitos."
+        />
+        {filterSubjectId && searchTerm.trim() ? (
+          <p aria-live="polite" className="u-text-secondary requirements-search-result-count">
+            {requirements.length} {requirements.length === 1 ? "resultado" : "resultados"} para &quot;{searchTerm.trim()}&quot;
+          </p>
+        ) : null}
       </Panel>
-      <Section heading="Requisitos" headingId="requirements-list" annotation={`(${requirements.length})`}>
+      <Section heading="Requisitos" headingId="requirements-list" annotation={`(${filterSubjectId ? subjectTotalCount : requirements.length})`}>
         <Panel>
           {requirements.length === 0 ? (
+            // Item 37 (spec §3): dentro do hub do fornecedor, mensagens/CTA seguem o texto exato
+            // da spec ("Nenhum requisito cadastrado"/"Criar primeiro requisito"/"Nenhum requisito
+            // encontrado") - fora dela (coleção tenant-wide), copy original preservada.
             <EmptyState
               kind={searchTerm ? "filtered-empty" : "true-empty"}
-              message={searchTerm ? "Nenhum requisito encontrado para estes filtros." : "Nenhum requisito cadastrado ainda."}
-              action={searchTerm ? <Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar filtros</Button> : undefined}
+              message={
+                searchTerm
+                  ? filterSubjectId
+                    ? "Nenhum requisito encontrado."
+                    : "Nenhum requisito encontrado para estes filtros."
+                  : filterSubjectId
+                    ? "Nenhum requisito cadastrado. Cadastre a primeira exigência documental para acompanhar este fornecedor."
+                    : "Nenhum requisito cadastrado ainda."
+              }
+              action={
+                searchTerm ? (
+                  <Button variant="secondary" onClick={() => setSearchTerm("")}>
+                    {filterSubjectId ? "Limpar busca" : "Limpar filtros"}
+                  </Button>
+                ) : filterSubjectId && canWrite ? (
+                  <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
+                    Criar primeiro requisito
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <DataTable

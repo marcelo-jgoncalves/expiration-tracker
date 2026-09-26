@@ -10,6 +10,16 @@
  * (D-339 fechamento, Rodada 2/3): `DossierExport.tsx` usa `runId` na própria URL para retomar
  * geração após sair/recarregar - migrar para dentro desta casca exigiria uma reconciliação
  * própria dessa propriedade, fora de escopo aqui.
+ *
+ * Item 37 (2026-09-26, novo protótipo+spec `OmniVence-fornecedor-detalhe-*`): reconciliado contra
+ * este arquivo antes de implementar, por pedido direto de Marcelo - a spec pede `role=tablist`
+ * para Requisitos/Solicitações, mas isso reverteria a decisão do D-339 (3 rodadas de protocolo,
+ * WAI-ARIA APG citado) de usar rota real (`Link`+`Outlet`) porque essas são views navegáveis/
+ * bookmarkable, não um painel de abas client-side - Marcelo confirmou manter a rota. A spec também
+ * descreve Solicitações como lista somente-leitura, mas a tela real (`SubjectRequests.tsx`, A14)
+ * já tem séries recorrentes/avulso/materialização aprovados antes deste protótipo existir -
+ * Marcelo confirmou manter A14 como está. Gaps reais adotados desta rodada: selo "HUB DO
+ * FORNECEDOR", `<title>` dinâmico, texto exato do card de conformidade.
  */
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
@@ -47,6 +57,13 @@ export function SubjectLayout() {
   const [deleteError, setDeleteError] = useState<string | undefined>();
   const [showEdit, setShowEdit] = useState(false);
 
+  // Item 37 (spec §3): título da aba segue o nome real assim que carregado, nunca um nome fixo -
+  // roda antes dos `return`s condicionais abaixo (Rules of Hooks), usando `subjectQuery.data`
+  // diretamente (a variável `subject` desestruturada só existe depois deles).
+  useEffect(() => {
+    document.title = subjectQuery.data ? `${subjectQuery.data.subject.displayName} · OmniVence` : "Fornecedor · OmniVence";
+  }, [subjectQuery.data]);
+
   if (!subjectId) return null; // unreachable - the route always supplies :subjectId
 
   if (subjectQuery.isPending) {
@@ -77,7 +94,12 @@ export function SubjectLayout() {
   return (
     <div>
       <PageHeader
-        above={<ButtonLink variant="secondary" size="sm" to={orgPath("/subjects")}>← Voltar para Fornecedores</ButtonLink>}
+        above={
+          <>
+            <ButtonLink variant="secondary" size="sm" to={orgPath("/subjects")}>← Voltar para Fornecedores</ButtonLink>
+            <span className="ov-eyebrow subject-layout__eyebrow">Hub do fornecedor</span>
+          </>
+        }
         title={subject.displayName}
         description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
         actions={
@@ -141,8 +163,9 @@ export function SubjectLayout() {
 function EmptyStateNotFound({ orgPath }: { orgPath: (path: string) => string }) {
   return (
     <Panel padded>
-      <p>Este fornecedor não foi encontrado.</p>
-      <Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>
+      {/* Item 37 (spec §3/§10): texto exato "Fornecedor não encontrado". */}
+      <p>Fornecedor não encontrado.</p>
+      <Link to={orgPath("/subjects")}>← Voltar para Fornecedores</Link>
     </Panel>
   );
 }
@@ -199,15 +222,24 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
   }
 
   const { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent } = complianceQuery.data.compliance;
+  // Item 37 (spec §3/§5.6/§11): sem denominador (nenhum requisito aplicável), nunca mostrar
+  // "0 de 0 requisitos satisfeitos" - o texto/anúncio precisa dizer explicitamente que não há
+  // base de cálculo, não sugerir uma avaliação real que deu zero.
+  const hasDenominator = compliancePercent !== null;
 
   return (
-    <Section heading="Conformidade" headingId="compliance-heading">
+    <Section heading="Conformidade documental" headingId="compliance-heading" description="Panorama dos requisitos aplicáveis.">
       <Panel padded>
         <div className="ui-compliance">
           <div className="ui-compliance__stat">
-            <span className="ui-compliance__percent">{compliancePercent === null ? "—" : `${compliancePercent}%`}</span>
-            <span className="u-text-secondary">
-              {satisfiedCount} de {totalRequirements} requisitos satisfeitos
+            <span
+              className="ui-compliance__percent"
+              aria-label={hasDenominator ? `${compliancePercent}% - ${satisfiedCount} de ${totalRequirements} requisitos aplicáveis satisfeitos` : "Conformidade não calculada: nenhum requisito aplicável cadastrado"}
+            >
+              {hasDenominator ? `${compliancePercent}%` : "—"}
+            </span>
+            <span className="u-text-secondary" aria-hidden="true">
+              {hasDenominator ? `${satisfiedCount} de ${totalRequirements} requisitos satisfeitos` : "Nenhum requisito aplicável cadastrado"}
             </span>
           </div>
           <ul className="ui-compliance__breakdown">
@@ -222,6 +254,7 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
             </li>
           </ul>
         </div>
+        <p className="subject-layout__compliance-note u-text-secondary">A conformidade é calculada a partir dos requisitos aplicáveis deste fornecedor.</p>
       </Panel>
     </Section>
   );

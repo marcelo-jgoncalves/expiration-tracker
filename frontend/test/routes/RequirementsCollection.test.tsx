@@ -118,4 +118,28 @@ describe("RequirementsCollection (A11)", () => {
 
     await waitFor(() => expect(screen.getByText("Nenhum requisito cadastrado ainda.")).toBeInTheDocument());
   });
+
+  // Item 37 (novo protótipo+spec de detalhe de fornecedor, spec §3/§6): dentro do hub de um
+  // fornecedor específico (`nested`, via `:subjectId` na rota), "Requisitos (N)" precisa
+  // continuar mostrando o TOTAL sem busca mesmo depois de digitar na busca - a spec é explícita:
+  // "a busca... não muda... o total global". Mutação: usar `requirements.length` (já filtrado)
+  // em vez de `subjectTotalCount` na anotação da seção faria esta asserção falhar (o "(2)" viraria
+  // "(1)" assim que a busca filtrasse para 1 resultado).
+  it("nested inside a subject's hub, 'Requisitos (N)' stays the unfiltered total while searching, with a separate match count", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/document-archive/requirements/")) {
+        return Promise.resolve({ requirements: [requirement({ requirementId: "req-1", name: "CND Federal" }), requirement({ requirementId: "req-2", name: "Alvará Municipal" })] });
+      }
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    renderAtRoute("/subjects/:subjectId", <RequirementsCollection />, "/subjects/subject-1");
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Requisitos (2)" })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Buscar por nome do requisito/), { target: { value: "Alvará" } });
+
+    await waitFor(() => expect(screen.getByText("1 resultado para \"Alvará\"")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Requisitos (2)" })).toBeInTheDocument(); // total never changed
+    expect(screen.queryByRole("button", { name: "CND Federal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Alvará Municipal" })).toBeInTheDocument();
+  });
 });
