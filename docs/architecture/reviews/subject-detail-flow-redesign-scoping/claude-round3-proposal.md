@@ -20,17 +20,16 @@ informado por pesquisa.
    "indicar onde o usuário está e o que mais existe por perto na hierarquia de informação" —
    exatamente o problema nomeado por Marcelo (perder-se depois de entrar em um fornecedor).
 2. Nielsen Norman Group, "Breadcrumbs: 11 Design Guidelines" (`nngroup.com/articles/breadcrumbs/`)
-   — breadcrumb **complementa**, nunca substitui, navegação local/global; usado aqui só como
-   critério negativo (não basta um link "← Voltar", que é o que 2 dos 4 destinos atuais já têm e
-   ainda assim geram a queixa de Marcelo).
-3. Pesquisa de mercado (representatividade: produtos B2B com IA de profundidade semelhante —
-   registro/detalhe de um recurso com múltiplas sub-áreas relacionadas, não apenas um nicho único)
-   — achados agregados de artigos de prática (SaaSUI, Eleken) consultados 2026-09-26, tratados
-   como evidência de PADRÃO OBSERVADO, não como fonte normativa isolada (diferente das 2 fontes
-   NN/g acima): navegação secundária "contextual, visível só dentro daquele contexto, ao lado de
-   uma navegação global estável" é descrita como o padrão dominante para "Overview/Settings/
-   Members/Activity" dentro de uma entidade — mesma forma que a proposta usa para Conformidade+
-   Requisitos/Solicitações/Dossiê dentro de um Fornecedor.
+   — breadcrumb **complementa**, nunca substitui, navegação local/global (diretriz 1 do próprio
+   artigo); usado aqui só como critério negativo (não basta um link "← Voltar", que é o que 2 dos
+   4 destinos atuais já têm e ainda assim geram a queixa de Marcelo) — a conclusão de que "Voltar"
+   sozinho é insuficiente NESTE fluxo é minha combinação da diretriz com o problema observado,
+   não uma proibição universal que a fonte declare por si só.
+
+**Removido nesta rodada (achado do Codex, Rodada 3)**: uma 3ª fonte de "artigos de prática" citada
+sem título/URL identificável foi descartada por não ser verificável — as 2 fontes NN/g acima já
+sustentam o critério sozinhas, sem precisar de uma fonte não verificável para representatividade
+de mercado.
 
 **Sem padrão convergente em um ponto**: as fontes de prática (não as 2 NN/g) frequentemente
 chamam esse padrão de "abas" visualmente, mas nenhuma fonte consultada aqui compara diretamente
@@ -54,11 +53,13 @@ pela distinção WAI-ARIA, nunca por suposição sobre a implementação de terc
 | 5 | Nenhuma seção acrescenta um clique introdutório sem conteúdo (queixa nomeada por Marcelo) | 20% | Entrar no fornecedor já mostra conteúdo de trabalho (Conformidade+Requisitos), não só cards | Conformidade como passo isolado antes de qualquer lista |
 
 **Como a proposta (Rodada 2, mecanismo inalterado) atende**: 1-OK (container persistente), 2-OK
-(nav local com todas as seções), 3-OK (Documentos deixa de ser destino duplicado), 4-OK (proposta
-usa links roteados, nunca finge `tablist`), 5-OK (Conformidade funde como resumo acima de
-Requisitos, que é a entrada). **Nota da régua**: registrando minha própria nota primeiro, nota
-cega — 9,2/10 (não arredondado). Codex avalia a régua nesta mesma rodada antes de reavaliar o
-design contra ela.
+(nav local com todas as seções), 3-OK (Documentos deixa de ser destino duplicado, condicionado ao
+link real da evidência), 4-OK (proposta usa links roteados, nunca finge `tablist`), 5-OK
+(Conformidade funde como resumo acima de Requisitos, que é a entrada). Pesos são julgamento do
+projeto sobre qual parte do problema de Marcelo cada critério fecha — não derivados
+numericamente da NN/g, que fundamenta a EXISTÊNCIA do critério, não o peso exato.
+**Nota da régua**: registrando minha própria nota primeiro, nota cega — 9,2/10 (não arredondado).
+Codex avalia a régua nesta mesma rodada antes de reavaliar o design contra ela.
 
 ## Fechamento do achado "Nova solicitação" (contrato comportamental completo, não só visual)
 

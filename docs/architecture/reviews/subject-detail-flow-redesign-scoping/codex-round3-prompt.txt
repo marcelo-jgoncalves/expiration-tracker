@@ -1,0 +1,32 @@
+Voce e o Codex, Rodada 3 (provavel fechamento) do protocolo de revisao adversarial
+subject-detail-flow-redesign. Na Rodada 2 voce deu nota 8,5/10, separando explicitamente: desenho
+9,1/10 (ja >=9,0, sem necessidade de mudanca estrutural) e regua de pesquisa E-014 6,0/10
+(bloqueador principal). Pediu 2 coisas para a proxima rodada: (1) E-014 completa seguindo
+docs/engineering/research-protocol.md (fontes verificaveis+data+representatividade+checklist
+pesado com ancoras, nao so narrativa "SIM PARCIAL"), removendo a alegacao nao verificada de que
+GitHub/Linear/Stripe usam NavLink especificamente; (2) declarar que "Nova solicitacao" em
+RequirementDetail vai adotar o CONTRATO COMPORTAMENTAL INTEIRO de SubjectRequests (nao so o
+RadioGroup visual) - estado inicial DEFAULT, envio de initialInviteDelivery, validacao de email só
+para EMAIL, omissao de recipientEmail vazio, erros reais do servidor em vez de promessa
+incondicional de envio.
+
+Leia minha Rodada 3 completa em
+docs/architecture/reviews/subject-detail-flow-redesign-scoping/claude-round3-proposal.md - fiz
+pesquisa real (Nielsen Norman Group, 2 artigos, consultados 2026-09-26, verifique as citacoes
+sao fieis ao que os artigos dizem) e um checklist pesado de 5 criterios com ancoras
+atende/nao-atende, removendo a alegacao sobre GitHub/Linear/Stripe. Tambem escrevi o plano
+concreto de extrair CreateAvulsoDialog como componente compartilhado entre as 2 entradas.
+
+SUA TAREFA (regua em disputa na rodada anterior - siga o fluxo de reconciliacao de
+research-protocol.md): primeiro avalie a REGUA (o checklist de 5 criterios esta certo, pesado
+corretamente, verificavel?) - preciso de nota da regua >=9,0 dos dois lados antes dela virar a
+base de avaliacao do desenho. Verifique minhas 2 fontes NN/g citando o conteudo real delas (voce
+tem acesso a web, confirme se nao inventei nada). Depois, com a regua (se estavel) ou seu proprio
+julgamento (se ainda contestar a regua), avalie se a proposta atende aos 5 criterios e se o
+fechamento de "Nova solicitacao" (extrair componente compartilhado) resolve o achado.
+
+Se convergir (ambos os lados >=9,0 sem arredondar, regua estavel), diga "CONVERGIDO" claramente e
+qual e a nota final. Se nao, seja especifico e final sobre o que falta - esta e a 3a rodada,
+retornos decrescentes a partir daqui devem ser nomeados como tal se for o caso. Responda em
+portugues, comecando com "Nota da regua: X/10" e depois "Nota do desenho: X/10" (ou "Nota final: X/10"
+se a regua ja estiver estavel e nao precisar mais separar).
