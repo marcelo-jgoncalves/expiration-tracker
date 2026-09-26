@@ -1,0 +1,57 @@
+Rodada 3, protocolo Claude-Codex sobre D-328. Rodada 2 voce deu 7.2/10, "nao aprovo D-328 nesta
+rodada", com 5 achados reais (2 Alta, 3 Media) - todos verificados como reais, nenhum contestado.
+Nota cega: voce ainda nao viu a nota do Claude desta rodada.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-3-claude-revision.md
+2. src/modules/notification/domain/whatsapp-phone-confirmation.ts (buildWhatsAppPhoneConfirmation
+   agora exige version explicito)
+3. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (requestConfirmation
+   com version monotonico; confirmPhone com checagem de expiracao no atalho confirmedAt; os 2
+   metodos privados novos incrementAttemptCountWithRetry/setConfirmedAtWithRetry)
+4. src/modules/identity/persistence/global-user-repository.ts (logoutAll convertido para
+   buildUnscopedVersionedUpdate + retry, doc do setPhoneNumber corrigido sobre logoutDevice)
+5. src/modules/bff/application/bff-auth-service.ts (logoutAll chamado com tableName)
+6. src/modules/notification/http/preferences-handlers.ts (comentarios obsoletos corrigidos)
+7. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (teste novo do achado 1,
+   reproduz a corrida diretamente)
+8. test/unit/identity/global-user-repository.test.ts (2 testes novos de logoutAll)
+
+NAO leia round-3-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto: corrigi os 5 achados:
+- Achado 1 (Alta, version reiniciava a 1 em cada reenvio): buildWhatsAppPhoneConfirmation() agora
+  exige version explicito; requestConfirmation() calcula (existing?.version ?? 0) + 1, nunca reset
+  a 1. Verifiquei por mutacao (reverti temporariamente para version:1 fixo, confirmei que o teste
+  novo falha, depois restaurei a correcao real).
+- Achado 2 (Alta, atalho confirmedAt sem checar expiracao): agora checa
+  isWhatsAppPhoneConfirmationExpired() ANTES de aceitar o codigo no atalho idempotente tambem, nao
+  so no branch de primeira confirmacao.
+- Achado 3 (Media, attemptCount desistia no primeiro conflito): laco de retry limitado
+  (incrementAttemptCountWithRetry), 5 tentativas, para de retentar so se o codeHash mudou (desafio
+  diferente).
+- Achado 4 (Media, logoutAll real concorrente de setPhoneNumber - corrigi meu proprio erro de
+  atribuir isso a logoutDevice, que escreve SESSION# nao PROFILE): logoutAll() convertido para
+  buildUnscopedVersionedUpdate (SET so em globalLogoutAfter) + retry limitado.
+- Achado 5 (Media, testes anteriores nao provavam a protecao real): testes reescritos para
+  reproduzir os cenarios reais que voce demonstrou (resend + codigo velho; concorrente apagando
+  phoneE164; conflito de versao forcando retry via monkey-patch de get()).
+
+Perguntas centrais:
+- As correcoes dos achados 1/2 fecham de verdade a integridade da identidade do desafio, ou ainda
+  ha algum interleaving que voce consiga reproduzir?
+- O laco de retry do achado 3 (para se codeHash mudou) e suficiente, ou ainda ha um caso onde o
+  orcamento de tentativas nao e respeitado?
+- A conversao de logoutAll() (achado 4) esta correta? Confirmei que logoutDevice() nao e
+  concorrente real (escreve SESSION#, item diferente) - isso esta certo?
+- Os testes novos (mutacao verificada no achado 1, monkey-patch de get() no logoutAll) sao
+  suficientes desta vez, ou ainda faltam cenarios de interleaving genuino?
+- Qualquer achado novo que estas mudancas tenham introduzido.
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+atingir 9.0, isso ja seria convergencia formal se uma rodada de confirmacao adicional (minimo 3 ja
+atingido, mas convergencia exige >=9.0 nas duas ultimas rodadas) reafirmar sem regressao. Termine
+com uma linha no formato exato:
+
+NOTA_CODEX: X.X

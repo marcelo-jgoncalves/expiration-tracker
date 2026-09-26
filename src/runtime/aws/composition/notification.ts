@@ -11,6 +11,7 @@ import { NotificationPreferencesService } from "../../../modules/notification/ap
 import { WhatsAppOptInService } from "../../../modules/notification/application/whatsapp-opt-in-service.js";
 import { WhatsAppPhoneConfirmationService } from "../../../modules/notification/application/whatsapp-phone-confirmation-service.js";
 import type { WhatsAppProviderAdapter } from "../../../modules/notification/ports/whatsapp-provider.js";
+import type { GlobalUserRepository } from "../../../modules/identity/persistence/global-user-repository.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
 import { buildTenantManagerLookup } from "./reminder.js";
 import { UlidIdGenerator } from "../ids.js";
@@ -37,9 +38,15 @@ export function buildWhatsAppPhoneConfirmationDeps(
   whatsAppProvider: WhatsAppProviderAdapter,
   pepper: string,
   isWhatsAppChannelEnabled: () => Promise<boolean>,
+  // D-332 revisão adversarial (achado real): sem isto, o serviço nunca conseguiria chamar
+  // `GlobalUserRepository.setPhoneNumber()` - ver o comentário de
+  // `WhatsAppPhoneConfirmationServiceDeps.globalUsers` para o porquê isso é obrigatório, não
+  // opcional. Injetado pelo chamador (já construído via `buildIdentityDeps()` no handler) em vez
+  // de reconstruído aqui, para nunca duplicar a composição do módulo identity.
+  globalUsers: Pick<GlobalUserRepository, "setPhoneNumber">,
 ): WhatsAppPhoneConfirmationService {
   const store = new DynamoDbNotificationStore(client, tableName);
-  return new WhatsAppPhoneConfirmationService({ store, whatsAppOptIn, whatsAppProvider, pepper, isWhatsAppChannelEnabled });
+  return new WhatsAppPhoneConfirmationService({ store, whatsAppOptIn, globalUsers, tableName, whatsAppProvider, pepper, isWhatsAppChannelEnabled });
 }
 
 /**

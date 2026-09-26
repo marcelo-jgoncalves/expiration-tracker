@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { authorize } from "../../identity/domain/authorization.js";
 import { ValidationError, DependencyUnavailableError } from "../../../shared/errors/app-error.js";
+import { buildUnscopedVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
 import {
   buildWhatsAppPhoneConfirmation,
   generateWhatsAppConfirmationCode,
@@ -33,6 +34,8 @@ import type { WhatsAppOptIn } from "../domain/whatsapp-opt-in.js";
 import type { WhatsAppOptInService } from "./whatsapp-opt-in-service.js";
 import type { NotificationStore } from "../ports/notification-store.js";
 import type { WhatsAppProviderAdapter } from "../ports/whatsapp-provider.js";
+import type { GlobalUserRepository } from "../../identity/persistence/global-user-repository.js";
+import { isValidE164 } from "../../../shared/text/phone-e164.js";
 
 /** Same fixed catalog entry name/language convention as `renderWhatsAppTemplate()`
  * (`runtime/aws/composition/notification.ts`) - D-3: pre-provisioned in Meta Business Manager,
@@ -44,6 +47,20 @@ export const WHATSAPP_PHONE_CONFIRMATION_TEMPLATE_LANGUAGE = "pt_BR";
 export interface WhatsAppPhoneConfirmationServiceDeps {
   store: NotificationStore;
   whatsAppOptIn: WhatsAppOptInService;
+  /** D-332 revisão adversarial (achado real, Codex Rodada 1): a entrega real de WhatsApp lê o
+   * número de `GlobalUser.phoneE164` (`DynamoDbNotificationRecipientResolver.resolve()`), nunca
+   * de `WhatsAppOptIn.phoneE164` - antes desta correção, `confirmPhone()` só chamava
+   * `recordOptIn()`, e `GlobalUserRepository.setPhoneNumber()` nunca era chamado por NENHUMA rota
+   * real (o próprio comentário do método já dizia isso: "fatia 1 is domain-only... a future
+   * fatia adds the route"). Resultado: mesmo depois de confirmar a posse do número com sucesso,
+   * `resolveRecipientPhone` continuaria retornando `undefined` para sempre - o pipeline de
+   * entrega real do WhatsApp nunca teria um número para onde mandar, mesmo após E-019 liberar o
+   * canal. */
+  globalUsers: Pick<GlobalUserRepository, "setPhoneNumber">;
+  /** `GlobalUserRepository.setPhoneNumber()`'s 3rd argument (D-332 revisão adversarial) - a
+   * targeted attribute-only `transactWrite`, não um `IdentityStore`-scoped `update()`, então
+   * precisa do nome da tabela explicitamente aqui, não implícito num `store` já construído. */
+  tableName: string;
   whatsAppProvider: WhatsAppProviderAdapter;
   /** HMAC pepper — reuses `GUEST_TOKEN_PEPPER` at the composition root, same "no cross-family
    * confusion, a brand new Secrets Manager secret would be disproportionate" rationale
@@ -60,6 +77,8 @@ export interface WhatsAppPhoneConfirmationServiceDeps {
 export class WhatsAppPhoneConfirmationService {
   private readonly store: NotificationStore;
   private readonly whatsAppOptIn: WhatsAppOptInService;
+  private readonly globalUsers: Pick<GlobalUserRepository, "setPhoneNumber">;
+  private readonly tableName: string;
   private readonly whatsAppProvider: WhatsAppProviderAdapter;
   private readonly pepper: string;
   private readonly isWhatsAppChannelEnabled: () => Promise<boolean>;
@@ -69,6 +88,8 @@ export class WhatsAppPhoneConfirmationService {
   constructor(deps: WhatsAppPhoneConfirmationServiceDeps) {
     this.store = deps.store;
     this.whatsAppOptIn = deps.whatsAppOptIn;
+    this.globalUsers = deps.globalUsers;
+    this.tableName = deps.tableName;
     this.whatsAppProvider = deps.whatsAppProvider;
     this.pepper = deps.pepper;
     this.isWhatsAppChannelEnabled = deps.isWhatsAppChannelEnabled;
@@ -86,17 +107,26 @@ export class WhatsAppPhoneConfirmationService {
       throw new DependencyUnavailableError("Canal WhatsApp ainda não está disponível.", undefined, undefined, false);
     }
 
+    // D-332 achado real Baixa (Codex Rodada 4): a validação do formato E.164 vivia dentro de
+    // `buildWhatsAppPhoneConfirmation()`, chamada só DEPOIS do `send()` abaixo - um telefone
+    // malformado ainda disparava uma mensagem real pelo provider antes de falhar. Corrigido:
+    // validado aqui, antes de qualquer I/O (mesma disciplina "falha antes de qualquer efeito
+    // colateral" que o resto do serviço já documentava, só não estava sendo seguida de verdade
+    // neste método). A rota HTTP real já validava isso via schema antes de chamar o serviço
+    // (`preferences-handlers.ts`), então isto nunca foi um bypass alcançável por HTTP - só uma
+    // garantia que o próprio serviço afirmava e não cumpria quando chamado diretamente.
+    if (!isValidE164(phoneE164)) {
+      throw new ValidationError(`Invalid E.164 phone number: ${phoneE164}`, { phoneE164 });
+    }
+
     const key = whatsAppPhoneConfirmationKey(ctx.tenant.tenantId, ctx.principal.userId, phoneE164);
-    const existing = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+    const initial = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
     const now = this.now();
-    if (existing && !existing.confirmedAt && isWhatsAppPhoneConfirmationInCooldown(existing, now)) {
+    if (initial && !initial.confirmedAt && isWhatsAppPhoneConfirmationInCooldown(initial, now)) {
       throw new ValidationError("Aguarde um minuto antes de solicitar um novo código.");
     }
 
-    // buildWhatsAppPhoneConfirmation() validates the E.164 shape and throws before any I/O on a
-    // bad value - same "fail before writing anything" discipline as buildWhatsAppOptIn().
     const code = generateWhatsAppConfirmationCode();
-    const record = buildWhatsAppPhoneConfirmation({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId, phoneE164, code, pepper: this.pepper, now });
 
     try {
       await this.whatsAppProvider.send({
@@ -113,10 +143,63 @@ export class WhatsAppPhoneConfirmationService {
       throw new DependencyUnavailableError("Não foi possível enviar o código de confirmação pelo WhatsApp.", undefined, err);
     }
 
-    // Overwrite, never putIfAbsent - re-requesting a code for the same phone must always succeed
-    // once the cooldown has passed, unlike WhatsAppOptIn's create-once semantics.
-    await this.store.update(record);
-    return { expiresAt: record.expiresAt };
+    // D-332 achado real Alta (Codex Rodada 3): a Rodada 2 calculava `(existing?.version ?? 0) + 1`
+    // mas ainda escrevia com um `store.update()` INCONDICIONAL - o Codex reproduziu a corrida real:
+    // reenvio lê A/v1 e pausa antes de gravar; uma tentativa errada avança A para v2; um
+    // `confirmPhone(A)` pendente lê v2 e pausa antes de sua própria escrita; o reenvio grava B/v2
+    // (calculado a partir da leitura ANTIGA, v1+1=2 - coincide por acidente com o v2 real); a
+    // confirmação pendente de A encontra a versão que esperava e confirma B com o código de A.
+    // Calcular o próximo `version` em memória nunca bastava - só uma ESCRITA CONDICIONADA (nunca
+    // um `Put` cego) fecha isso de verdade. Corrigido: cada tentativa gera o código sobre o estado
+    // FRESCO mais recente e escreve condicionado a ele - se perder a corrida, relê e tenta de novo
+    // com um `version` genuinamente atual, nunca calculado sobre uma leitura obsoleta.
+    //
+    // D-332 achado real Média (Codex Rodada 4): o retry acima ainda podia reescrever com o `now`/
+    // `code` ORIGINAIS (capturados antes do laço) mesmo quando a releitura mostrava que outro
+    // REENVIO concorrente já tinha vencido a corrida - isso fazia `createdAt` retroceder (o
+    // perdedor sobrescrevia o vencedor com seu próprio timestamp mais antigo), o que por sua vez
+    // reabria a janela de cooldown e permitia outro reenvio imediato. Corrigido: se o estado fresco
+    // mostra um `codeHash` DIFERENTE do que existia quando este resend começou, um reenvio
+    // concorrente genuinamente diferente já venceu - adota o vencedor (retorna o `expiresAt` dele)
+    // em vez de tentar sobrescrevê-lo com o código já enviado e agora obsoleto deste chamador. Uma
+    // divergência de `codeHash` SEM isso (ex. só uma tentativa errada incrementou `attemptCount` no
+    // desafio original) continua segura para sobrescrever - é o mesmo desafio, só mais tentativas
+    // registradas nele.
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextVersion = (current?.version ?? 0) + 1;
+      const record = buildWhatsAppPhoneConfirmation({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId, phoneE164, code, pepper: this.pepper, now, version: nextVersion });
+      if (!current) {
+        // First-ever request for this key - create-once, same discipline as WhatsAppOptIn's
+        // recordOptIn(). If lost, a concurrent first request already won - adopt IT (same
+        // "never overwrite a genuinely concurrent winner with our own already-sent code" posture
+        // as the resend branch below), never overwrite it with a second, redundant challenge.
+        const created = await this.store.putIfAbsent(record);
+        if (created) return { expiresAt: record.expiresAt };
+        const won = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        return { expiresAt: won!.expiresAt };
+      }
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { codeHash: record.codeHash, attemptCount: 0, createdAt: record.createdAt, expiresAt: record.expiresAt, purgeAfterTtl: record.purgeAfterTtl },
+        remove: ["confirmedAt"],
+        now,
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return { expiresAt: record.expiresAt };
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        if (fresh && initial && fresh.codeHash !== initial.codeHash) {
+          return { expiresAt: fresh.expiresAt }; // a genuinely concurrent resend already won
+        }
+        current = fresh;
+      }
+    }
+    throw new DependencyUnavailableError("Não foi possível gerar um novo código agora - tente novamente.");
   }
 
   /**
@@ -132,22 +215,151 @@ export class WhatsAppPhoneConfirmationService {
     if (!existing) {
       throw new ValidationError("Código inválido ou expirado.");
     }
+    const nowForShortcut = this.now();
     if (existing.confirmedAt) {
+      // D-332 achado real (Codex Rodada 1, Alta): este atalho idempotente antes chamava
+      // setPhoneNumber()/recordOptIn() incondicionalmente, SEM checar o código - corrigido na
+      // Rodada 2 (bate o hash), mas o Codex achou (Rodada 2, Alta) que isso ainda não bastava:
+      // sem checar EXPIRAÇÃO, o código certo replay-ado 24h depois (ex. um cliente que guardou o
+      // código) ainda re-executava `setPhoneNumber()`/`recordOptIn()` - se um telefone B tivesse
+      // sido confirmado depois, esse replay do desafio de A o desfazia, restaurando A. Corrigido
+      // por completo: expiração checada aqui TAMBÉM, não só no branch de primeira confirmação
+      // abaixo - `expiresAt` (10min) sempre vence muito antes do TTL físico do DynamoDB apagar a
+      // linha (que pode levar dias), então isso fecha o replay tardio independente de quando a
+      // limpeza física acontece.
+      if (isWhatsAppPhoneConfirmationExpired(existing, nowForShortcut)) {
+        throw new ValidationError("Código inválido ou expirado.");
+      }
+      if (!whatsAppConfirmationCodeMatches(this.pepper, code, existing.codeHash)) {
+        throw new ValidationError("Código inválido ou expirado.");
+      }
+      await this.globalUsers.setPhoneNumber(ctx.principal.userId, phoneE164, this.tableName);
       return this.whatsAppOptIn.recordOptIn(ctx, phoneE164, "USER_SETTINGS");
     }
 
-    const now = this.now();
-    if (isWhatsAppPhoneConfirmationExpired(existing, now) || existing.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) {
+    if (isWhatsAppPhoneConfirmationExpired(existing, nowForShortcut) || existing.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) {
       throw new ValidationError("Código inválido ou expirado.");
     }
 
     const matches = whatsAppConfirmationCodeMatches(this.pepper, code, existing.codeHash);
     if (!matches) {
-      await this.store.update({ ...existing, attemptCount: existing.attemptCount + 1 });
+      // D-332 achado real (Codex Rodada 1 Média, Rodada 2 achado real: a versão anterior desistia
+      // no primeiro conflito, então 20 tentativas erradas concorrentes só contabilizavam 1 - o
+      // orçamento de 5 tentativas era efetivamente ilimitado sob concorrência). Corrigido com um
+      // laço de retry limitado: cada tentativa relê o estado fresco e tenta incrementar A PARTIR
+      // DELE, então cada chamada real consome seu próprio slot de orçamento em vez de desistir
+      // silenciosamente quando perde uma corrida.
+      await this.incrementAttemptCountWithRetry(key, existing);
       throw new ValidationError("Código inválido ou expirado.");
     }
 
-    await this.store.update({ ...existing, confirmedAt: now });
+    // D-332 achado real (Codex Rodada 1 Média): mesmo laço de retry do bloco acima, aplicado ao
+    // caminho de sucesso - cada tentativa relê o estado fresco e tenta confirmar A PARTIR DELE.
+    await this.setConfirmedAtWithRetry(key, existing);
+    // D-332 achado real (Codex Rodada 1): a entrega real de WhatsApp lê `GlobalUser.phoneE164`
+    // (`DynamoDbNotificationRecipientResolver.resolve()`), nunca `WhatsAppOptIn.phoneE164` - sem
+    // esta chamada, `resolveRecipientPhone` nunca teria um número, mesmo com a posse confirmada e
+    // o opt-in registrado. Antes desta correção, `setPhoneNumber()` nunca era chamado por
+    // NENHUMA rota real em todo `src/` (só existia domain-only, D-6, ver o comentário do próprio
+    // método em `global-user-repository.ts`).
+    await this.globalUsers.setPhoneNumber(ctx.principal.userId, phoneE164, this.tableName);
     return this.whatsAppOptIn.recordOptIn(ctx, phoneE164, "USER_SETTINGS");
+  }
+
+  /** Bounded retry (D-332, Codex Rodada 2 achado real, orçamento reforçado na Rodada 3): a
+   * primeira tentativa de incrementar `attemptCount` pode perder a corrida contra outra tentativa
+   * concorrente para o MESMO desafio. Cada iteração relê o estado fresco e recomputa o incremento
+   * a partir dele, garantindo que CADA chamada real consuma seu próprio slot de tentativa em vez
+   * de desistir na primeira colisão.
+   *
+   * D-332 Rodada 3 (achado real Média, Codex reproduziu com 10 tentativas erradas concorrentes a
+   * partir de `attemptCount=4`, terminando em `attemptCount=9`): o gate `attemptCount >= MAX` só
+   * era checado UMA VEZ, antes de chamar este método - todas as 10 chamadas liam `attemptCount=4`
+   * (< 5) simultaneamente ANTES de qualquer escrita, então todas passavam o gate e todas
+   * retentavam incrementos além do orçamento nominal. Corrigido: cada iteração do retry TAMBÉM
+   * checa o orçamento contra o estado fresco - se já esgotado por uma tentativa concorrente, para
+   * de incrementar (o chamador já rejeita a tentativa de qualquer forma). */
+  private async incrementAttemptCountWithRetry(key: EntityKey, initial: WhatsAppPhoneConfirmation): Promise<void> {
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (current.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) return; // budget already exhausted by a concurrent guess
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { attemptCount: current.attemptCount + 1 },
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        // The record disappeared (physical TTL cleanup) or a resend replaced it with a genuinely
+        // different challenge (`codeHash` only ever changes on resend, `phoneE164` is part of the
+        // key itself and can never differ) - stop retrying, this specific wrong guess was already
+        // checked against a challenge that no longer exists, its attempt budget doesn't carry
+        // over to whatever challenge exists now (the caller still gets rejected via the
+        // ValidationError thrown by confirmPhone() regardless).
+        if (!fresh || fresh.codeHash !== initial.codeHash) return;
+        current = fresh;
+      }
+    }
+  }
+
+  /** Bounded retry (D-332, Codex Rodada 2 achado real, reforçado na Rodada 3), same base shape as
+   * `incrementAttemptCountWithRetry()` - a concurrent confirmPhone() for the SAME challenge (e.g.
+   * a duplicated network retry) can lose the race; each iteration re-reads and retries against the
+   * fresh version instead of giving up. If a fresh read shows `confirmedAt` already set (the
+   * concurrent call won), this is the same idempotent outcome, so it stops retrying too. A resend
+   * swaps in a genuinely different challenge (`codeHash` changes, `version` keeps climbing
+   * monotonically per `buildWhatsAppPhoneConfirmation()`'s own doc comment) - retrying against
+   * THAT would confirm the wrong challenge with the old code, so this checks `codeHash` before
+   * ever retrying, never just `version`.
+   *
+   * D-332 Rodada 3 (2 achados reais Média, Codex reproduziu ambos com interleaving real):
+   * (1) uma confirmação correta que perdia a corrida contra uma 5ª tentativa errada concorrente
+   * (que esgotava o orçamento) ainda retentava e confirmava mesmo assim - corrigido: cada
+   * iteração TAMBÉM checa o orçamento contra o estado fresco, igual ao método acima.
+   * (2) o `now` era capturado UMA VEZ fora do laço - um conflito seguido de uma espera real (ex.
+   * mais de 10 minutos) ainda confirmava com um `now` congelado no passado, sem nunca revalidar
+   * expiração contra o relógio ATUAL. Corrigido: `now` é recapturado a cada iteração, e a
+   * expiração do estado fresco é checada contra ELE antes de qualquer retry. */
+  private async setConfirmedAtWithRetry(key: EntityKey, initial: WhatsAppPhoneConfirmation): Promise<void> {
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const now = this.now();
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { confirmedAt: now },
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        if (!fresh || fresh.codeHash !== initial.codeHash) throw new ValidationError("Código inválido ou expirado.");
+        const freshNow = this.now();
+        // D-332 achado real Média (Codex Rodada 4): esta checagem de expiração ficava DEPOIS do
+        // atalho `if (fresh.confirmedAt) return` - uma chamada duplicada de confirmPhone() (ex.
+        // retry de rede) que perdeu a corrida contra uma confirmação legítima concorrente, e só
+        // retoma depois do TTL já ter vencido de verdade, ainda retornava sucesso sem checar isso,
+        // deixando o chamador (`confirmPhone()`) prosseguir para chamar `setPhoneNumber()`/
+        // `recordOptIn()` de novo por uma confirmação que, na hora em que esta chamada específica
+        // finalmente "sucede", já deveria ser tratada como expirada. Movida para ANTES do atalho.
+        if (isWhatsAppPhoneConfirmationExpired(fresh, freshNow)) {
+          throw new ValidationError("Código inválido ou expirado.");
+        }
+        if (fresh.confirmedAt) return; // a concurrent call already confirmed this same challenge
+        if (fresh.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) {
+          throw new ValidationError("Código inválido ou expirado.");
+        }
+        current = fresh;
+      }
+    }
+    throw new ValidationError("Código inválido ou expirado.");
   }
 }

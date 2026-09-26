@@ -8,8 +8,6 @@ import type { RequestContextResolver, ValidatedClaims } from "../../identity/app
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { NotificationPreferencesService, UpdateNotificationPreferencesInput } from "../application/notification-preferences-service.js";
-import type { WhatsAppOptInService } from "../application/whatsapp-opt-in-service.js";
-import type { WhatsAppOptInSource } from "../domain/whatsapp-opt-in.js";
 import type { WhatsAppPhoneConfirmationService } from "../application/whatsapp-phone-confirmation-service.js";
 
 async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
@@ -30,7 +28,6 @@ function validateAgainstSchema(schemaId: string, body: unknown): void {
 }
 
 const UPDATE_PREFERENCES_SCHEMA_ID = "https://expiration-tracker/schemas/api/update-notification-preferences-request.v1.json";
-const WHATSAPP_OPT_IN_SCHEMA_ID = "https://expiration-tracker/schemas/api/whatsapp-opt-in-request.v1.json";
 const WHATSAPP_PHONE_CONFIRMATION_START_SCHEMA_ID = "https://expiration-tracker/schemas/api/whatsapp-phone-confirmation-start-request.v1.json";
 const WHATSAPP_PHONE_CONFIRMATION_CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/whatsapp-phone-confirmation-confirm-request.v1.json";
 
@@ -51,7 +48,6 @@ export interface NotificationHttpDeps {
   resolver: RequestContextResolver;
   preferences: NotificationPreferencesService;
   quota: TenantQuotaService;
-  whatsAppOptIn: WhatsAppOptInService;
   whatsAppPhoneConfirmation: WhatsAppPhoneConfirmationService;
 }
 
@@ -123,36 +119,21 @@ export async function handleUpdatePreferences(
   });
 }
 
-/** POST /notifications/whatsapp-opt-in — D-246 (WhatsApp roadmap item, fatia de engenharia
- * 100% fechada desde D-246, mas sem rota HTTP para `WhatsAppOptInService.recordOptIn()` até
- * agora — nenhum usuário real conseguia dar opt-in mesmo com todo o resto pronto). Create-once,
- * same idempotent-no-op semantics as the service itself (`recordOptIn()`'s own doc comment) —
- * always 201, whether this call created the row or found an existing one for the exact same
- * phone, mirroring `handleStartGuestSession`'s "the caller only needs the resulting state, not
- * whether it existed before" posture used elsewhere in this codebase. No `If-Match`/expected
- * version — unlike `handleUpdatePreferences`, this never mutates an existing row (a phone
- * change is a NEW row by construction, `whatsapp-opt-in.ts`'s own header), so there is no
- * concurrent-edit race to fence against. */
-export async function handleRecordWhatsAppOptIn(
-  deps: NotificationHttpDeps,
-  req: HttpRequest<{ phoneE164: string; source: WhatsAppOptInSource }>,
-): Promise<HttpResponse> {
-  return withErrorMapping(async () => {
-    if (!req.body) throw new ValidationError("Missing request body.");
-    validateAgainstSchema(WHATSAPP_OPT_IN_SCHEMA_ID, req.body);
-    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
-    await consumeApiRequestQuota(deps.quota, context);
-    const optIn = await deps.whatsAppOptIn.recordOptIn(context, req.body.phoneE164, req.body.source);
-    return { statusCode: 201, body: { optIn } };
-  });
-}
+// D-332 revisão adversarial (achado real Alta, Codex): `handleRecordWhatsAppOptIn`
+// (POST /notifications/whatsapp-opt-in, D-246/D-286) REMOVIDO - permitia criar um
+// `WhatsAppOptIn` para qualquer número autodeclarado, sem confirmação de posse, contradizendo
+// diretamente a invariante de D-328 ("todo WhatsAppOptIn nasce possession-confirmed"). O único
+// caminho real desde então é `handleRequestWhatsAppPhoneConfirmation`/
+// `handleConfirmWhatsAppPhoneConfirmation` abaixo. `WhatsAppOptInService.recordOptIn()` continua
+// existindo como capability interna (chamada só por `WhatsAppPhoneConfirmationService.
+// confirmPhone()`), sem rota HTTP direta.
 
 /** POST /notifications/whatsapp-opt-in/request-confirmation — item 26 (NEXT_SESSION_PROMPT.md,
  * 2026-09-23): sends a 6-digit code to `phoneE164` over WhatsApp
  * (`WhatsAppPhoneConfirmationService.requestConfirmation()`). Never returns the code itself, only
- * `expiresAt` — same "the caller only needs the resulting state" posture as
- * `handleRecordWhatsAppOptIn`. Fails loudly (503) while the WhatsApp channel flag is off, which is
- * the real state of every environment today pending E-019. */
+ * `expiresAt` — same "the caller only needs the resulting state" posture used elsewhere in this
+ * file (e.g. `handleUpdatePreferences`). Fails loudly (503) while the WhatsApp channel flag is
+ * off, which is the real state of every environment today pending E-019. */
 export async function handleRequestWhatsAppPhoneConfirmation(
   deps: NotificationHttpDeps,
   req: HttpRequest<{ phoneE164: string }>,
@@ -169,9 +150,9 @@ export async function handleRequestWhatsAppPhoneConfirmation(
 
 /** POST /notifications/whatsapp-opt-in/confirm — verifies the code sent by the route above and,
  * only on success, calls `WhatsAppOptInService.recordOptIn()` internally
- * (`WhatsAppPhoneConfirmationService.confirmPhone()`). This is now the ONLY real path that creates
- * a `WhatsAppOptIn` row for an end user — `handleRecordWhatsAppOptIn` above stays wired (idempotent,
- * harmless) but is no longer called by the frontend post-2026-09-23. */
+ * (`WhatsAppPhoneConfirmationService.confirmPhone()`). This is the ONLY real path that creates a
+ * `WhatsAppOptIn` row for an end user (D-332: the old unconfirmed `handleRecordWhatsAppOptIn`
+ * route was removed entirely - see the comment right above `handleRequestWhatsAppPhoneConfirmation`). */
 export async function handleConfirmWhatsAppPhoneConfirmation(
   deps: NotificationHttpDeps,
   req: HttpRequest<{ phoneE164: string; code: string }>,

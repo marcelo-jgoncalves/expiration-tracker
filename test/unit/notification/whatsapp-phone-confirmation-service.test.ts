@@ -7,6 +7,7 @@ import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/a
 import { ValidationError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
 import type { WhatsAppProviderAdapter, WhatsAppSendInput } from "../../../src/modules/notification/ports/whatsapp-provider.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
+import { buildUnscopedVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
 
 const TENANT = "t1";
 const USER = "u1";
@@ -35,13 +36,27 @@ class FakeWhatsAppProvider implements WhatsAppProviderAdapter {
   }
 }
 
-function buildService(overrides: { now?: () => string; enabled?: boolean; provider?: FakeWhatsAppProvider } = {}) {
+// D-332 revisão adversarial (achado real, Codex Rodada 1): a entrega real de WhatsApp lê
+// `GlobalUser.phoneE164`, nunca `WhatsAppOptIn.phoneE164` - este fake prova que `confirmPhone()`
+// chama `setPhoneNumber()`, o que antes desta correção NUNCA acontecia em nenhuma rota real.
+class FakeGlobalUsers {
+  calls: { userId: string; phoneE164: string }[] = [];
+  async setPhoneNumber(userId: string, phoneE164: string) {
+    this.calls.push({ userId, phoneE164 });
+    return { userId } as never;
+  }
+}
+
+function buildService(overrides: { now?: () => string; enabled?: boolean; provider?: FakeWhatsAppProvider; globalUsers?: FakeGlobalUsers } = {}) {
   const store = new InMemoryNotificationStore();
   const whatsAppOptIn = new WhatsAppOptInService({ store, now: overrides.now ?? (() => "2026-09-23T00:00:00.000Z") });
   const provider = overrides.provider ?? new FakeWhatsAppProvider();
+  const globalUsers = overrides.globalUsers ?? new FakeGlobalUsers();
   const service = new WhatsAppPhoneConfirmationService({
     store,
     whatsAppOptIn,
+    globalUsers,
+    tableName: "MainTable",
     whatsAppProvider: provider,
     pepper: PEPPER,
     isWhatsAppChannelEnabled: async () => overrides.enabled ?? true,
@@ -51,7 +66,7 @@ function buildService(overrides: { now?: () => string; enabled?: boolean; provid
       return () => `id-${++n}`;
     })(),
   });
-  return { service, store, provider, whatsAppOptIn };
+  return { service, store, provider, whatsAppOptIn, globalUsers };
 }
 
 async function extractSentCode(store: InMemoryNotificationStore, provider: FakeWhatsAppProvider): Promise<string> {
@@ -93,6 +108,96 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
     expect(provider.sent).toHaveLength(2);
   });
 
+  // D-332 revisão adversarial (achado real Alta, Codex Rodada 2): antes desta correção, um reenvio
+  // sempre reescrevia com `version: 1` incondicionalmente - uma escrita PENDENTE de um
+  // `confirmPhone()` para o desafio ANTERIOR (que já tinha validado o código velho contra o hash
+  // velho, e ia escrever `confirmedAt` condicionado ao `version` que leu) podia coincidir com o
+  // `version: 1` do desafio NOVO pós-reenvio e confirmar o desafio ERRADO com o código VELHO -
+  // não é um problema de hash (esse já falhava antes), é um problema de identidade da CONDIÇÃO da
+  // escrita. Simula a corrida diretamente: captura o `version` do desafio antigo, força um
+  // reenvio, e tenta a MESMA escrita condicionada que um `confirmPhone()` pendente do desafio
+  // antigo teria feito. Mutação: remover `(existing?.version ?? 0) + 1` em `requestConfirmation()`
+  // (voltando a `version: 1` fixo) faria esta escrita simulada suceder em vez de falhar.
+  it("a resend's version never coincides with a pending write's expectedVersion from the old challenge", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE);
+    const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+    const oldChallenge = await store.get<WhatsAppPhoneConfirmation>(key);
+
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // past the resend cooldown
+    await service.requestConfirmation(ctx(), PHONE); // resend - new challenge, same key
+
+    // Simulates a confirmPhone() call for the OLD challenge that already validated the old code
+    // against the old hash, now attempting its conditioned write using the version it read.
+    const pendingWrite = buildUnscopedVersionedUpdate({
+      tableName: "MainTable",
+      key,
+      expectedVersion: oldChallenge!.version,
+      set: { confirmedAt: now },
+    });
+    await expect(store.transactWrite([{ Update: pendingWrite }])).rejects.toBeTruthy();
+  });
+
+  // D-332 Rodada 3 (achado real Alta, Codex): a Rodada 2's "correção" calculava o próximo version
+  // em memória mas ainda escrevia via `store.update()` INCONDICIONAL - um reenvio que LÊ um
+  // estado obsoleto e só grava DEPOIS (pausado por I/O real) sobrescreveria silenciosamente
+  // qualquer coisa que tenha acontecido nesse meio-tempo (ex. uma confirmação legítima), incluindo
+  // fazer a `version` andar PARA TRÁS. Este teste pausa a escrita do REENVIO especificamente
+  // (não a do confirmPhone) logo após sua leitura obsoleta, deixa uma confirmação real e legítima
+  // acontecer no meio tempo, e só então libera a escrita do reenvio - provando que ela detecta o
+  // conflito (nunca sobrescreve cegamente) e re-lê o estado fresco antes de gravar de verdade.
+  it("a resend paused right after its own read never overwrites a real confirmation that lands while it's paused", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE); // A, v1
+    const codeA = await extractSentCode(store, provider);
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // past the resend cooldown
+
+    // Pauses the FIRST transactWrite call (the paused resend's own conditioned write, made
+    // AFTER its stale read of v1) right before it executes, then lets every later call through
+    // normally (the wrong guess and the real confirmation below both need real writes to land).
+    const realTransactWrite = store.transactWrite.bind(store);
+    let releasePause: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      let intercepted = false;
+      store.transactWrite = (async (entries) => {
+        if (!intercepted) {
+          intercepted = true;
+          const gate = new Promise<void>((resumeIt) => {
+            releasePause = resumeIt;
+          });
+          resolve();
+          await gate;
+        }
+        return realTransactWrite(entries);
+      }) as typeof store.transactWrite;
+    });
+
+    const pendingResend = service.requestConfirmation(ctx(), PHONE); // reads A/v1, pauses before writing
+    await paused;
+
+    // While the resend above is paused (already past its own stale read), a wrong guess and then
+    // the REAL correct confirmation both land for real - the challenge is legitimately confirmed
+    // (version bumps past what the paused resend's stale read ever saw).
+    await service.confirmPhone(ctx(), PHONE, "000000").catch(() => {}); // A: v1 -> v2
+    await service.confirmPhone(ctx(), PHONE, codeA); // A: v2 -> v3, confirmedAt set for real
+
+    const confirmedBeforeResend = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+    expect(confirmedBeforeResend?.confirmedAt).toBeTruthy();
+    expect(confirmedBeforeResend?.version).toBe(3);
+
+    // Resume the paused resend - its conditioned write (expectedVersion=1, from its stale read)
+    // must conflict against the real v3, forcing its retry loop to re-read fresh and write on top
+    // of the REAL current state, never silently overwriting the confirmation with a version that
+    // regresses backwards to 2.
+    releasePause();
+    await expect(pendingResend).resolves.toBeTruthy();
+
+    const afterResend = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+    expect(afterResend?.version).toBeGreaterThan(3); // never regressed to the resend's originally-computed v2
+  });
+
   it("wraps a provider send failure as DependencyUnavailableError, never persisting a record", async () => {
     const provider = new FakeWhatsAppProvider();
     provider.shouldFail = true;
@@ -104,6 +209,64 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
   it("enforces authorization (no membership => denied)", async () => {
     const { service } = buildService();
     await expect(service.requestConfirmation(ctx({ tenant: { tenantId: TENANT, roles: [] } }), PHONE)).rejects.toBeInstanceOf(AuthorizationDeniedError);
+  });
+
+  // D-332 achado real Baixa (Codex Rodada 4): a validação E.164 vivia dentro de
+  // `buildWhatsAppPhoneConfirmation()`, chamada só DEPOIS do `send()` - um telefone malformado
+  // ainda disparava uma mensagem real pelo provider antes de falhar. Mutação: mover a checagem
+  // `isValidE164` de volta para depois do bloco `try { await this.whatsAppProvider.send(...) }`
+  // faria este teste falhar (`provider.sent` teria 1 entrada).
+  it("rejects a malformed E.164 phone before ever calling the provider", async () => {
+    const { service, provider } = buildService();
+    await expect(service.requestConfirmation(ctx(), "not-a-phone")).rejects.toBeInstanceOf(ValidationError);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  // D-332 achado real Média (Codex Rodada 4): o retry do reenvio (achado 1, corrigido) ainda podia
+  // sobrescrever um reenvio concorrente que já tivesse vencido a corrida, usando o `now`/`code`
+  // OBSOLETOS deste chamador - fazendo `createdAt` retroceder e reabrindo a janela de cooldown
+  // para outro reenvio imediato. Este teste pausa a escrita do reenvio B logo após sua leitura,
+  // deixa um reenvio C genuinamente mais novo vencer de verdade, e só então libera B - prova que B
+  // adota o resultado de C em vez de sobrescrevê-lo. Mutação: remover a checagem
+  // `fresh.codeHash !== initial.codeHash` (voltando a sempre sobrescrever com o `record` local)
+  // faria este teste falhar (o `expiresAt` retornado por B não bateria com o de C, e `createdAt`
+  // regrediria para o timestamp de B).
+  it("a resend that loses its conditioned write to a genuinely newer concurrent resend adopts the winner, never regressing createdAt", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE); // initial challenge
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // past cooldown
+
+    const realTransactWrite = store.transactWrite.bind(store);
+    let releasePause: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      let intercepted = false;
+      store.transactWrite = (async (entries) => {
+        if (!intercepted) {
+          intercepted = true;
+          const gate = new Promise<void>((resumeIt) => {
+            releasePause = resumeIt;
+          });
+          resolve();
+          await gate;
+        }
+        return realTransactWrite(entries);
+      }) as typeof store.transactWrite;
+    });
+
+    const pendingB = service.requestConfirmation(ctx(), PHONE); // reads v1, sends, pauses before writing
+    await paused;
+
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // C resends later, for real
+    const resultC = await service.requestConfirmation(ctx(), PHONE);
+
+    releasePause();
+    const resultB = await pendingB;
+
+    expect(resultB.expiresAt).toBe(resultC.expiresAt); // B adopted C, never overwrote it
+    const record = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+    expect(record?.createdAt).not.toBe("2026-09-23T00:01:01.000Z"); // B's own stale timestamp never landed
+    expect(provider.sent).toHaveLength(3); // initial + B + C all sent for real - only the DB write was arbitrated
   });
 });
 
@@ -121,6 +284,82 @@ describe("WhatsAppPhoneConfirmationService.confirmPhone", () => {
     const again = await service.confirmPhone(ctx(), PHONE, code);
     expect(again.optedInAt).toBe(optIn.optedInAt);
     void whatsAppOptIn;
+  });
+
+  // D-332 revisão adversarial (achado real, Codex Rodada 1): a entrega real do WhatsApp lê
+  // `GlobalUser.phoneE164` (`DynamoDbNotificationRecipientResolver.resolve()`), nunca
+  // `WhatsAppOptIn.phoneE164` - antes desta correção, `confirmPhone()` só chamava `recordOptIn()`,
+  // e `GlobalUserRepository.setPhoneNumber()` nunca era chamado por NENHUMA rota real (a entrega
+  // nunca teria um número para onde mandar, mesmo com a posse confirmada). Mutação: remover a
+  // chamada a `this.globalUsers.setPhoneNumber()` em `confirmPhone()` faria este teste falhar.
+  it("sets GlobalUser.phoneE164 on successful confirmation - the field the real delivery path reads", async () => {
+    const { service, store, provider, globalUsers } = buildService();
+    await service.requestConfirmation(ctx(), PHONE);
+    const code = await extractSentCode(store, provider);
+
+    await service.confirmPhone(ctx(), PHONE, code);
+
+    expect(globalUsers.calls).toEqual([{ userId: USER, phoneE164: PHONE }]);
+  });
+
+  // D-332 achado real: o mesmo deve valer no caminho de retry (confirmação já feita antes) - sem
+  // isto, um usuário cuja PRIMEIRA confirmação sofreu uma falha parcial (opt-in gravado mas
+  // setPhoneNumber não) nunca teria uma segunda chance de corrigir o número via um novo
+  // confirmPhone() com o mesmo código já confirmado.
+  it("also sets GlobalUser.phoneE164 on the already-confirmed retry path", async () => {
+    const { service, store, provider, globalUsers } = buildService();
+    await service.requestConfirmation(ctx(), PHONE);
+    const code = await extractSentCode(store, provider);
+    await service.confirmPhone(ctx(), PHONE, code);
+    globalUsers.calls = [];
+
+    await service.confirmPhone(ctx(), PHONE, code);
+
+    expect(globalUsers.calls).toEqual([{ userId: USER, phoneE164: PHONE }]);
+  });
+
+  // D-332 achado real Média (Codex Rodada 4): `setConfirmedAtWithRetry()`'s atalho
+  // `if (fresh.confirmedAt) return` (para uma chamada duplicada de `confirmPhone()`, ex. retry de
+  // rede, que perdeu a corrida contra outra confirmação legítima concorrente) rodava ANTES da
+  // checagem de expiração - uma chamada duplicada que só retoma depois do TTL já ter vencido de
+  // verdade ainda retornava sucesso, deixando `confirmPhone()` chamar `setPhoneNumber()`/
+  // `recordOptIn()` de novo por uma confirmação que já deveria ser tratada como expirada na hora
+  // em que ESTA chamada específica finalmente "sucede". Mutação: mover a checagem de expiração de
+  // volta para DEPOIS de `if (fresh.confirmedAt) return` faria este teste falhar
+  // (`globalUsers.calls` teria 1 entrada em vez de 0).
+  it("a duplicate confirmPhone() call that only resumes after expiry rejects instead of re-triggering setPhoneNumber", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider, globalUsers } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE);
+    const code = await extractSentCode(store, provider);
+
+    const realTransactWrite = store.transactWrite.bind(store);
+    let releasePause: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      let intercepted = false;
+      store.transactWrite = (async (entries) => {
+        if (!intercepted) {
+          intercepted = true;
+          const gate = new Promise<void>((resumeIt) => {
+            releasePause = resumeIt;
+          });
+          resolve();
+          await gate;
+        }
+        return realTransactWrite(entries);
+      }) as typeof store.transactWrite;
+    });
+
+    const pendingFirst = service.confirmPhone(ctx(), PHONE, code); // reads v1, validates, pauses before writing
+    await paused;
+
+    await service.confirmPhone(ctx(), PHONE, code); // duplicate call - real write lands, confirms for real
+    globalUsers.calls = [];
+    now = new Date(Date.parse(now) + 11 * 60 * 1000).toISOString(); // past the 10-minute TTL
+
+    releasePause();
+    await expect(pendingFirst).rejects.toBeInstanceOf(ValidationError);
+    expect(globalUsers.calls).toHaveLength(0); // never re-triggered setPhoneNumber after expiry
   });
 
   it("rejects an unknown/never-requested phone", async () => {
@@ -148,6 +387,43 @@ describe("WhatsAppPhoneConfirmationService.confirmPhone", () => {
     await expect(service.confirmPhone(ctx(), PHONE, code)).rejects.toBeInstanceOf(ValidationError);
   });
 
+  // D-332 revisão adversarial (achado real Média, Codex Rodada 3): reproduzido pelo próprio Codex
+  // com 10 tentativas erradas concorrentes a partir de `attemptCount=4`, terminando em
+  // `attemptCount=9` - o retry loop da Rodada 2 não revalidava o orçamento a cada iteração, só a
+  // versão. Corrigido: `incrementAttemptCountWithRetry()` agora para de incrementar assim que o
+  // estado fresco mostra o orçamento esgotado. Este teste força DETERMINISTICAMENTE o cenário
+  // exato do Codex - as 10 primeiras leituras retornam o mesmo snapshot congelado
+  // (`attemptCount=4`), simulando 10 chamadas concorrentes que já leram o estado ANTES de
+  // qualquer escrita acontecer (Promise.allSettled sozinho não garante esse interleaving exato
+  // neste fake síncrono). Mutação: remover a checagem
+  // `current.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS` do início do laço faz este
+  // teste falhar (attemptCount final ultrapassa 5) - verificado manualmente antes de submeter esta
+  // revisão.
+  it("respects the attempt budget even when 10 concurrent wrong guesses all read the same stale attemptCount=4 snapshot", async () => {
+    const { service, store, provider } = buildService();
+    await service.requestConfirmation(ctx(), PHONE);
+    const realCode = await extractSentCode(store, provider);
+    const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+    const frozenSnapshot = { ...(await store.get<WhatsAppPhoneConfirmation>(key))!, attemptCount: 4 };
+
+    const realGet = store.get.bind(store);
+    let frozenReadsRemaining = 10;
+    store.get = (async (k: typeof key) => {
+      if (frozenReadsRemaining > 0 && k.PK === key.PK && k.SK === key.SK) {
+        frozenReadsRemaining -= 1;
+        return frozenSnapshot;
+      }
+      return realGet(k);
+    }) as typeof store.get;
+
+    const wrongCodes = Array.from({ length: 10 }, (_, i) => (i === 0 ? "999998" : String(100000 + i))).filter((c) => c !== realCode);
+    const results = await Promise.allSettled(wrongCodes.map((code) => service.confirmPhone(ctx(), PHONE, code)));
+    expect(results.every((r) => r.status === "rejected")).toBe(true);
+
+    const record = await realGet<WhatsAppPhoneConfirmation>(key);
+    expect(record!.attemptCount).toBeLessThanOrEqual(5);
+  });
+
   it("locks out further attempts after the max wrong-guess count, even with the correct code", async () => {
     const { service, store, provider } = buildService();
     await service.requestConfirmation(ctx(), PHONE);
@@ -157,5 +433,71 @@ describe("WhatsAppPhoneConfirmationService.confirmPhone", () => {
       await expect(service.confirmPhone(ctx(), PHONE, "000000")).rejects.toBeInstanceOf(ValidationError);
     }
     await expect(service.confirmPhone(ctx(), PHONE, code)).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  // D-332 Rodada 3 (achado real Média, Codex): `setConfirmedAtWithRetry()`'s laço de retry
+  // capturava `now` UMA VEZ fora do laço - um conflito de OCC seguido de uma espera real (mais de
+  // 10 minutos) ainda confirmava usando o `now` congelado no passado, sem nunca revalidar
+  // expiração contra o relógio ATUAL no momento do retry. Este teste força um conflito
+  // deterministicamente (uma escrita concorrente entre a leitura e a escrita de `confirmPhone`) e
+  // avança o relógio além do TTL antes do retry acontecer. Mutação: mover `const now = this.now()`
+  // de volta para fora do laço `for` em `setConfirmedAtWithRetry()` faz este teste falhar (a
+  // confirmação por retry sucede mesmo expirada).
+  it("re-validates expiration against the CURRENT clock on each retry, not the time the first attempt started", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE);
+    const code = await extractSentCode(store, provider);
+    const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+
+    // Forces exactly one OCC conflict on confirmPhone's first write attempt: a concurrent writer
+    // (simulated directly) bumps the version between confirmPhone's read and its write.
+    const realTransactWrite = store.transactWrite.bind(store);
+    let firstCall = true;
+    store.transactWrite = (async (entries) => {
+      if (firstCall) {
+        firstCall = false;
+        const record = (await store.get<WhatsAppPhoneConfirmation>(key))!;
+        await realTransactWrite([{ Update: buildUnscopedVersionedUpdate({ tableName: "MainTable", key, expectedVersion: record.version, set: { attemptCount: record.attemptCount } }) }]);
+        // Past the 10-minute TTL by the time the retry (triggered by the conflict above) runs.
+        now = new Date(Date.parse(now) + 11 * 60 * 1000).toISOString();
+      }
+      return realTransactWrite(entries);
+    }) as typeof store.transactWrite;
+
+    await expect(service.confirmPhone(ctx(), PHONE, code)).rejects.toBeInstanceOf(ValidationError);
+    const record = await store.get<WhatsAppPhoneConfirmation>(key);
+    expect(record?.confirmedAt).toBeUndefined();
+  });
+
+  // D-332 revisão adversarial (achado real Média, Codex): antes desta correção, o incremento de
+  // `attemptCount` era um `store.update()` incondicional do objeto inteiro lido antes - a escrita
+  // nunca checava se `version` (ou qualquer outro campo) tinha mudado. Este teste prova que a
+  // escrita real (`buildUnscopedVersionedUpdate()`, condicionada ao `version` lido) rejeita uma
+  // segunda escrita que ainda segura a versão antiga, em vez de aceitar silenciosamente as duas.
+  // Mutação: trocar `buildUnscopedVersionedUpdate()` de volta por `store.update()` incondicional
+  // em `confirmPhone()` faria o `store.transactWrite` direto abaixo (que usa o `version` real
+  // pós-primeira tentativa errada) não detectar conflito nenhum.
+  it("the attemptCount write is version-fenced - a stale concurrent writer is rejected, never silently overwritten", async () => {
+    const { service, store, provider } = buildService();
+    await service.requestConfirmation(ctx(), PHONE);
+    await service.confirmPhone(ctx(), PHONE, "000000").catch(() => {}); // version 1 -> 2 (attemptCount 0 -> 1)
+
+    const record = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+    expect(record?.version).toBe(2);
+    expect(record?.attemptCount).toBe(1);
+
+    // Simulates a second concurrent wrong-guess request that read the record at version 1
+    // (before the first one committed) and only now writes its own increment.
+    const staleWrite = buildUnscopedVersionedUpdate({
+      tableName: "MainTable",
+      key: whatsAppPhoneConfirmationKey(TENANT, USER, PHONE),
+      expectedVersion: 1,
+      set: { attemptCount: 1 },
+    });
+    await expect(store.transactWrite([{ Update: staleWrite }])).rejects.toBeTruthy();
+
+    const reread = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+    expect(reread?.attemptCount).toBe(1); // never double-applied by the stale writer
   });
 });

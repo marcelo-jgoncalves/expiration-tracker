@@ -27,7 +27,6 @@ import { NotificationPreferencesService } from "../../../src/modules/notificatio
 import {
   handleGetPreferences,
   handleUpdatePreferences,
-  handleRecordWhatsAppOptIn,
   handleRequestWhatsAppPhoneConfirmation,
   handleConfirmWhatsAppPhoneConfirmation,
   type NotificationHttpDeps,
@@ -45,7 +44,8 @@ async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMe
   // Wave B2B-5 (D-095): bootstrapUser() no longer auto-provisions a tenant - seed a real
   // Organization+Membership for "cognito-sub-1" before any handler call can resolve.
   await bootstrapWithOrganization(identityStore, organizations, TABLE, "cognito-sub-1");
-  const resolver = new RequestContextResolver(new GlobalUserRepository(identityStore), organizations, makeIdGenerator(), identityStore, TABLE);
+  const globalUsers = new GlobalUserRepository(identityStore);
+  const resolver = new RequestContextResolver(globalUsers, organizations, makeIdGenerator(), identityStore, TABLE);
   const quota = new TenantQuotaService(identityStore, TABLE);
   const notificationStore = new InMemoryNotificationStore();
   const preferences = new NotificationPreferencesService({
@@ -59,12 +59,14 @@ async function buildDeps(): Promise<NotificationHttpDeps & { identityStore: InMe
   const whatsAppPhoneConfirmation = new WhatsAppPhoneConfirmationService({
     store: notificationStore,
     whatsAppOptIn,
+    globalUsers,
+    tableName: TABLE,
     whatsAppProvider: provider,
     pepper: "test-pepper",
     isWhatsAppChannelEnabled: async () => true,
     now: () => "2026-08-21T00:00:00.000Z",
   });
-  return { resolver, preferences, quota, whatsAppOptIn, whatsAppPhoneConfirmation, identityStore, sentMessages };
+  return { resolver, preferences, quota, whatsAppPhoneConfirmation, identityStore, sentMessages };
 }
 
 function claims(overrides: Partial<ValidatedClaims> = {}): ValidatedClaims {
@@ -92,48 +94,13 @@ describe("preferences-handlers.ts - real defaultSchemaRegistry wiring", () => {
     expect((response.body["preferences"] as { emailEnabled: boolean }).emailEnabled).toBe(false);
   });
 
-  it("handleRecordWhatsAppOptIn accepts a valid body through the REAL schema registry every Lambda imports (D-286, same regression class as the test above)", async () => {
-    const deps = await buildDeps();
-    const response = await handleRecordWhatsAppOptIn(deps, {
-      requestId: "r1",
-      correlationId: "c1",
-      claims: claims(),
-      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect((response.body["optIn"] as { phoneE164: string }).phoneE164).toBe("+5511999999999");
-  });
-
-  it("handleRecordWhatsAppOptIn is idempotent — a second call with the same phone returns the ORIGINAL optedInAt, never a new row", async () => {
-    const deps = await buildDeps();
-    const first = await handleRecordWhatsAppOptIn(deps, {
-      requestId: "r1",
-      correlationId: "c1",
-      claims: claims(),
-      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
-    });
-    const second = await handleRecordWhatsAppOptIn(deps, {
-      requestId: "r2",
-      correlationId: "c2",
-      claims: claims(),
-      body: { phoneE164: "+5511999999999", source: "USER_SETTINGS" },
-    });
-
-    expect(second.statusCode).toBe(201);
-    expect(second.body["optIn"]).toEqual(first.body["optIn"]);
-  });
-
-  it("handleRecordWhatsAppOptIn rejects a malformed phone number via schema validation", async () => {
-    const deps = await buildDeps();
-    const response = await handleRecordWhatsAppOptIn(deps, {
-      requestId: "r1",
-      correlationId: "c1",
-      claims: claims(),
-      body: { phoneE164: "not-a-phone", source: "USER_SETTINGS" } as never,
-    });
-    expect(response.statusCode).toBe(400);
-  });
+  // D-332 revisão adversarial (achado real Alta, Codex): `handleRecordWhatsAppOptIn`
+  // (POST /notifications/whatsapp-opt-in, D-246/D-286) removido - permitia opt-in sem confirmação
+  // de posse, contradizendo a invariante de D-328. `WhatsAppOptInService.recordOptIn()` continua
+  // coberto por `test/unit/notification/whatsapp-opt-in-service.test.ts` (capability interna);
+  // os 3 testes de handler que existiam aqui perderam o sujeito (o handler não existe mais - o
+  // próprio código não compila mais se alguém tentar reintroduzi-lo sem essa checagem, dado que
+  // não há mais export nenhum para chamar).
 
   it("handleRequestWhatsAppPhoneConfirmation sends a code and never echoes it back in the response", async () => {
     const deps = await buildDeps();

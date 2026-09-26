@@ -58,6 +58,12 @@ export interface WhatsAppPhoneConfirmation extends EntityKey {
   purgeAfterTtl: number;
   /** Written only once `confirmPhone()` verifies a match — never set by a bare read. */
   confirmedAt?: string;
+  /** D-332 revisão adversarial (achado real Alta, Codex): `attemptCount` era incrementado via
+   * `store.update()` (PutItem incondicional do objeto inteiro lido antes) - duas tentativas
+   * erradas concorrentes podiam ler o mesmo `attemptCount` e persistir o mesmo incremento uma
+   * única vez, permitindo mais que as 5 tentativas nominais sob concorrência. `version` habilita
+   * `buildUnscopedVersionedUpdate()` (occ.ts) para condicionar cada escrita ao valor lido. */
+  version: number;
 }
 
 export function whatsAppPhoneConfirmationKey(tenantId: string, userId: string, phoneE164: string): EntityKey {
@@ -89,6 +95,15 @@ export function buildWhatsAppPhoneConfirmation(input: {
   code: string;
   pepper: string;
   now: string;
+  /** D-332 revisão adversarial (achado real Alta, Codex Rodada 2): um reenvio (`requestConfirmation()`)
+   * sempre reescrevia com `version: 1` incondicionalmente, então uma escrita OCC pendente
+   * (`confirmPhone()`) condicionada ao `version` de um desafio ANTERIOR podia coincidir com o
+   * `version: 1` do desafio NOVO e confirmar o desafio errado com o código antigo - o `version`
+   * nunca identificava de fato "qual geração deste desafio". Corrigido: o chamador (`requestConfirmation()`)
+   * passa o próximo valor MONOTÔNICO (nunca reiniciado a 1) - `(registro anterior?.version ?? 0) + 1` -
+   * então uma escrita OCC condicionada ao `version` de um desafio anterior falha sempre que um
+   * reenvio já aconteceu, não apenas quando os números "por acaso" não colidem. */
+  version: number;
   crypto?: WhatsAppPhoneConfirmationCrypto;
 }): WhatsAppPhoneConfirmation {
   if (!isValidE164(input.phoneE164)) {
@@ -108,6 +123,7 @@ export function buildWhatsAppPhoneConfirmation(input: {
     createdAt: input.now,
     expiresAt,
     purgeAfterTtl: Math.floor(expiresAtMs / 1000),
+    version: input.version,
   };
 }
 

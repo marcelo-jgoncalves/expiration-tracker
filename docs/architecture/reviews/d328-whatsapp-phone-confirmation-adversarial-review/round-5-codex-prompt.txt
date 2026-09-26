@@ -1,0 +1,47 @@
+Rodada 5, protocolo Claude-Codex sobre D-328. Rodada 4 voce deu 8.4/10, "nao aprovo D-328 nesta
+rodada", mas confirmou explicitamente que os 4 achados de seguranca/integridade mais graves das
+rodadas 2-3 (identidade do reenvio com 3 atores, orcamento de tentativas, falso sucesso de logout,
+watermark regressivo) estavam genuinamente fechados - inclusive sob reproducoes adicionais suas
+proprias (3 logouts concorrentes). Restaram 3 achados menores (2 Media, 1 Baixa). Nota cega: voce
+ainda nao viu a nota do Claude desta rodada.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-5-claude-revision.md
+2. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (requestConfirmation
+   com validacao E.164 movida para o topo + logica de "adotar o vencedor" no retry; confirmPhone
+   com a ordem da checagem de expiracao corrigida em setConfirmedAtWithRetry)
+3. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (3 testes novos: E.164 antes
+   do send; reenvio adota vencedor concorrente; confirmacao duplicada rejeita apos expirar)
+
+NAO leia round-5-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto: corrigi os 3 achados, cada um com um teste que reproduz o cenario exato via pausa real de
+I/O (intercepta store.transactWrite), verificado por mutacao antes de submeter (revertido
+temporariamente, confirmado que o teste falha, depois restaurado). Resumo:
+- R4-1 (Media, atalho de confirmacao no retry ignorava expiracao): a checagem de expiracao movida
+  para ANTES de `if (fresh.confirmedAt) return` em setConfirmedAtWithRetry().
+- R4-2 (Media, reenvios concorrentes regrediam createdAt): se o estado fresco (apos perder a
+  corrida) mostra um codeHash DIFERENTE do que existia quando o reenvio comecou, um reenvio
+  concorrente genuinamente diferente ja venceu - adota o vencedor (retorna o expiresAt dele) em vez
+  de sobrescreve-lo. Mesma logica aplicada ao caminho de criacao (putIfAbsent perdido tambem adota
+  o vencedor).
+- R4-3 (Baixa, validacao E.164 depois do envio): validacao movida para o topo de
+  requestConfirmation(), antes de qualquer I/O.
+
+Julgamento que fiz e quero validar: a correcao de R4-2 significa que o "perdedor" de dois reenvios
+genuinamente concorrentes nunca mais tem seu proprio codigo funcionando, mesmo que tenha sido
+enviado de verdade pelo WhatsApp - o usuario que clicou "reenviar" duas vezes rapido recebe 2
+mensagens mas so uma delas (a mais recente, no timestamp real) funciona. Isso e uma troca aceitavel
+(evita corromper o estado, ver achado 5 ja registrado sobre o envio duplo em si), ou voce acha que
+merece tratamento explicito diferente?
+
+Pergunta central: as 3 correcoes fecham de verdade os achados reportados? Qualquer achado novo que
+estas mudancas tenham introduzido?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+atingir 9.0, isso ja seria convergencia formal (minimo 3 rodadas ja superado, esta seria a 5a -
+convergencia exige >=9.0 nas duas ultimas rodadas consecutivas, e a rodada anterior foi 8.4, entao
+esta seria a primeira das duas se atingir 9.0 agora). Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

@@ -1,0 +1,45 @@
+Protocolo Claude-Codex (AGENTS.md secao 4), Rodada 1 de revisao adversarial retroativa. Item 26 da
+fila: D-328 (confirmacao de posse do numero no opt-in de WhatsApp), implementado em 2026-09-23 sem
+o protocolo formal (Codex estava bloqueado), a pedido explicito de Marcelo. Nivel 4-5.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-1-claude-proposal.md
+2. src/modules/notification/domain/whatsapp-phone-confirmation.ts
+3. src/modules/notification/application/whatsapp-phone-confirmation-service.ts
+4. src/modules/notification/application/whatsapp-opt-in-service.ts
+5. src/modules/identity/persistence/global-user-repository.ts
+6. src/modules/notification/persistence/dynamodb-recipient-resolver.ts
+7. src/runtime/aws/composition/notification.ts
+8. src/runtime/aws/composition/identity.ts
+9. src/runtime/aws/handlers/notifications-handler.ts
+10. test/unit/notification/whatsapp-phone-confirmation-service.test.ts
+11. test/unit/notification/preferences-handlers.test.ts
+12. As linhas D-328 em docs/architecture/decisions-log.md (grep por "D-328")
+
+NAO leia round-1-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto importante: encontrei e JA CORRIGI, antes desta submissao, um achado real Alta: a
+confirmacao de posse do numero nunca chamava `GlobalUserRepository.setPhoneNumber()` - o UNICO
+writer valido de `GlobalUser.phoneE164`, que e o campo que a entrega REAL de WhatsApp le
+(`DynamoDbNotificationRecipientResolver.resolve()`). Antes da correcao, mesmo apos confirmar a
+posse com sucesso, a entrega real nunca teria um numero para onde mandar. Corrigi chamando
+`setPhoneNumber()` em `confirmPhone()`, em ambos os caminhos de sucesso (primeira confirmacao e o
+retry idempotente), com testes novos provando isso.
+
+Foco pedido:
+- A correcao do achado 1 esta genuinamente completa e correta? Existe algum outro lugar que
+  deveria ter sido atualizado e que eu perdi (grep por outras leituras de GlobalUser.phoneE164 ou
+  qualquer outro campo/fluxo que devesse ter sido tocado)?
+- Os achados 2 (attemptCount incrementado via read-modify-write nao atomico, sem OCC) e 3
+  (requestConfirmation pode disparar 2 envios reais sob concorrencia) sao reais? Merecem correcao
+  nesta rodada ou sao proporcionalmente aceitaveis para o estagio do produto (nenhum usuario real,
+  canal ainda fechado atras de E-019)?
+- Qualquer achado real que eu tenha perdido, especialmente seguindo a cadeia completa
+  confirmacao -> opt-in -> resolver -> router -> worker de entrega ate o fim (nao segui isso por
+  completo nesta rodada, registrado como lacuna da minha propria revisao).
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada (ja
+esta oculta do seu lado). Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

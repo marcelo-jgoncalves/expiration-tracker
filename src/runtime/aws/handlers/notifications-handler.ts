@@ -20,7 +20,6 @@ import { buildNotificationHttpDeps, buildWhatsAppPhoneConfirmationDeps } from ".
 import {
   handleGetPreferences,
   handleUpdatePreferences,
-  handleRecordWhatsAppOptIn,
   handleRequestWhatsAppPhoneConfirmation,
   handleConfirmWhatsAppPhoneConfirmation,
   type NotificationHttpDeps,
@@ -38,7 +37,7 @@ import { isWhatsAppChannelEnabled } from "../../../modules/notification/applicat
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
-const { resolver, quota } = buildIdentityDeps(client, tableName);
+const { resolver, quota, globalUsers } = buildIdentityDeps(client, tableName);
 const { preferences, whatsAppOptIn } = buildNotificationHttpDeps(client, tableName);
 const logger = new SecureLogger({ baseContext: { service: "notifications-handler" } });
 
@@ -97,8 +96,9 @@ const whatsAppPhoneConfirmation = buildWhatsAppPhoneConfirmationDeps(
   { send: async (input) => (await getWhatsAppProvider()).send(input) },
   guestTokenPepper ?? "",
   resolveWhatsAppChannelEnabled,
+  globalUsers,
 );
-const deps: NotificationHttpDeps = { resolver, preferences, quota, whatsAppOptIn, whatsAppPhoneConfirmation };
+const deps: NotificationHttpDeps = { resolver, preferences, quota, whatsAppPhoneConfirmation };
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   // m5-observability-design.md #2: API Gateway (HTTP API) - event.requestContext.requestId
@@ -119,8 +119,6 @@ async function handleNotificationsRoute(event: APIGatewayProxyEventV2WithJWTAuth
           return await handleGetPreferences(deps, base);
         case "PUT /notifications/preferences":
           return await handleUpdatePreferences(deps, { ...base, body: parseBody(event) });
-        case "POST /notifications/whatsapp-opt-in":
-          return await handleRecordWhatsAppOptIn(deps, { ...base, body: parseBody(event) });
         case "POST /notifications/whatsapp-opt-in/request-confirmation":
           return await handleRequestWhatsAppPhoneConfirmation(deps, { ...base, body: parseBody(event) });
         case "POST /notifications/whatsapp-opt-in/confirm":

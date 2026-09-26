@@ -210,7 +210,7 @@ describe("RequestContextResolver - revocation (user-global, not per-Organization
     await bootstrapWithOrganization(store, organizations, "MainTable", "cognito-sub-1");
     const staleIssuedAt = new Date(Date.now() - 60_000).toISOString();
     const ctx = await resolver.resolve({ claims: claims({ issuedAt: staleIssuedAt }), requestId: "r1", correlationId: "c1", organizationIdHint: undefined });
-    await globalUsers.logoutAll(ctx.principal.userId);
+    await globalUsers.logoutAll(ctx.principal.userId, "MainTable");
 
     await expect(
       resolver.resolve({ claims: claims({ tokenId: "jti-old", issuedAt: staleIssuedAt }), requestId: "r2", correlationId: "c2", organizationIdHint: undefined }),

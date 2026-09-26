@@ -106,7 +106,7 @@ describe("Cross-tenant isolation (negative suite)", () => {
       organizationIdHint: undefined,
     });
     // Wave B2B-5 (D-095): logoutAll moved to GlobalUserRepository, user-global (no tenantId).
-    await globalUsers.logoutAll(ctxA.principal.userId);
+    await globalUsers.logoutAll(ctxA.principal.userId, "MainTable");
 
     await expect(
       resolver.resolve({

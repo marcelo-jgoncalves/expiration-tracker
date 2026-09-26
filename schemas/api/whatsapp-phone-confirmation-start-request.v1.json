@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://expiration-tracker/schemas/api/whatsapp-phone-confirmation-start-request.v1.json",
   "title": "WhatsAppPhoneConfirmationStartRequest v1",
-  "description": "POST /notifications/whatsapp-opt-in/request-confirmation request body — sends a 6-digit code to phoneE164 over WhatsApp (src/modules/notification/application/whatsapp-phone-confirmation-service.ts). Same phoneE164 pattern as whatsapp-opt-in-request.v1.json.",
+  "description": "POST /notifications/whatsapp-opt-in/request-confirmation request body — sends a 6-digit code to phoneE164 over WhatsApp (src/modules/notification/application/whatsapp-phone-confirmation-service.ts).",
   "type": "object",
   "additionalProperties": false,
   "required": ["phoneE164"],
