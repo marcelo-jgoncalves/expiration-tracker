@@ -1,8 +1,85 @@
 import type { EntityKey, NotificationStore, TransactWriteEntry } from "../../../src/modules/notification/ports/notification-store.js";
 
-/** In-memory fake mirroring test/unit/reminder/in-memory-store.ts's transactWrite
- * condition-evaluation logic exactly (same two ConditionExpression shapes the shared
- * occ.ts builders produce across every module). */
+// D-328 revisão adversarial (achado real Média, Codex Rodada 7, R7-1): a checagem de condição
+// desta fake usava uma convenção de NOMENCLATURA (`valueKey = ':' + nameKey.slice(1)`) para achar
+// o valor esperado de cada placeholder de nome, em vez de interpretar de verdade a
+// `ConditionExpression` - se um `extraConditions` (occ.ts) algum dia usar sufixos de nome/valor
+// diferentes, a checagem simplesmente PULA a condição (`continue`), deixando a escrita suceder
+// silenciosamente contra uma condição real que o DynamoDB teria rejeitado (foi exatamente esse
+// tipo de fragilidade que a Rodada 7 pegou por acidente, antes de ser corrigida por convenção -
+// ver `docs/architecture/reviews/d328-.../round-7-claude-revision.md`). Corrigido: porta o
+// avaliador genérico de `ConditionExpression` (attribute_exists/attribute_not_exists, igualdade,
+// AND/OR de nível superior respeitando parênteses) que `test/unit/reminder/in-memory-store.ts` já
+// tem e já prova battle-tested (D-300) - a expressão em si é a única fonte de verdade, nunca uma
+// suposição de convenção de nome, e sintaxe não suportada lança erro em vez de aprovar em
+// silêncio.
+function resolveAttr(raw: string, names: Record<string, string>): string {
+  return raw.startsWith("#") ? (names[raw] ?? raw) : raw;
+}
+
+function evalClause(clause: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  const trimmed = clause.trim();
+  const notExists = /^attribute_not_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (notExists) return existing?.[resolveAttr(notExists[1]!, names)] === undefined;
+  const exists = /^attribute_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (exists) return existing?.[resolveAttr(exists[1]!, names)] !== undefined;
+  const eq = /^([#\w]+)\s*=\s*(:\w+)$/.exec(trimmed);
+  if (eq) {
+    const attr = resolveAttr(eq[1]!, names);
+    return existing !== undefined && existing[attr] === values[eq[2]!];
+  }
+  throw new Error(`InMemoryNotificationStore: unsupported condition clause: ${clause}`);
+}
+
+/** Splits `expr` on `separator` at PAREN DEPTH 0 ONLY - occ.ts's `extraConditions` wraps each
+ * entry's own expression in its own parens specifically so callers never have to hand-balance
+ * parens against the base condition. */
+function splitTopLevel(expr: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i]!;
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth === 0 && expr.slice(i, i + separator.length) === separator) {
+      parts.push(current.trim());
+      current = "";
+      i += separator.length;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+function evalClauseOrGroup(token: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  if (token.startsWith("(") && token.endsWith(")")) {
+    let depth = 0;
+    let closesAtEnd = true;
+    for (let i = 0; i < token.length - 1; i++) {
+      if (token[i] === "(") depth += 1;
+      if (token[i] === ")") depth -= 1;
+      if (depth === 0) {
+        closesAtEnd = false;
+        break;
+      }
+    }
+    if (closesAtEnd) return evalCondition(token.slice(1, -1), existing, names, values);
+  }
+  return evalClause(token, existing, names, values);
+}
+
+function evalCondition(expression: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  return splitTopLevel(expression, " OR ").some((orGroup) => splitTopLevel(orGroup, " AND ").every((clause) => evalClauseOrGroup(clause, existing, names, values)));
+}
+
+/** In-memory fake using the generic `ConditionExpression` evaluator above (same one
+ * test/unit/reminder/in-memory-store.ts uses) for every Put/Update condition this module's
+ * builders produce. */
 export class InMemoryNotificationStore implements NotificationStore {
   private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
 
@@ -49,69 +126,22 @@ export class InMemoryNotificationStore implements NotificationStore {
 
     entries.forEach((entry, i) => {
       if ("Put" in entry) {
-        const exists = this.items.has(this.k(entry.Put.Item as unknown as EntityKey));
-        if (entry.Put.ConditionExpression.includes("attribute_not_exists(PK)") && exists) {
+        const existing = this.items.get(this.k(entry.Put.Item as unknown as EntityKey));
+        if (!evalCondition(entry.Put.ConditionExpression, existing, entry.Put.ExpressionAttributeNames ?? {}, entry.Put.ExpressionAttributeValues ?? {})) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
         }
       } else if ("ConditionCheck" in entry) {
-        const check = entry.ConditionCheck;
-        const existing = this.items.get(this.k(check.Key));
-        if (check.ConditionExpression.includes("attribute_exists(PK)") && !existing) {
+        const existing = this.items.get(this.k(entry.ConditionCheck.Key));
+        if (!evalCondition(entry.ConditionCheck.ConditionExpression, existing, entry.ConditionCheck.ExpressionAttributeNames ?? {}, entry.ConditionCheck.ExpressionAttributeValues ?? {})) {
           reasons[i] = { Code: "ConditionalCheckFailed" };
           anyFailed = true;
-          return;
-        }
-        const names = check.ExpressionAttributeNames ?? {};
-        const values = check.ExpressionAttributeValues ?? {};
-        for (const [nameKey, fieldName] of Object.entries(names)) {
-          const valueKey = `:${nameKey.slice(1)}`;
-          if (!(valueKey in values)) continue;
-          const expected = values[valueKey];
-          if (!existing || existing[fieldName] !== expected) {
-            reasons[i] = { Code: "ConditionalCheckFailed" };
-            anyFailed = true;
-            return;
-          }
         }
       } else if ("Update" in entry) {
-        const key = entry.Update.Key;
-        const existing = this.items.get(this.k(key));
-        if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
-          if (!existing) {
-            reasons[i] = { Code: "ConditionalCheckFailed" };
-            anyFailed = true;
-            return;
-          }
-          const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
-          if (existing["version"] !== expectedVersion) {
-            reasons[i] = { Code: "ConditionalCheckFailed" };
-            anyFailed = true;
-            return;
-          }
-          // Generic equality-fence check - `buildVersionedUpdate()` uses `#tenantId`/`:tenantId`,
-          // `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5) uses `#accountId`/`:accountId`,
-          // and any caller-supplied `extraConditions` (occ.ts) adds its own `#name`/`:value` pair
-          // (e.g. D-328 R6-1's `#challengeIdFence = :expectedChallengeIdFence`) - whichever
-          // placeholders are present in this entry's own names/values is what's asserted, same
-          // generic behavior real DynamoDB gives any equality clause in a ConditionExpression.
-          // Deliberately excludes `#version`/`#updatedAt` (already handled above/always written,
-          // never a condition subject beyond `version`) and `#set*`/`#rem*` (SET/REMOVE targets,
-          // not condition placeholders) - every OTHER placeholder here is a condition to enforce,
-          // not just tenantId/accountId (narrower special-case this generalizes, same posture as
-          // test/unit/reminder/in-memory-store.ts's fuller expression evaluator for that module).
-          const names = entry.Update.ExpressionAttributeNames ?? {};
-          for (const [nameKey, attrName] of Object.entries(names)) {
-            if (attrName === "version" || attrName === "updatedAt") continue;
-            if (nameKey.startsWith("#set") || nameKey.startsWith("#rem")) continue;
-            const valueKey = `:${nameKey.slice(1)}`;
-            if (!(valueKey in entry.Update.ExpressionAttributeValues)) continue;
-            if (existing[attrName] !== entry.Update.ExpressionAttributeValues[valueKey]) {
-              reasons[i] = { Code: "ConditionalCheckFailed" };
-              anyFailed = true;
-              return;
-            }
-          }
+        const existing = this.items.get(this.k(entry.Update.Key));
+        if (!evalCondition(entry.Update.ConditionExpression, existing, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues)) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
         }
       }
     });

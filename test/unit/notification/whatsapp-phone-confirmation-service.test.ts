@@ -9,7 +9,7 @@ import { AuthorizationDeniedError } from "../../../src/modules/identity/domain/a
 import { ValidationError, DependencyUnavailableError } from "../../../src/shared/errors/app-error.js";
 import type { WhatsAppProviderAdapter, WhatsAppSendInput } from "../../../src/modules/notification/ports/whatsapp-provider.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
-import { buildUnscopedVersionedUpdate } from "../../../src/shared/dynamodb/occ.js";
+import { buildUnscopedVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
 const TENANT = "t1";
 const USER = "u1";
@@ -376,6 +376,50 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
     const record = await store.get<WhatsAppPhoneConfirmation>(key);
     expect(record?.expiresAt).toBe(resultC.expiresAt); // C's record survived, B never overwrote it
     expect(provider.sent).toHaveLength(3); // initial + B + C
+  });
+
+  // D-328 revisão adversarial (achado real Baixa, Codex Rodada 7, R7-2): a primeira requisição
+  // desta chave que perde o `putIfAbsent()` para um vencedor concorrente relia em `won!.expiresAt`
+  // - se esse vencedor for fisicamente removido pelo TTL ANTES da releitura que busca seu
+  // `expiresAt`, o `!` do TypeScript não protege nada em runtime e a chamada estoura. Este teste
+  // força esse exato interleaving: a primeira tentativa de `putIfAbsent()` "perde" (insere um
+  // registro vencedor de mentira, retorna `false`), e a releitura logo em seguida encontra esse
+  // vencedor já fisicamente apagado. Mutação: trocar `if (won) return ...; continue;` de volta
+  // por `return { expiresAt: won!.expiresAt };` faria este teste falhar com um TypeError não
+  // tratado, em vez de retentar.
+  it("a from-scratch create that loses to a putIfAbsent conflict, then finds the winner already gone (TTL), retries instead of throwing (R7-2)", async () => {
+    const { service, store, provider } = buildService();
+    const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+
+    const realPutIfAbsent = store.putIfAbsent.bind(store);
+    let putCalls = 0;
+    store.putIfAbsent = (async (item) => {
+      putCalls += 1;
+      if (putCalls === 1) {
+        await realPutIfAbsent(item); // stand-in "concurrent winner" row, inserted for real
+        return false; // report the loss, same as a genuine concurrent putIfAbsent conflict
+      }
+      return realPutIfAbsent(item);
+    }) as typeof store.putIfAbsent;
+
+    const realGet = store.get.bind(store);
+    let getCalls = 0;
+    store.get = (async (k: EntityKey) => {
+      getCalls += 1;
+      if (getCalls === 2) {
+        // The post-loss re-read that fetches the winner's expiresAt - simulate it having been
+        // physically removed by TTL in the gap between the loss and this specific re-read.
+        store._simulateTtlDeletion(k);
+        return undefined;
+      }
+      return realGet(k);
+    }) as typeof store.get;
+
+    const result = await service.requestConfirmation(ctx(), PHONE); // never throws
+    const record = await store.get<WhatsAppPhoneConfirmation>(key);
+    expect(record).toBeDefined();
+    expect(result.expiresAt).toBe(record!.expiresAt); // retried and succeeded on the 2nd attempt
+    expect(provider.sent).toHaveLength(1); // code is drawn/sent once per call, not once per retry attempt
   });
 });
 

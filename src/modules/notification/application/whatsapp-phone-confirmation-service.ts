@@ -217,7 +217,15 @@ export class WhatsAppPhoneConfirmationService {
         const created = await this.store.putIfAbsent(record);
         if (created) return { expiresAt: record.expiresAt };
         const won = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
-        return { expiresAt: won!.expiresAt };
+        // D-328 revisão adversarial (achado real Baixa, Codex Rodada 7, R7-2): `won` presumia que
+        // a linha vencedora ainda existia no momento desta releitura - um `putIfAbsent()` perdido
+        // seguido da linha vencedora sendo fisicamente removida pelo TTL ANTES desta releitura
+        // (exclusão assíncrona, mesma janela do R6-1) fazia `won!.expiresAt` estourar em runtime, a
+        // asserção `!` do TypeScript não protege nada além de compilação. Corrigido: sem vencedor
+        // para adotar, a vaga está livre de novo - tenta criar mais uma vez (próxima iteração gera
+        // um `challengeId`/código novos), nunca assume que `won` existe.
+        if (won) return { expiresAt: won.expiresAt };
+        continue; // vaga livre de novo - `current` já é undefined nesta ramificação
       }
       const update = buildUnscopedVersionedUpdate({
         tableName: this.tableName,

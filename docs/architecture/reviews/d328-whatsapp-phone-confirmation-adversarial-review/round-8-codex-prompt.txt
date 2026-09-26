@@ -1,0 +1,51 @@
+Rodada 8, protocolo Claude-Codex sobre D-328. Na Rodada 7 voce deu nota tecnica 8.8/10, confirmou
+R6-1 corrigido nas 3 escritas, mas achou 2 problemas: R7-1 (Media, no dublê de teste - a
+generalizacao por convencao de nome ainda deixava qualquer extraConditions com sufixos diferentes
+passar sem ser avaliado de verdade, "sucesso silencioso quando nao consegue avaliar a condicao");
+R7-2 (Baixa, producao real - `won!.expiresAt` presumia que a linha vencedora do putIfAbsent()
+perdido ainda existia no momento da releitura, sem tratar o caso dela ter sido fisicamente removida
+pelo TTL nesse meio-tempo, causando TypeError em runtime).
+
+Novamente: NAO leia NEXT_SESSION_PROMPT.md. NAO leia round-8-claude-selfgrade.md - nota cega,
+arquivo separado.
+
+Leia apenas, nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-8-claude-revision.md
+2. test/unit/notification/in-memory-store.ts (arquivo inteiro - substitui a checagem especial-caso
+   anterior por um avaliador generico de ConditionExpression portado de
+   test/unit/reminder/in-memory-store.ts: attribute_exists/attribute_not_exists, igualdade,
+   AND/OR de nivel superior respeitando parenteses, lanca erro para sintaxe nao suportada)
+3. src/modules/notification/application/whatsapp-phone-confirmation-service.ts, especificamente o
+   bloco `if (!current) { ... }` dentro do retry loop de requestConfirmation() (branch de criacao
+   do zero - `won` agora e tratado como possivelmente undefined, faz `continue` em vez de
+   `won!.expiresAt`)
+4. test/unit/notification/whatsapp-phone-confirmation-service.test.ts, teste novo no final do
+   describe de requestConfirmation: "a from-scratch create that loses to a putIfAbsent conflict,
+   then finds the winner already gone (TTL), retries instead of throwing (R7-2)"
+
+Contexto: para R7-1, em vez de mais uma correcao pontual por convencao de nome (que voce
+corretamente rejeitou como preservando a mesma fragilidade), portei o avaliador generico ja
+testado em producao de teste que test/unit/reminder/in-memory-store.ts usa desde D-300 - a
+ConditionExpression em si e a unica fonte de verdade agora, nao uma suposicao de como os
+placeholders foram nomeados, e sintaxe nao reconhecida lanca erro em vez de aprovar em silencio.
+Confirmei que toda ConditionExpression real deste modulo usa so os 2 formatos que esse avaliador
+cobre (attribute_not_exists(PK) AND attribute_not_exists(SK) para criacao; o formato de
+buildScopedVersionedUpdate/extraConditions para igualdade) - suite inteira do modulo (485 testes)
+e do repositorio (2873 testes) permanece verde com o avaliador generico no lugar do especial-caso
+anterior. Para R7-2, o teste novo intercepta putIfAbsent() para simular uma perda de corrida real e
+get() para simular o vencedor ja fisicamente apagado na releitura seguinte - verificado por
+mutacao: revertida temporariamente para `won!.expiresAt`, o teste falhou com o TypeError exato que
+voce previu, restaurada em seguida.
+
+Perguntas centrais: as 2 correcoes fecham R7-1 e R7-2 de verdade? O avaliador generico portado tem
+alguma lacuna real contra os padroes de ConditionExpression que este modulo especificamente usa
+hoje (nao preciso cobrir toda a linguagem de expressao do DynamoDB, so o que este modulo gera)?
+Existe algum outro `!`/non-null assertion neste arquivo que sofra do mesmo problema de R7-2 (um
+valor que parece garantido mas na verdade depende de uma janela de tempo real)?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+esta rodada atingir >=9.0 E a proxima rodada tambem atingir >=9.0 de forma genuinamente cega, isso
+fecharia D-328 formalmente. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X
