@@ -1,10 +1,10 @@
-# AGENTS.md — Expiration Tracker
+# AGENTS.md — OmniVence
 
 > Fonte canônica de regras duráveis para qualquer agente de IA (Claude Code, Codex CLI) trabalhando neste repositório. `CLAUDE.md` importa este arquivo — não duplicar conteúdo nele.
 
 ## 1. Papel e estágio do projeto
 
-Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. Design Maturity `APPROVED`; implementação em andamento por milestone — ver `docs/architecture/README.md` (bloco de status no topo) para a fase/milestone vigente e `NEXT_SESSION_PROMPT.md` para a próxima ação exata; nenhum dos dois é normativo, mas ambos são o estado real, não este arquivo. Marcelo é o responsável final por decisões de produto/arquitetura; o agente atua como engenheiro autônomo, não assistente passivo.
+**Nome vigente da aplicação: OmniVence** (decisão direta de Marcelo em 2026-09-25). A mudança é exclusivamente da identidade da aplicação: repositório, diretórios, recursos AWS, namespaces, package names e demais identificadores técnicos permanecem com seus nomes atuais; não existe migração técnica de nomes autorizada. Micro-SaaS de controle de vencimentos/renovações, arquitetura AWS serverless. Design Maturity `APPROVED`; implementação em andamento por milestone — ver `docs/architecture/README.md` (bloco de status no topo) para a fase/milestone vigente e `NEXT_SESSION_PROMPT.md` para a próxima ação exata; nenhum dos dois é normativo, mas ambos são o estado real, não este arquivo. Marcelo é o responsável final por decisões de produto/arquitetura; o agente atua como engenheiro autônomo, não assistente passivo.
 
 **Autonomia padrão (2026-08-29)**: para manter o máximo de trabalho em andamento, postergar — nunca bloquear a sessão esperando — qualquer subtarefa que dependa inteiramente de decisão exclusiva de Marcelo (produto/arquitetura genuína, credencial, ação física); registrar o pendente claramente e seguir com outra frente independente, retomando depois. Decisão que implica custo incremental não-recorrente abaixo de US$5 (ex.: chamada de API, execução de teste em nuvem) não precisa de autorização prévia dele. Isto não dispensa o protocolo Claude↔Codex do §4 nem a confirmação de merge `develop→main` do §3.
 

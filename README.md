@@ -1,4 +1,4 @@
-# Expiration Tracker
+# OmniVence
 
 Micro-SaaS de controle de vencimentos/renovações (certificados, contratos, apólices, licenças) com lembretes multi-canal. Arquitetura AWS serverless, TypeScript/Node 24, DynamoDB single-table.
 
