@@ -1,0 +1,55 @@
+Rodada 4, protocolo Claude-Codex sobre D-328. Rodada 3 voce deu 7.2/10, "nao aprovo D-328 nesta
+rodada", com 5 achados reais reproduzidos com scripts de pausa de I/O reais (nao so simulacao
+sincrona) - 1 Alta (identidade do reenvio ainda vulneravel), 2 Media (orcamento de tentativas,
+expiracao no retry), 2 Alta (logoutAll retorna sucesso sem revogar apos esgotar retries; watermark
+pode retroceder). Nota cega: voce ainda nao viu a nota do Claude desta rodada.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-4-claude-revision.md
+2. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (requestConfirmation
+   reescrito com retry real condicionado; incrementAttemptCountWithRetry e setConfirmedAtWithRetry
+   com as correcoes de orcamento/expiracao)
+3. src/modules/identity/persistence/global-user-repository.ts (logoutAll com throw na exaustao +
+   preservacao do watermark maximo)
+4. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (3 testes novos: resend com
+   pausa real de I/O; orcamento de tentativas com leituras congeladas deterministicas; expiracao no
+   retry com conflito forcado)
+5. test/unit/identity/global-user-repository.test.ts (2 testes novos: exaustao lanca erro;
+   watermark nunca regride)
+
+NAO leia round-4-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto: corrigi os 5 achados, e desta vez verifiquei CADA correcao por mutacao antes de submeter
+(reverti temporariamente cada fix, confirmei que o teste correspondente falha exatamente como
+esperado - inclusive reproduzindo o numero exato attemptCount=9 que voce reportou -, depois
+restaurei a correcao real). Resumo:
+- Achado 1 (Alta, reenvio vulneravel): requestConfirmation() agora usa putIfAbsent (primeira vez)
+  ou buildUnscopedVersionedUpdate com retry limitado condicionado ao version lido (reenvios) -
+  nunca mais um Put/update incondicional. Teste usa pausa REAL de I/O (intercepta
+  store.transactWrite) para reproduzir o mesmo tipo de interleaving que voce demonstrou.
+- Achado 2 (Media, orcamento sob concorrencia): incrementAttemptCountWithRetry() agora checa o
+  orcamento no INICIO de cada iteracao do retry, contra o estado fresco. Teste forca
+  deterministicamente 10 leituras congeladas em attemptCount=4 (via wrapper de store.get()) e prova
+  attemptCount final <= 5.
+- Achado 3 (Media, expiracao no retry): now recapturado a cada iteracao de
+  setConfirmedAtWithRetry(), expiracao checada contra o now FRESCO, nao o congelado.
+- Achado 4 (Alta, logoutAll sucesso falso): esgotar as 5 tentativas agora lanca
+  DependencyUnavailableError, nunca retorna silenciosamente.
+- Achado 5 (Alta, watermark regressivo): cada iteracao checa se o watermark ja persistido e >= now
+  antes de escrever - se ja satisfaz a intencao de seguranca, retorna sem escrever, nunca regride.
+
+Perguntas centrais:
+- As 5 correcoes fecham de verdade os interleavings que voce reproduziu, ou ainda ha alguma
+  variacao (ex. 3+ atores concorrentes, dois reenvios simultaneos entre si) que voce consiga
+  reproduzir?
+- Os testes novos (pausa real de I/O para o achado 1; leituras congeladas deterministicas para o
+  achado 2) sao suficientes desta vez, ou ainda falta alguma cobertura?
+- Qualquer achado novo que estas mudancas tenham introduzido.
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+atingir 9.0, isso ja seria convergencia formal (minimo 3 rodadas ja atingido continuamente, esta
+seria a 4a - convergencia exige >=9.0 nas duas ultimas rodadas consecutivas). Termine com uma linha
+no formato exato:
+
+NOTA_CODEX: X.X

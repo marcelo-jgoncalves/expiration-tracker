@@ -667,7 +667,7 @@ export class BffAuthService {
     // called out - a stale cookie forcing every OTHER active session/device to log out).
     if (!this.sessionIsCurrentlyValid(session)) return;
 
-    await this.deps.globalUsers.logoutAll(session.userId);
+    await this.deps.globalUsers.logoutAll(session.userId, this.deps.mainTableName);
     await this.logout(sessionCookie);
   }
 

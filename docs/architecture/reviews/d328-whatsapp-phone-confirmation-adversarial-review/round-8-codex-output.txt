@@ -1,0 +1,1039 @@
+OpenAI Codex v0.156.1
+--------
+workdir: C:\Users\Usuario\Desktop\projects\expiration-tracker
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0df0f-eea5-7c81-bc88-be2e6e67ada8
+--------
+user
+Rodada 8, protocolo Claude-Codex sobre D-328. Na Rodada 7 voce deu nota tecnica 8.8/10, confirmou
+R6-1 corrigido nas 3 escritas, mas achou 2 problemas: R7-1 (Media, no dublê de teste - a
+generalizacao por convencao de nome ainda deixava qualquer extraConditions com sufixos diferentes
+passar sem ser avaliado de verdade, "sucesso silencioso quando nao consegue avaliar a condicao");
+R7-2 (Baixa, producao real - `won!.expiresAt` presumia que a linha vencedora do putIfAbsent()
+perdido ainda existia no momento da releitura, sem tratar o caso dela ter sido fisicamente removida
+pelo TTL nesse meio-tempo, causando TypeError em runtime).
+
+Novamente: NAO leia NEXT_SESSION_PROMPT.md. NAO leia round-8-claude-selfgrade.md - nota cega,
+arquivo separado.
+
+Leia apenas, nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-8-claude-revision.md
+2. test/unit/notification/in-memory-store.ts (arquivo inteiro - substitui a checagem especial-caso
+   anterior por um avaliador generico de ConditionExpression portado de
+   test/unit/reminder/in-memory-store.ts: attribute_exists/attribute_not_exists, igualdade,
+   AND/OR de nivel superior respeitando parenteses, lanca erro para sintaxe nao suportada)
+3. src/modules/notification/application/whatsapp-phone-confirmation-service.ts, especificamente o
+   bloco `if (!current) { ... }` dentro do retry loop de requestConfirmation() (branch de criacao
+   do zero - `won` agora e tratado como possivelmente undefined, faz `continue` em vez de
+   `won!.expiresAt`)
+4. test/unit/notification/whatsapp-phone-confirmation-service.test.ts, teste novo no final do
+   describe de requestConfirmation: "a from-scratch create that loses to a putIfAbsent conflict,
+   then finds the winner already gone (TTL), retries instead of throwing (R7-2)"
+
+Contexto: para R7-1, em vez de mais uma correcao pontual por convencao de nome (que voce
+corretamente rejeitou como preservando a mesma fragilidade), portei o avaliador generico ja
+testado em producao de teste que test/unit/reminder/in-memory-store.ts usa desde D-300 - a
+ConditionExpression em si e a unica fonte de verdade agora, nao uma suposicao de como os
+placeholders foram nomeados, e sintaxe nao reconhecida lanca erro em vez de aprovar em silencio.
+Confirmei que toda ConditionExpression real deste modulo usa so os 2 formatos que esse avaliador
+cobre (attribute_not_exists(PK) AND attribute_not_exists(SK) para criacao; o formato de
+buildScopedVersionedUpdate/extraConditions para igualdade) - suite inteira do modulo (485 testes)
+e do repositorio (2873 testes) permanece verde com o avaliador generico no lugar do especial-caso
+anterior. Para R7-2, o teste novo intercepta putIfAbsent() para simular uma perda de corrida real e
+get() para simular o vencedor ja fisicamente apagado na releitura seguinte - verificado por
+mutacao: revertida temporariamente para `won!.expiresAt`, o teste falhou com o TypeError exato que
+voce previu, restaurada em seguida.
+
+Perguntas centrais: as 2 correcoes fecham R7-1 e R7-2 de verdade? O avaliador generico portado tem
+alguma lacuna real contra os padroes de ConditionExpression que este modulo especificamente usa
+hoje (nao preciso cobrir toda a linguagem de expressao do DynamoDB, so o que este modulo gera)?
+Existe algum outro `!`/non-null assertion neste arquivo que sofra do mesmo problema de R7-2 (um
+valor que parece garantido mas na verdade depende de uma janela de tempo real)?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+esta rodada atingir >=9.0 E a proxima rodada tambem atingir >=9.0 de forma genuinamente cega, isso
+fecharia D-328 formalmente. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X
+
+codex
+Vou ler os quatro arquivos na ordem indicada, verificar as duas correções e examinar as demais assertions do serviço. Manterei a nota cega, sem abrir o handoff nem a autoavaliação do Claude.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -LiteralPath 'docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-8-claude-revision.md'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 159ms:
+# D-328 â€” Rodada 8 (correÃ§Ãµes aos achados R7-1/R7-2, nota Codex 8,8/10 na Rodada 7)
+
+A Rodada 7 confirmou R6-1 corrigido nas 3 escritas condicionadas, mas achou 2 problemas novos:
+R7-1 (MÃ©dia, no dublÃª de teste, nÃ£o na produÃ§Ã£o) e R7-2 (Baixa, produÃ§Ã£o real). Ambos corrigidos
+nesta rodada.
+
+## R7-1 (MÃ©dia) â€” o dublÃª de teste ainda aceitava condiÃ§Ãµes nÃ£o avaliadas em silÃªncio
+
+Confirmado, e o Codex tinha razÃ£o ao nÃ£o aceitar a correÃ§Ã£o por convenÃ§Ã£o de nome da Rodada 7 como
+suficiente: minha generalizaÃ§Ã£o anterior (`if (!(valueKey in values)) continue`) ainda dependia de
+adivinhar o nome do placeholder de valor a partir do nome do placeholder de nome - qualquer
+`extraConditions` futuro que nÃ£o seguisse essa convenÃ§Ã£o seria silenciosamente ignorado pelo dublÃª,
+deixando uma escrita suceder em teste quando o DynamoDB real a teria rejeitado. Exatamente a
+fragilidade que a prÃ³pria Rodada 7 expÃ´s por acidente antes de ser mascarada pela convenÃ§Ã£o de
+nome.
+
+**Corrigido**: `test/unit/notification/in-memory-store.ts` agora porta o avaliador genÃ©rico de
+`ConditionExpression` que `test/unit/reminder/in-memory-store.ts` jÃ¡ tem e jÃ¡ Ã© testado em batalha
+(D-300) - `attribute_exists`/`attribute_not_exists`, igualdade, `AND`/`OR` de nÃ­vel superior
+respeitando parÃªnteses (`extraConditions` do `occ.ts` sempre embrulha sua prÃ³pria expressÃ£o em
+parÃªnteses, entÃ£o um split ingÃªnuo por `" AND "` quebraria um grupo assim). A expressÃ£o em si Ã© a
+Ãºnica fonte de verdade agora - nenhuma suposiÃ§Ã£o de convenÃ§Ã£o de nome - e sintaxe nÃ£o reconhecida
+lanÃ§a erro (`InMemoryNotificationStore: unsupported condition clause: ...`) em vez de aprovar
+silenciosamente. `transactWrite()` usa esse avaliador uniformemente para `Put`/`Update`/
+`ConditionCheck`, substituindo os 3 blocos especiais que existiam antes.
+
+Confirmei que toda `ConditionExpression` real deste mÃ³dulo (`grep` em `src/modules/notification`)
+usa sÃ³ os 2 formatos que o avaliador cobre - `attribute_not_exists(PK) AND attribute_not_exists(SK)`
+(criaÃ§Ã£o) e o formato gerado por `buildScopedVersionedUpdate()`/`extraConditions` (igualdade) - entÃ£o
+nada quebra por sintaxe nÃ£o suportada nesta migraÃ§Ã£o.
+
+## R7-2 (Baixa) â€” vencedor podia desaparecer entre o `putIfAbsent()` perdido e a releitura
+
+Confirmado: `const won = await this.store.get(...); return { expiresAt: won!.expiresAt };` presumia
+que a linha vencedora ainda existia no momento da releitura - se ela for fisicamente removida pelo
+TTL (exclusÃ£o assÃ­ncrona, mesma janela de tempo do R6-1) entre o `putIfAbsent()` retornar `false` e
+esta releitura especÃ­fica, `won` Ã© `undefined` e o acesso estoura em runtime (a asserÃ§Ã£o `!` do
+TypeScript nÃ£o protege nada alÃ©m de compilaÃ§Ã£o).
+
+**Corrigido**: sem vencedor para adotar, a vaga estÃ¡ livre de novo - o cÃ³digo tenta criar mais uma
+vez (`continue`, prÃ³xima iteraÃ§Ã£o do mesmo laÃ§o jÃ¡ existente, que gera um `challengeId` novo via
+`this.newId()`), nunca assume que `won` existe. NÃ£o Ã© mais um "bypass de identidade de geraÃ§Ã£o"
+(Codex jÃ¡ descartou isso) - Ã© sÃ³ o quarto caminho de persistÃªncia nÃ£o tratando ausÃªncia como um
+estado real e alcanÃ§Ã¡vel.
+
+## Testes novos
+
+- R7-1 nÃ£o introduz teste prÃ³prio isolado - Ã© validado pela suÃ­te INTEIRA do mÃ³dulo continuar verde
+  com o avaliador genÃ©rico no lugar do especial-caso anterior (485 testes de notification, 2873 no
+  repositÃ³rio inteiro), jÃ¡ que qualquer regressÃ£o de interpretaÃ§Ã£o de condiÃ§Ã£o quebraria algum
+  teste existente que dependia do comportamento condicional correto.
+- R7-2: `test/unit/notification/whatsapp-phone-confirmation-service.test.ts`, "a from-scratch
+  create that loses to a putIfAbsent conflict, then finds the winner already gone (TTL), retries
+  instead of throwing (R7-2)" - intercepta `putIfAbsent()` para simular uma perda de corrida real
+  (insere um vencedor de mentira, reporta `false`) e `get()` para simular esse vencedor jÃ¡ apagado
+  na releitura seguinte. **Verificado por mutaÃ§Ã£o**: revertida temporariamente para
+  `return { expiresAt: won!.expiresAt }`, o teste falha com o `TypeError` exato que o Codex previu
+  (`Cannot read properties of undefined (reading 'expiresAt')`) - restaurada em seguida.
+
+## EvidÃªncia
+
+- `npm run typecheck` / `npm run lint` / `npm run check-boundaries` / `npm run check-docs`: limpos.
+- `npx vitest run test/unit test/contract`: 2873/2873 (suÃ­te completa do repositÃ³rio).
+- 1 mutaÃ§Ã£o aplicada e revertida nesta rodada (R7-2, ver acima) - R7-1 nÃ£o tem uma mutaÃ§Ã£o pontual
+  prÃ³pria (Ã© uma reescrita do prÃ³prio mecanismo de avaliaÃ§Ã£o, validada pela suÃ­te inteira
+  permanecer verde, nÃ£o por reverter uma linha).
+
+DoD: item=D-328 Rodada 8 (fix R7-1 dublÃª de teste + R7-2 produÃ§Ã£o real); risco=nÃ­vel 4-5
+(concorrÃªncia/integridade de estado num fluxo de seguranÃ§a + robustez de infraestrutura de teste
+compartilhada); evidÃªncia=2873/2873 vitest + typecheck/lint/boundaries/docs limpos + teste novo
+verificado por mutaÃ§Ã£o; lacunas=nenhuma conhecida; D-328 permanece em protocolo atÃ© 2 rodadas
+consecutivas â‰¥9,0 genuinamente cegas.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Encoding UTF8 -LiteralPath 'test/unit/notification/in-memory-store.ts'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 140ms:
+import type { EntityKey, NotificationStore, TransactWriteEntry } from "../../../src/modules/notification/ports/notification-store.js";
+
+// D-328 revisão adversarial (achado real Média, Codex Rodada 7, R7-1): a checagem de condição
+// desta fake usava uma convenção de NOMENCLATURA (`valueKey = ':' + nameKey.slice(1)`) para achar
+// o valor esperado de cada placeholder de nome, em vez de interpretar de verdade a
+// `ConditionExpression` - se um `extraConditions` (occ.ts) algum dia usar sufixos de nome/valor
+// diferentes, a checagem simplesmente PULA a condição (`continue`), deixando a escrita suceder
+// silenciosamente contra uma condição real que o DynamoDB teria rejeitado (foi exatamente esse
+// tipo de fragilidade que a Rodada 7 pegou por acidente, antes de ser corrigida por convenção -
+// ver `docs/architecture/reviews/d328-.../round-7-claude-revision.md`). Corrigido: porta o
+// avaliador genérico de `ConditionExpression` (attribute_exists/attribute_not_exists, igualdade,
+// AND/OR de nível superior respeitando parênteses) que `test/unit/reminder/in-memory-store.ts` já
+// tem e já prova battle-tested (D-300) - a expressão em si é a única fonte de verdade, nunca uma
+// suposição de convenção de nome, e sintaxe não suportada lança erro em vez de aprovar em
+// silêncio.
+function resolveAttr(raw: string, names: Record<string, string>): string {
+  return raw.startsWith("#") ? (names[raw] ?? raw) : raw;
+}
+
+function evalClause(clause: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  const trimmed = clause.trim();
+  const notExists = /^attribute_not_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (notExists) return existing?.[resolveAttr(notExists[1]!, names)] === undefined;
+  const exists = /^attribute_exists\(([#\w]+)\)$/.exec(trimmed);
+  if (exists) return existing?.[resolveAttr(exists[1]!, names)] !== undefined;
+  const eq = /^([#\w]+)\s*=\s*(:\w+)$/.exec(trimmed);
+  if (eq) {
+    const attr = resolveAttr(eq[1]!, names);
+    return existing !== undefined && existing[attr] === values[eq[2]!];
+  }
+  throw new Error(`InMemoryNotificationStore: unsupported condition clause: ${clause}`);
+}
+
+/** Splits `expr` on `separator` at PAREN DEPTH 0 ONLY - occ.ts's `extraConditions` wraps each
+ * entry's own expression in its own parens specifically so callers never have to hand-balance
+ * parens against the base condition. */
+function splitTopLevel(expr: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i]!;
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth === 0 && expr.slice(i, i + separator.length) === separator) {
+      parts.push(current.trim());
+      current = "";
+      i += separator.length;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  parts.push(current.trim());
+  return parts;
+}
+
+function evalClauseOrGroup(token: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  if (token.startsWith("(") && token.endsWith(")")) {
+    let depth = 0;
+    let closesAtEnd = true;
+    for (let i = 0; i < token.length - 1; i++) {
+      if (token[i] === "(") depth += 1;
+      if (token[i] === ")") depth -= 1;
+      if (depth === 0) {
+        closesAtEnd = false;
+        break;
+      }
+    }
+    if (closesAtEnd) return evalCondition(token.slice(1, -1), existing, names, values);
+  }
+  return evalClause(token, existing, names, values);
+}
+
+function evalCondition(expression: string, existing: (Record<string, unknown> & EntityKey) | undefined, names: Record<string, string>, values: Record<string, unknown>): boolean {
+  return splitTopLevel(expression, " OR ").some((orGroup) => splitTopLevel(orGroup, " AND ").every((clause) => evalClauseOrGroup(clause, existing, names, values)));
+}
+
+/** In-memory fake using the generic `ConditionExpression` evaluator above (same one
+ * test/unit/reminder/in-memory-store.ts uses) for every Put/Update condition this module's
+ * builders produce. */
+export class InMemoryNotificationStore implements NotificationStore {
+  private readonly items = new Map<string, Record<string, unknown> & EntityKey>();
+
+  private k(key: EntityKey): string {
+    return `${key.PK}#${key.SK}`;
+  }
+
+  async get<T extends EntityKey = Record<string, unknown> & EntityKey>(key: EntityKey): Promise<T | undefined> {
+    return this.items.get(this.k(key)) as T | undefined;
+  }
+
+  /** Test-only, NOT part of `NotificationStore` (real DynamoDB TTL deletion is a server-side,
+   * asynchronous background process - no application code ever calls a "delete" RPC for it). Lets
+   * a test simulate a row having been physically removed by TTL cleanup mid-scenario (D-328 R6-1:
+   * a paused writer's `expectedVersion` can then coincidentally match a brand-new row recreated at
+   * the same key, since both start at `version=1`). */
+  _simulateTtlDeletion(key: EntityKey): void {
+    this.items.delete(this.k(key));
+  }
+
+  async putIfAbsent<T extends EntityKey>(item: T): Promise<boolean> {
+    const key = this.k(item);
+    if (this.items.has(key)) return false;
+    this.items.set(key, item as unknown as Record<string, unknown> & EntityKey);
+    return true;
+  }
+
+  async update<T extends EntityKey>(item: T): Promise<void> {
+    this.items.set(this.k(item), item as unknown as Record<string, unknown> & EntityKey);
+  }
+
+  /**
+   * W3-07 (D-067, SES fence): now also evaluates `ConditionCheck` entries (the
+   * `TenantLifecycleRecord.status = ACTIVE` fence `executeTenantBusinessMutation` appends) and
+   * threads per-entry `CancellationReasons` through a `TransactionCanceledException`, mirroring
+   * `test/unit/identity/in-memory-store.ts`'s two-pass validate-then-apply convention exactly -
+   * required so the lifecycle fence on `email-delivery-workflow.ts`'s SUBMITTING claim is
+   * actually exercised by tests instead of silently no-op'd (a ConditionCheck-blind fake would
+   * let a DELETING-tenant claim succeed here even though real DynamoDB would reject it).
+   */
+  async transactWrite(entries: TransactWriteEntry[]): Promise<void> {
+    const reasons: Array<{ Code: "None" | "ConditionalCheckFailed" }> = entries.map(() => ({ Code: "None" }));
+    let anyFailed = false;
+
+    entries.forEach((entry, i) => {
+      if ("Put" in entry) {
+        const existing = this.items.get(this.k(entry.Put.Item as unknown as EntityKey));
+        if (!evalCondition(entry.Put.ConditionExpression, existing, entry.Put.ExpressionAttributeNames ?? {}, entry.Put.ExpressionAttributeValues ?? {})) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
+      } else if ("ConditionCheck" in entry) {
+        const existing = this.items.get(this.k(entry.ConditionCheck.Key));
+        if (!evalCondition(entry.ConditionCheck.ConditionExpression, existing, entry.ConditionCheck.ExpressionAttributeNames ?? {}, entry.ConditionCheck.ExpressionAttributeValues ?? {})) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
+      } else if ("Update" in entry) {
+        const existing = this.items.get(this.k(entry.Update.Key));
+        if (!evalCondition(entry.Update.ConditionExpression, existing, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues)) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+        }
+      }
+    });
+
+    if (anyFailed) {
+      throw { name: "TransactionCanceledException", message: "ConditionalCheckFailed", CancellationReasons: reasons };
+    }
+
+    for (const entry of entries) {
+      if ("Put" in entry) {
+        this.items.set(this.k(entry.Put.Item as unknown as EntityKey), entry.Put.Item as Record<string, unknown> & EntityKey);
+      } else if ("Update" in entry) {
+        const key = entry.Update.Key;
+        const existing = this.items.get(this.k(key)) ?? { ...key };
+        const next: Record<string, unknown> & EntityKey = { ...existing };
+        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
+          if (placeholder === "version") {
+            next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
+          } else if (placeholder === "updatedAt") {
+            next["updatedAt"] = entry.Update.ExpressionAttributeValues[":now"];
+          } else if (name.startsWith("#set")) {
+            const valueKey = `:${name.slice(1)}`;
+            next[placeholder] = entry.Update.ExpressionAttributeValues[valueKey];
+          } else if (name.startsWith("#rem")) {
+            delete next[placeholder];
+          }
+        }
+        this.items.set(this.k(key), next);
+      }
+    }
+  }
+
+  async queryAttemptsByIntent<T extends EntityKey = Record<string, unknown> & EntityKey>(tenantId: string, intentId: string): Promise<T[]> {
+    const pk = `TENANT#${tenantId}#INTENT#${intentId}`;
+    return [...this.items.values()].filter((i) => i.PK === pk && String(i.SK).startsWith("ATTEMPT#")) as unknown as T[];
+  }
+
+  async queryWhatsAppPortfolioQuotaWindow<T extends EntityKey = Record<string, unknown> & EntityKey>(
+    startSkInclusive: string,
+    endSkInclusive: string,
+  ): Promise<T[]> {
+    return [...this.items.values()]
+      .filter((i) => i.PK === "WHATSAPP#PORTFOLIO" && String(i.SK) >= startSkInclusive && String(i.SK) <= endSkInclusive)
+      .sort((a, b) => String(a.SK).localeCompare(String(b.SK))) as unknown as T[];
+  }
+
+  allItems(): (Record<string, unknown> & EntityKey)[] {
+    return [...this.items.values()];
+  }
+}
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Encoding UTF8 -LiteralPath 'src/modules/notification/application/whatsapp-phone-confirmation-service.ts'" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 132ms:
+/**
+ * WhatsAppPhoneConfirmationService — see `domain/whatsapp-phone-confirmation.ts`'s header for the
+ * full rationale (NEXT_SESSION_PROMPT.md item 26, 2026-09-23). Two entry points, mirroring the
+ * shape of the Cognito e-mail flow (`bff-auth-service.ts`'s `confirmSignUp`/`resendConfirmationCode`)
+ * without reusing it — Cognito has no notion of a phone number:
+ *
+ *  - `requestConfirmation`: generates a 6-digit code, persists only its hash, sends it over
+ *    WhatsApp via `WhatsAppProviderAdapter.send()` directly (bypassing the reminder-delivery
+ *    outbox/intent/attempt machinery entirely — that pipeline exists for scheduled, item-based
+ *    reminder sends, not a synchronous transactional code). Gated on `isWhatsAppChannelEnabled()`,
+ *    same flag `notification-router.ts` already uses to decide whether the channel is available at
+ *    all — while it is off (true in every environment today, pending E-019), this fails loudly with
+ *    a `DEPENDENCY_UNAVAILABLE` rather than silently pretending to send.
+ *  - `confirmPhone`: verifies the code (`timingSafeEqual`, never a raw `===`) and, only on success,
+ *    calls `WhatsAppOptInService.recordOptIn()` — the ONLY caller of `recordOptIn()` this program
+ *    wires for a real end user, so a `WhatsAppOptIn` row now only ever exists post-confirmation.
+ */
+import { randomUUID } from "node:crypto";
+import type { RequestContext } from "../../identity/domain/request-context.js";
+import { authorize } from "../../identity/domain/authorization.js";
+import { ValidationError, DependencyUnavailableError } from "../../../shared/errors/app-error.js";
+import { buildUnscopedVersionedUpdate, isTransactionCanceled, type EntityKey } from "../../../shared/dynamodb/occ.js";
+import {
+  buildWhatsAppPhoneConfirmation,
+  generateWhatsAppConfirmationCode,
+  isWhatsAppPhoneConfirmationExpired,
+  isWhatsAppPhoneConfirmationInCooldown,
+  whatsAppConfirmationCodeMatches,
+  whatsAppPhoneConfirmationKey,
+  WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS,
+  type WhatsAppPhoneConfirmation,
+} from "../domain/whatsapp-phone-confirmation.js";
+import type { WhatsAppOptIn } from "../domain/whatsapp-opt-in.js";
+import type { WhatsAppOptInService } from "./whatsapp-opt-in-service.js";
+import type { NotificationStore } from "../ports/notification-store.js";
+import type { WhatsAppProviderAdapter } from "../ports/whatsapp-provider.js";
+import type { GlobalUserRepository } from "../../identity/persistence/global-user-repository.js";
+import { isValidE164 } from "../../../shared/text/phone-e164.js";
+
+/** Same fixed catalog entry name/language convention as `renderWhatsAppTemplate()`
+ * (`runtime/aws/composition/notification.ts`) - D-3: pre-provisioned in Meta Business Manager,
+ * never created via the API by this repo. **Real send is unreachable until that template exists
+ * AND `isWhatsAppChannelEnabled()` is true** - both independent of this code shipping. */
+export const WHATSAPP_PHONE_CONFIRMATION_TEMPLATE_NAME = "phone_confirmation_code";
+export const WHATSAPP_PHONE_CONFIRMATION_TEMPLATE_LANGUAGE = "pt_BR";
+
+export interface WhatsAppPhoneConfirmationServiceDeps {
+  store: NotificationStore;
+  whatsAppOptIn: WhatsAppOptInService;
+  /** D-332 revisão adversarial (achado real, Codex Rodada 1): a entrega real de WhatsApp lê o
+   * número de `GlobalUser.phoneE164` (`DynamoDbNotificationRecipientResolver.resolve()`), nunca
+   * de `WhatsAppOptIn.phoneE164` - antes desta correção, `confirmPhone()` só chamava
+   * `recordOptIn()`, e `GlobalUserRepository.setPhoneNumber()` nunca era chamado por NENHUMA rota
+   * real (o próprio comentário do método já dizia isso: "fatia 1 is domain-only... a future
+   * fatia adds the route"). Resultado: mesmo depois de confirmar a posse do número com sucesso,
+   * `resolveRecipientPhone` continuaria retornando `undefined` para sempre - o pipeline de
+   * entrega real do WhatsApp nunca teria um número para onde mandar, mesmo após E-019 liberar o
+   * canal. */
+  globalUsers: Pick<GlobalUserRepository, "setPhoneNumber">;
+  /** `GlobalUserRepository.setPhoneNumber()`'s 3rd argument (D-332 revisão adversarial) - a
+   * targeted attribute-only `transactWrite`, não um `IdentityStore`-scoped `update()`, então
+   * precisa do nome da tabela explicitamente aqui, não implícito num `store` já construído. */
+  tableName: string;
+  whatsAppProvider: WhatsAppProviderAdapter;
+  /** HMAC pepper — reuses `GUEST_TOKEN_PEPPER` at the composition root, same "no cross-family
+   * confusion, a brand new Secrets Manager secret would be disproportionate" rationale
+   * `organization.ts`'s `invitationTokenPepper` already documents for its own reuse. */
+  pepper: string;
+  /** Evaluated lazily, only when `requestConfirmation()` is actually called — never pre-checked
+   * for every request this Lambda serves (`GET/PUT /notifications/preferences` have nothing to do
+   * with WhatsApp). `Promise<boolean>` because the real implementation reads AppConfig. */
+  isWhatsAppChannelEnabled: () => Promise<boolean>;
+  now?: () => string;
+  newId?: () => string;
+}
+
+/** D-328 revisão adversarial (achado real Média, Codex Rodada 6, R6-1): comparar `challengeId`
+ * only AFTER a version conflict (the `catch` blocks below) isn't enough on its own - DynamoDB TTL
+ * deletion is asynchronous (can take hours), so a paused writer's `expectedVersion` (read from a
+ * challenge that then gets physically deleted) can coincidentally match a BRAND NEW challenge's
+ * `version` at the same key (both start at 1, since `nextVersion = (current?.version ?? 0) + 1`
+ * with `current` null on a from-scratch create) - the conditioned write would then SUCCEED against
+ * the wrong generation, never even reaching the `catch` block that checks `challengeId`. Folding
+ * `challengeId` into the SAME atomic ConditionExpression (not just the version) closes this: the
+ * write can only ever succeed against the exact generation it was computed from, version coincidence
+ * or not. */
+function challengeIdFenceCondition(expectedChallengeId: string): { expression: string; names: Record<string, string>; values: Record<string, unknown> } {
+  // Placeholder names/values share the same suffix (`#challengeIdFence`/`:challengeIdFence`) -
+  // same convention `buildScopedVersionedUpdate()` itself uses for its own `#tenantId`/`:tenantId`
+  // and `#accountId`/`:accountId` scope fences, which both this file's test double and any other
+  // generic equality-clause evaluator can rely on without parsing the expression string.
+  return {
+    expression: "#challengeIdFence = :challengeIdFence",
+    names: { "#challengeIdFence": "challengeId" },
+    values: { ":challengeIdFence": expectedChallengeId },
+  };
+}
+
+export class WhatsAppPhoneConfirmationService {
+  private readonly store: NotificationStore;
+  private readonly whatsAppOptIn: WhatsAppOptInService;
+  private readonly globalUsers: Pick<GlobalUserRepository, "setPhoneNumber">;
+  private readonly tableName: string;
+  private readonly whatsAppProvider: WhatsAppProviderAdapter;
+  private readonly pepper: string;
+  private readonly isWhatsAppChannelEnabled: () => Promise<boolean>;
+  private readonly now: () => string;
+  private readonly newId: () => string;
+
+  constructor(deps: WhatsAppPhoneConfirmationServiceDeps) {
+    this.store = deps.store;
+    this.whatsAppOptIn = deps.whatsAppOptIn;
+    this.globalUsers = deps.globalUsers;
+    this.tableName = deps.tableName;
+    this.whatsAppProvider = deps.whatsAppProvider;
+    this.pepper = deps.pepper;
+    this.isWhatsAppChannelEnabled = deps.isWhatsAppChannelEnabled;
+    this.now = deps.now ?? (() => new Date().toISOString());
+    this.newId = deps.newId ?? randomUUID;
+  }
+
+  /** Generates and sends a fresh 6-digit code, overwriting any previous unconsumed one for the
+   * same tenant/user/phone (re-requesting is always allowed once the cooldown has passed - unlike
+   * `WhatsAppOptIn`, this is a mutable, always-overwritable row by design). */
+  async requestConfirmation(ctx: RequestContext, phoneE164: string): Promise<{ expiresAt: string }> {
+    authorize({ context: ctx, action: "notification:configure", resource: { tenantId: ctx.tenant.tenantId } });
+
+    if (!(await this.isWhatsAppChannelEnabled())) {
+      throw new DependencyUnavailableError("Canal WhatsApp ainda não está disponível.", undefined, undefined, false);
+    }
+
+    // D-332 achado real Baixa (Codex Rodada 4): a validação do formato E.164 vivia dentro de
+    // `buildWhatsAppPhoneConfirmation()`, chamada só DEPOIS do `send()` abaixo - um telefone
+    // malformado ainda disparava uma mensagem real pelo provider antes de falhar. Corrigido:
+    // validado aqui, antes de qualquer I/O (mesma disciplina "falha antes de qualquer efeito
+    // colateral" que o resto do serviço já documentava, só não estava sendo seguida de verdade
+    // neste método). A rota HTTP real já validava isso via schema antes de chamar o serviço
+    // (`preferences-handlers.ts`), então isto nunca foi um bypass alcançável por HTTP - só uma
+    // garantia que o próprio serviço afirmava e não cumpria quando chamado diretamente.
+    if (!isValidE164(phoneE164)) {
+      throw new ValidationError(`Invalid E.164 phone number: ${phoneE164}`, { phoneE164 });
+    }
+
+    const key = whatsAppPhoneConfirmationKey(ctx.tenant.tenantId, ctx.principal.userId, phoneE164);
+    const initial = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+    const now = this.now();
+    if (initial && !initial.confirmedAt && isWhatsAppPhoneConfirmationInCooldown(initial, now)) {
+      throw new ValidationError("Aguarde um minuto antes de solicitar um novo código.");
+    }
+
+    const code = generateWhatsAppConfirmationCode();
+
+    try {
+      await this.whatsAppProvider.send({
+        to: phoneE164,
+        templateName: WHATSAPP_PHONE_CONFIRMATION_TEMPLATE_NAME,
+        templateLanguage: WHATSAPP_PHONE_CONFIRMATION_TEMPLATE_LANGUAGE,
+        templateParams: [code],
+        // Opaque correlation tags only (`whatsapp-provider.ts`'s own contract) - this send has no
+        // real NotificationIntent/Attempt behind it, so these ids exist solely to satisfy the
+        // port's shape and correlate a later webhook, never read back by this service.
+        tags: { attemptId: this.newId(), intentId: this.newId(), tenantId: ctx.tenant.tenantId, correlationId: ctx.correlationId },
+      });
+    } catch (err) {
+      throw new DependencyUnavailableError("Não foi possível enviar o código de confirmação pelo WhatsApp.", undefined, err);
+    }
+
+    // D-332 achado real Alta (Codex Rodada 3): a Rodada 2 calculava `(existing?.version ?? 0) + 1`
+    // mas ainda escrevia com um `store.update()` INCONDICIONAL - o Codex reproduziu a corrida real:
+    // reenvio lê A/v1 e pausa antes de gravar; uma tentativa errada avança A para v2; um
+    // `confirmPhone(A)` pendente lê v2 e pausa antes de sua própria escrita; o reenvio grava B/v2
+    // (calculado a partir da leitura ANTIGA, v1+1=2 - coincide por acidente com o v2 real); a
+    // confirmação pendente de A encontra a versão que esperava e confirma B com o código de A.
+    // Calcular o próximo `version` em memória nunca bastava - só uma ESCRITA CONDICIONADA (nunca
+    // um `Put` cego) fecha isso de verdade. Corrigido: cada tentativa gera o código sobre o estado
+    // FRESCO mais recente e escreve condicionado a ele - se perder a corrida, relê e tenta de novo
+    // com um `version` genuinamente atual, nunca calculado sobre uma leitura obsoleta.
+    //
+    // D-332 achado real Média (Codex Rodada 4): o retry acima ainda podia reescrever com o `now`/
+    // `code` ORIGINAIS (capturados antes do laço) mesmo quando a releitura mostrava que outro
+    // REENVIO concorrente já tinha vencido a corrida - isso fazia `createdAt` retroceder (o
+    // perdedor sobrescrevia o vencedor com seu próprio timestamp mais antigo), o que por sua vez
+    // reabria a janela de cooldown e permitia outro reenvio imediato. Corrigido: se o estado fresco
+    // mostra um `challengeId` DIFERENTE do que existia quando este resend começou, um reenvio
+    // concorrente genuinamente diferente já venceu - adota o vencedor (retorna o `expiresAt` dele)
+    // em vez de tentar sobrescrevê-lo com o código já enviado e agora obsoleto deste chamador. Uma
+    // divergência de `challengeId` SEM isso (ex. só uma tentativa errada incrementou `attemptCount`
+    // no desafio original) continua segura para sobrescrever - é o mesmo desafio, só mais
+    // tentativas registradas nele.
+    //
+    // D-328 revisão adversarial (achado real Baixa, Codex Rodada 5, residual R5-1): esta checagem
+    // comparava `codeHash`, não uma identidade de geração - dois reenvios concorrentes que
+    // sorteassem o MESMO código de 6 dígitos (1/1.000.000, sob corrida real) produziam o mesmo
+    // `codeHash` mesmo sendo desafios genuinamente diferentes, então o perdedor não se reconhecia
+    // como perdedor e sobrescrevia o vencedor (regredindo `createdAt`, reabrindo o cooldown).
+    // Corrigido: compara `challengeId` (um UUID novo por geração, nunca colide por acaso), nunca o
+    // segredo curto.
+    //
+    // D-328 revisão adversarial (achado real Média, Codex Rodada 6, R6-1): comparar `challengeId`
+    // só DEPOIS do conflito de `version` (no `catch` abaixo) ainda não bastava - a exclusão física
+    // do TTL do DynamoDB é assíncrona (pode levar horas), então um escritor pausado (que leu A antes
+    // de A ser fisicamente apagado) podia coincidir seu `expectedVersion` com o de um desafio C
+    // recriado do zero na mesma chave (ambos começam em `version=1`) - a escrita condicionada
+    // SUCEDIA contra a geração errada, sem nunca chegar ao `catch` que checa `challengeId`.
+    // Corrigido: `challengeId` entra na PRÓPRIA `ConditionExpression` atômica (`extraConditions`),
+    // não só na checagem pós-conflito - a escrita só pode suceder contra a geração exata de onde foi
+    // calculada, coincidência de `version` ou não.
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextVersion = (current?.version ?? 0) + 1;
+      const record = buildWhatsAppPhoneConfirmation({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId, phoneE164, code, pepper: this.pepper, now, version: nextVersion, challengeId: this.newId() });
+      if (!current) {
+        // First-ever request for this key - create-once, same discipline as WhatsAppOptIn's
+        // recordOptIn(). If lost, a concurrent first request already won - adopt IT (same
+        // "never overwrite a genuinely concurrent winner with our own already-sent code" posture
+        // as the resend branch below), never overwrite it with a second, redundant challenge.
+        const created = await this.store.putIfAbsent(record);
+        if (created) return { expiresAt: record.expiresAt };
+        const won = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        // D-328 revisão adversarial (achado real Baixa, Codex Rodada 7, R7-2): `won` presumia que
+        // a linha vencedora ainda existia no momento desta releitura - um `putIfAbsent()` perdido
+        // seguido da linha vencedora sendo fisicamente removida pelo TTL ANTES desta releitura
+        // (exclusão assíncrona, mesma janela do R6-1) fazia `won!.expiresAt` estourar em runtime, a
+        // asserção `!` do TypeScript não protege nada além de compilação. Corrigido: sem vencedor
+        // para adotar, a vaga está livre de novo - tenta criar mais uma vez (próxima iteração gera
+        // um `challengeId`/código novos), nunca assume que `won` existe.
+        if (won) return { expiresAt: won.expiresAt };
+        continue; // vaga livre de novo - `current` já é undefined nesta ramificação
+      }
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { codeHash: record.codeHash, challengeId: record.challengeId, attemptCount: 0, createdAt: record.createdAt, expiresAt: record.expiresAt, purgeAfterTtl: record.purgeAfterTtl },
+        remove: ["confirmedAt"],
+        now,
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return { expiresAt: record.expiresAt };
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        if (fresh && initial && fresh.challengeId !== initial.challengeId) {
+          return { expiresAt: fresh.expiresAt }; // a genuinely concurrent resend already won
+        }
+        current = fresh;
+      }
+    }
+    throw new DependencyUnavailableError("Não foi possível gerar um novo código agora - tente novamente.");
+  }
+
+  /**
+   * Verifies the code and, only on success, records the opt-in. Idempotent: a second call after
+   * the confirmation already succeeded returns the existing `WhatsAppOptIn` again rather than
+   * failing, mirroring `confirmSignUp`'s own `ALREADY_CONFIRMED` no-op posture.
+   */
+  async confirmPhone(ctx: RequestContext, phoneE164: string, code: string): Promise<WhatsAppOptIn> {
+    authorize({ context: ctx, action: "notification:configure", resource: { tenantId: ctx.tenant.tenantId } });
+
+    const key = whatsAppPhoneConfirmationKey(ctx.tenant.tenantId, ctx.principal.userId, phoneE164);
+    const existing = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+    if (!existing) {
+      throw new ValidationError("Código inválido ou expirado.");
+    }
+    const nowForShortcut = this.now();
+    if (existing.confirmedAt) {
+      // D-332 achado real (Codex Rodada 1, Alta): este atalho idempotente antes chamava
+      // setPhoneNumber()/recordOptIn() incondicionalmente, SEM checar o código - corrigido na
+      // Rodada 2 (bate o hash), mas o Codex achou (Rodada 2, Alta) que isso ainda não bastava:
+      // sem checar EXPIRAÇÃO, o código certo replay-ado 24h depois (ex. um cliente que guardou o
+      // código) ainda re-executava `setPhoneNumber()`/`recordOptIn()` - se um telefone B tivesse
+      // sido confirmado depois, esse replay do desafio de A o desfazia, restaurando A. Corrigido
+      // por completo: expiração checada aqui TAMBÉM, não só no branch de primeira confirmação
+      // abaixo - `expiresAt` (10min) sempre vence muito antes do TTL físico do DynamoDB apagar a
+      // linha (que pode levar dias), então isso fecha o replay tardio independente de quando a
+      // limpeza física acontece.
+      if (isWhatsAppPhoneConfirmationExpired(existing, nowForShortcut)) {
+        throw new ValidationError("Código inválido ou expirado.");
+      }
+      if (!whatsAppConfirmationCodeMatches(this.pepper, code, existing.codeHash)) {
+        throw new ValidationError("Código inválido ou expirado.");
+      }
+      await this.globalUsers.setPhoneNumber(ctx.principal.userId, phoneE164, this.tableName);
+      return this.whatsAppOptIn.recordOptIn(ctx, phoneE164, "USER_SETTINGS");
+    }
+
+    if (isWhatsAppPhoneConfirmationExpired(existing, nowForShortcut) || existing.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) {
+      throw new ValidationError("Código inválido ou expirado.");
+    }
+
+    const matches = whatsAppConfirmationCodeMatches(this.pepper, code, existing.codeHash);
+    if (!matches) {
+      // D-332 achado real (Codex Rodada 1 Média, Rodada 2 achado real: a versão anterior desistia
+      // no primeiro conflito, então 20 tentativas erradas concorrentes só contabilizavam 1 - o
+      // orçamento de 5 tentativas era efetivamente ilimitado sob concorrência). Corrigido com um
+      // laço de retry limitado: cada tentativa relê o estado fresco e tenta incrementar A PARTIR
+      // DELE, então cada chamada real consome seu próprio slot de orçamento em vez de desistir
+      // silenciosamente quando perde uma corrida.
+      await this.incrementAttemptCountWithRetry(key, existing);
+      throw new ValidationError("Código inválido ou expirado.");
+    }
+
+    // D-332 achado real (Codex Rodada 1 Média): mesmo laço de retry do bloco acima, aplicado ao
+    // caminho de sucesso - cada tentativa relê o estado fresco e tenta confirmar A PARTIR DELE.
+    await this.setConfirmedAtWithRetry(key, existing);
+    // D-332 achado real (Codex Rodada 1): a entrega real de WhatsApp lê `GlobalUser.phoneE164`
+    // (`DynamoDbNotificationRecipientResolver.resolve()`), nunca `WhatsAppOptIn.phoneE164` - sem
+    // esta chamada, `resolveRecipientPhone` nunca teria um número, mesmo com a posse confirmada e
+    // o opt-in registrado. Antes desta correção, `setPhoneNumber()` nunca era chamado por
+    // NENHUMA rota real em todo `src/` (só existia domain-only, D-6, ver o comentário do próprio
+    // método em `global-user-repository.ts`).
+    await this.globalUsers.setPhoneNumber(ctx.principal.userId, phoneE164, this.tableName);
+    return this.whatsAppOptIn.recordOptIn(ctx, phoneE164, "USER_SETTINGS");
+  }
+
+  /** Bounded retry (D-332, Codex Rodada 2 achado real, orçamento reforçado na Rodada 3): a
+   * primeira tentativa de incrementar `attemptCount` pode perder a corrida contra outra tentativa
+   * concorrente para o MESMO desafio. Cada iteração relê o estado fresco e recomputa o incremento
+   * a partir dele, garantindo que CADA chamada real consuma seu próprio slot de tentativa em vez
+   * de desistir na primeira colisão.
+   *
+   * D-332 Rodada 3 (achado real Média, Codex reproduziu com 10 tentativas erradas concorrentes a
+   * partir de `attemptCount=4`, terminando em `attemptCount=9`): o gate `attemptCount >= MAX` só
+   * era checado UMA VEZ, antes de chamar este método - todas as 10 chamadas liam `attemptCount=4`
+   * (< 5) simultaneamente ANTES de qualquer escrita, então todas passavam o gate e todas
+   * retentavam incrementos além do orçamento nominal. Corrigido: cada iteração do retry TAMBÉM
+   * checa o orçamento contra o estado fresco - se já esgotado por uma tentativa concorrente, para
+   * de incrementar (o chamador já rejeita a tentativa de qualquer forma). */
+  private async incrementAttemptCountWithRetry(key: EntityKey, initial: WhatsAppPhoneConfirmation): Promise<void> {
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (current.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) return; // budget already exhausted by a concurrent guess
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { attemptCount: current.attemptCount + 1 },
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        // The record disappeared (physical TTL cleanup) or a resend replaced it with a genuinely
+        // different challenge (`challengeId` only ever changes on resend, `phoneE164` is part of
+        // the key itself and can never differ - D-328 Rodada 5 residual R5-1: was `codeHash`,
+        // which two different resends can coincidentally share, see the field's own doc comment)
+        // - stop retrying, this specific wrong guess was already checked against a challenge that
+        // no longer exists, its attempt budget doesn't carry over to whatever challenge exists now
+        // (the caller still gets rejected via the ValidationError thrown by confirmPhone() regardless).
+        if (!fresh || fresh.challengeId !== initial.challengeId) return;
+        current = fresh;
+      }
+    }
+  }
+
+  /** Bounded retry (D-332, Codex Rodada 2 achado real, reforçado na Rodada 3), same base shape as
+   * `incrementAttemptCountWithRetry()` - a concurrent confirmPhone() for the SAME challenge (e.g.
+   * a duplicated network retry) can lose the race; each iteration re-reads and retries against the
+   * fresh version instead of giving up. If a fresh read shows `confirmedAt` already set (the
+   * concurrent call won), this is the same idempotent outcome, so it stops retrying too. A resend
+   * swaps in a genuinely different challenge (`challengeId` changes, `version` keeps climbing
+   * monotonically per `buildWhatsAppPhoneConfirmation()`'s own doc comment) - retrying against
+   * THAT would confirm the wrong challenge with the old code, so this checks `challengeId` before
+   * ever retrying, never just `version` (D-328 Rodada 5 residual R5-1: was `codeHash`, which two
+   * different resends can coincidentally share - see the field's own doc comment).
+   *
+   * D-332 Rodada 3 (2 achados reais Média, Codex reproduziu ambos com interleaving real):
+   * (1) uma confirmação correta que perdia a corrida contra uma 5ª tentativa errada concorrente
+   * (que esgotava o orçamento) ainda retentava e confirmava mesmo assim - corrigido: cada
+   * iteração TAMBÉM checa o orçamento contra o estado fresco, igual ao método acima.
+   * (2) o `now` era capturado UMA VEZ fora do laço - um conflito seguido de uma espera real (ex.
+   * mais de 10 minutos) ainda confirmava com um `now` congelado no passado, sem nunca revalidar
+   * expiração contra o relógio ATUAL. Corrigido: `now` é recapturado a cada iteração, e a
+   * expiração do estado fresco é checada contra ELE antes de qualquer retry. */
+  private async setConfirmedAtWithRetry(key: EntityKey, initial: WhatsAppPhoneConfirmation): Promise<void> {
+    let current = initial;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const now = this.now();
+      const update = buildUnscopedVersionedUpdate({
+        tableName: this.tableName,
+        key,
+        expectedVersion: current.version,
+        set: { confirmedAt: now },
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
+        if (!fresh || fresh.challengeId !== initial.challengeId) throw new ValidationError("Código inválido ou expirado.");
+        const freshNow = this.now();
+        // D-332 achado real Média (Codex Rodada 4): esta checagem de expiração ficava DEPOIS do
+        // atalho `if (fresh.confirmedAt) return` - uma chamada duplicada de confirmPhone() (ex.
+        // retry de rede) que perdeu a corrida contra uma confirmação legítima concorrente, e só
+        // retoma depois do TTL já ter vencido de verdade, ainda retornava sucesso sem checar isso,
+        // deixando o chamador (`confirmPhone()`) prosseguir para chamar `setPhoneNumber()`/
+        // `recordOptIn()` de novo por uma confirmação que, na hora em que esta chamada específica
+        // finalmente "sucede", já deveria ser tratada como expirada. Movida para ANTES do atalho.
+        if (isWhatsAppPhoneConfirmationExpired(fresh, freshNow)) {
+          throw new ValidationError("Código inválido ou expirado.");
+        }
+        if (fresh.confirmedAt) return; // a concurrent call already confirmed this same challenge
+        if (fresh.attemptCount >= WHATSAPP_PHONE_CONFIRMATION_MAX_ATTEMPTS) {
+          throw new ValidationError("Código inválido ou expirado.");
+        }
+        current = fresh;
+      }
+    }
+    throw new ValidationError("Código inválido ou expirado.");
+  }
+}
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Select-String -LiteralPath 'test/unit/notification/whatsapp-phone-confirmation-service.test.ts' -Pattern 'a from-scratch create that loses' -Context 8,100" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 257ms:
+
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:382:  // desta chave que perde o `putIfAbsent()` 
+para um vencedor concorrente relia em `won!.expiresAt`
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:383:  // - se esse vencedor for fisicamente 
+removido pelo TTL ANTES da releitura que busca seu
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:384:  // `expiresAt`, o `!` do TypeScript não 
+protege nada em runtime e a chamada estoura. Este teste
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:385:  // força esse exato interleaving: a 
+primeira tentativa de `putIfAbsent()` "perde" (insere um
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:386:  // registro vencedor de mentira, retorna 
+`false`), e a releitura logo em seguida encontra esse
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:387:  // vencedor já fisicamente apagado. 
+Mutação: trocar `if (won) return ...; continue;` de volta
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:388:  // por `return { expiresAt: won!.expiresAt 
+};` faria este teste falhar com um TypeError não
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:389:  // tratado, em vez de retentar.
+> test\unit\notification\whatsapp-phone-confirmation-service.test.ts:390:  it("a from-scratch create that loses to a 
+putIfAbsent conflict, then finds the winner already gone (TTL), retries instead of throwing (R7-2)", async () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:391:    const { service, store, provider } = 
+buildService();
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:392:    const key = 
+whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:393:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:394:    const realPutIfAbsent = 
+store.putIfAbsent.bind(store);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:395:    let putCalls = 0;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:396:    store.putIfAbsent = (async (item) => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:397:      putCalls += 1;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:398:      if (putCalls === 1) {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:399:        await realPutIfAbsent(item); // 
+stand-in "concurrent winner" row, inserted for real
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:400:        return false; // report the loss, 
+same as a genuine concurrent putIfAbsent conflict
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:401:      }
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:402:      return realPutIfAbsent(item);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:403:    }) as typeof store.putIfAbsent;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:404:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:405:    const realGet = store.get.bind(store);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:406:    let getCalls = 0;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:407:    store.get = (async (k: EntityKey) => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:408:      getCalls += 1;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:409:      if (getCalls === 2) {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:410:        // The post-loss re-read that fetches 
+the winner's expiresAt - simulate it having been
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:411:        // physically removed by TTL in the 
+gap between the loss and this specific re-read.
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:412:        store._simulateTtlDeletion(k);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:413:        return undefined;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:414:      }
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:415:      return realGet(k);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:416:    }) as typeof store.get;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:417:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:418:    const result = await 
+service.requestConfirmation(ctx(), PHONE); // never throws
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:419:    const record = await 
+store.get<WhatsAppPhoneConfirmation>(key);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:420:    expect(record).toBeDefined();
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:421:    
+expect(result.expiresAt).toBe(record!.expiresAt); // retried and succeeded on the 2nd attempt
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:422:    expect(provider.sent).toHaveLength(1); // 
+code is drawn/sent once per call, not once per retry attempt
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:423:  });
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:424:});
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:425:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:426:describe("WhatsAppPhoneConfirmationService.con
+firmPhone", () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:427:  it("records the opt-in only after the 
+correct code is provided", async () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:428:    const { service, store, provider, 
+whatsAppOptIn } = buildService();
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:429:    await service.requestConfirmation(ctx(), 
+PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:430:    const code = await extractSentCode(store, 
+provider);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:431:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:432:    const optIn = await 
+service.confirmPhone(ctx(), PHONE, code);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:433:    expect(optIn.phoneE164).toBe(PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:434:    
+expect(optIn.source).toBe("USER_SETTINGS");
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:435:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:436:    // recordOptIn's own create-once 
+semantics still hold - a second confirmPhone call is idempotent.
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:437:    const again = await 
+service.confirmPhone(ctx(), PHONE, code);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:438:    
+expect(again.optedInAt).toBe(optIn.optedInAt);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:439:    void whatsAppOptIn;
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:440:  });
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:441:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:442:  // D-332 revisão adversarial (achado real, 
+Codex Rodada 1): a entrega real do WhatsApp lê
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:443:  // `GlobalUser.phoneE164` 
+(`DynamoDbNotificationRecipientResolver.resolve()`), nunca
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:444:  // `WhatsAppOptIn.phoneE164` - antes desta 
+correção, `confirmPhone()` só chamava `recordOptIn()`,
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:445:  // e 
+`GlobalUserRepository.setPhoneNumber()` nunca era chamado por NENHUMA rota real (a entrega
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:446:  // nunca teria um número para onde mandar, 
+mesmo com a posse confirmada). Mutação: remover a
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:447:  // chamada a 
+`this.globalUsers.setPhoneNumber()` em `confirmPhone()` faria este teste falhar.
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:448:  it("sets GlobalUser.phoneE164 on successful 
+confirmation - the field the real delivery path reads", async () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:449:    const { service, store, provider, 
+globalUsers } = buildService();
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:450:    await service.requestConfirmation(ctx(), 
+PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:451:    const code = await extractSentCode(store, 
+provider);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:452:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:453:    await service.confirmPhone(ctx(), PHONE, 
+code);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:454:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:455:    expect(globalUsers.calls).toEqual([{ 
+userId: USER, phoneE164: PHONE }]);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:456:  });
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:457:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:458:  // D-332 achado real: o mesmo deve valer no 
+caminho de retry (confirmação já feita antes) - sem
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:459:  // isto, um usuário cuja PRIMEIRA 
+confirmação sofreu uma falha parcial (opt-in gravado mas
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:460:  // setPhoneNumber não) nunca teria uma 
+segunda chance de corrigir o número via um novo
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:461:  // confirmPhone() com o mesmo código já 
+confirmado.
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:462:  it("also sets GlobalUser.phoneE164 on the 
+already-confirmed retry path", async () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:463:    const { service, store, provider, 
+globalUsers } = buildService();
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:464:    await service.requestConfirmation(ctx(), 
+PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:465:    const code = await extractSentCode(store, 
+provider);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:466:    await service.confirmPhone(ctx(), PHONE, 
+code);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:467:    globalUsers.calls = [];
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:468:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:469:    await service.confirmPhone(ctx(), PHONE, 
+code);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:470:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:471:    expect(globalUsers.calls).toEqual([{ 
+userId: USER, phoneE164: PHONE }]);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:472:  });
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:473:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:474:  // D-332 achado real Média (Codex Rodada 
+4): `setConfirmedAtWithRetry()`'s atalho
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:475:  // `if (fresh.confirmedAt) return` (para 
+uma chamada duplicada de `confirmPhone()`, ex. retry de
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:476:  // rede, que perdeu a corrida contra outra 
+confirmação legítima concorrente) rodava ANTES da
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:477:  // checagem de expiração - uma chamada 
+duplicada que só retoma depois do TTL já ter vencido de
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:478:  // verdade ainda retornava sucesso, 
+deixando `confirmPhone()` chamar `setPhoneNumber()`/
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:479:  // `recordOptIn()` de novo por uma 
+confirmação que já deveria ser tratada como expirada na hora
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:480:  // em que ESTA chamada específica 
+finalmente "sucede". Mutação: mover a checagem de expiração de
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:481:  // volta para DEPOIS de `if 
+(fresh.confirmedAt) return` faria este teste falhar
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:482:  // (`globalUsers.calls` teria 1 entrada em 
+vez de 0).
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:483:  it("a duplicate confirmPhone() call that 
+only resumes after expiry rejects instead of re-triggering setPhoneNumber", async () => {
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:484:    let now = "2026-09-23T00:00:00.000Z";
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:485:    const { service, store, provider, 
+globalUsers } = buildService({ now: () => now });
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:486:    await service.requestConfirmation(ctx(), 
+PHONE);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:487:    const code = await extractSentCode(store, 
+provider);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:488:
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:489:    const realTransactWrite = 
+store.transactWrite.bind(store);
+  test\unit\notification\whatsapp-phone-confirmation-service.test.ts:490:    let releasePause: () => void = () => {};
+
+
+
+codex
+O caminho de R7-2 agora trata a releitura ausente sem desreferenciá-la, e não encontrei outra non-null assertion executável no serviço. O avaliador interpreta os placeholders pela expressão; vou verificar a rejeição de valores divergentes com nomes diferentes e executar os testes de notification.
+
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'npx --no-install vitest run test/unit/notification' in C:\Users\Usuario\Desktop\projects\expiration-tracker
+exec
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "@'
+const fs = require('node:fs');
+const ts = require('typescript');
+const assert = require('node:assert/strict');
+const source = fs.readFileSync('test/unit/notification/in-memory-store.ts', 'utf8');
+const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const m = { exports: {} };
+new Function('exports', 'require', 'module', js)(m.exports, require, m);
+const { InMemoryNotificationStore } = m.exports;
+(async () => {
+ const store = new InMemoryNotificationStore();
+ const key = { PK: 'p', SK: 's' };
+ await store.putIfAbsent({ ...key, version: 1, challengeId: 'new' });
+ const check = (expression, values) => store.transactWrite([{ ConditionCheck: { Key: key, ConditionExpression: expression, ExpressionAttributeNames: { '#v': 'version', '#generation': 'challengeId' }, ExpressionAttributeValues: values } }]);
+ await assert.rejects(check('#v = :expected AND (#generation = :differentSuffix)', { ':expected': 1, ':differentSuffix': 'old' }), e => e.name === 'TransactionCanceledException');
+ await check('#v = :expected AND (#generation = :differentSuffix)', { ':expected': 1, ':differentSuffix': 'new' });
+ await check('attribute_exists(PK) AND (#generation = :old OR #generation = :new)', { ':old': 'old', ':new': 'new' });
+ await assert.rejects(check('attribute_not_exists(PK) AND attribute_not_exists(SK)', {}), e => e.name === 'TransactionCanceledException');
+ await assert.rejects(check('#v > :expected', { ':expected': 0 }), /unsupported condition clause/);
+ console.log('5 evaluator probes passed: mismatched suffix rejection, matching value, grouped OR, creation conflict, unsupported clause.');
+})().catch(e => { console.error(e); process.exitCode = 1; });
+'@ | node" in C:\Users\Usuario\Desktop\projects\expiration-tracker
+ succeeded in 416ms:
+5 evaluator probes passed: mismatched suffix rejection, matching value, grouped OR, creation conflict, unsupported clause.
+
+ exited 1 in 1291ms:
+X [ERROR] Cannot read directory "../../..": Access is denied.
+
+X [ERROR] Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\vitest.config.ts"
+
+failed to load config from C:\Users\Usuario\Desktop\projects\expiration-tracker\vitest.config.ts
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: Build failed with 2 errors:
+error: Cannot read directory "../../..": Access is denied.
+error: Could not resolve "C:\\Users\\Usuario\\Desktop\\projects\\expiration-tracker\\vitest.config.ts"
+    at failureErrorWithLog (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:943:7)
+    at C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:970:16
+    at responseCallbacks.<computed> (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\Users\Usuario\Desktop\projects\expiration-tracker\node_modules\vite\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+
+
+
+
+codex
+**R7-1 e R7-2 estão corrigidos no escopo desta rodada. Minha nota técnica cega é 9.2/10.** Não li a autoavaliação do Claude nem o handoff.
+
+- **R7-1 fechado:** o dublê agora resolve os dois lados da igualdade diretamente pela expressão. Executei cinco verificações isoladas: sufixos diferentes com valor divergente rejeitam; valor correspondente passa; agrupamento com OR funciona; criação sobre chave existente rejeita; cláusula não suportada lança erro. Não identifiquei lacuna para os formatos informados: ausência de PK/SK e conjunções de igualdade com condições adicionais entre parênteses. O inventário completo das expressões do módulo permanece evidência sua, pois respeitei a leitura restrita aos quatro arquivos.
+- **R7-2 fechado:** quando `won` está ausente, `current` continua `undefined` e o `continue` permite outra criação condicionada, dentro do limite de cinco tentativas. O teste novo provoca exatamente a ausência na releitura após o conflito e exige conclusão com registro persistido e apenas um envio.
+- **Outras non-null assertions:** não há nenhuma executável restante no arquivo do serviço. As referências a `won!` estão em comentários. As outras releituras verificam ausência antes de acessar propriedades; a exclusão posterior no banco não torna o objeto já lido em memória `undefined`.
+
+Há duas ressalvas pequenas, sem reabrir os achados:
+
+1. A afirmação “sintaxe não suportada sempre lança erro” é ampla demais: `some`/`every` fazem curto-circuito e podem não visitar uma cláusula. Isso não prejudica os formatos atuais descritos, mas o avaliador não constitui um validador integral de sintaxe.
+2. Dois comentários ficaram incorretos: o de `challengeIdFenceCondition` ainda afirma dependência da convenção de sufixos; o do retry diz gerar “challengeId/código novos”, embora apenas o `challengeId` seja regenerado. O código é corretamente mantido igual ao enviado.
+
+**Limite da validação:** os cinco probes passaram. A execução do Vitest foi bloqueada por acesso negado do esbuild ao carregar a configuração; portanto, não reproduzi nesta sessão os 485/2873 testes reportados. Nenhum arquivo foi alterado.
+
+Esta avaliação supera o limiar desta rodada; o fechamento formal ainda depende da próxima rodada cega e das demais condições do protocolo.
+
+NOTA_CODEX: 9.2
+tokens used
+38.207
+**R7-1 e R7-2 estão corrigidos no escopo desta rodada. Minha nota técnica cega é 9.2/10.** Não li a autoavaliação do Claude nem o handoff.
+
+- **R7-1 fechado:** o dublê agora resolve os dois lados da igualdade diretamente pela expressão. Executei cinco verificações isoladas: sufixos diferentes com valor divergente rejeitam; valor correspondente passa; agrupamento com OR funciona; criação sobre chave existente rejeita; cláusula não suportada lança erro. Não identifiquei lacuna para os formatos informados: ausência de PK/SK e conjunções de igualdade com condições adicionais entre parênteses. O inventário completo das expressões do módulo permanece evidência sua, pois respeitei a leitura restrita aos quatro arquivos.
+- **R7-2 fechado:** quando `won` está ausente, `current` continua `undefined` e o `continue` permite outra criação condicionada, dentro do limite de cinco tentativas. O teste novo provoca exatamente a ausência na releitura após o conflito e exige conclusão com registro persistido e apenas um envio.
+- **Outras non-null assertions:** não há nenhuma executável restante no arquivo do serviço. As referências a `won!` estão em comentários. As outras releituras verificam ausência antes de acessar propriedades; a exclusão posterior no banco não torna o objeto já lido em memória `undefined`.
+
+Há duas ressalvas pequenas, sem reabrir os achados:
+
+1. A afirmação “sintaxe não suportada sempre lança erro” é ampla demais: `some`/`every` fazem curto-circuito e podem não visitar uma cláusula. Isso não prejudica os formatos atuais descritos, mas o avaliador não constitui um validador integral de sintaxe.
+2. Dois comentários ficaram incorretos: o de `challengeIdFenceCondition` ainda afirma dependência da convenção de sufixos; o do retry diz gerar “challengeId/código novos”, embora apenas o `challengeId` seja regenerado. O código é corretamente mantido igual ao enviado.
+
+**Limite da validação:** os cinco probes passaram. A execução do Vitest foi bloqueada por acesso negado do esbuild ao carregar a configuração; portanto, não reproduzi nesta sessão os 485/2873 testes reportados. Nenhum arquivo foi alterado.
+
+Esta avaliação supera o limiar desta rodada; o fechamento formal ainda depende da próxima rodada cega e das demais condições do protocolo.
+
+NOTA_CODEX: 9.2

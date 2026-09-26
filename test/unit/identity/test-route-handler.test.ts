@@ -67,7 +67,7 @@ describe("handleTestRoute", () => {
     expect(ok.statusCode).toBe(200);
 
     // Wave B2B-5 (D-095): logoutAll moved to GlobalUserRepository, user-global (no tenantId).
-    await globalUsers.logoutAll(userId);
+    await globalUsers.logoutAll(userId, "MainTable");
 
     const denied = await handleTestRoute(
       { resolver, quota },

@@ -1,0 +1,63 @@
+Rodada 2, protocolo Claude-Codex sobre D-328. Rodada 1 voce deu 6.5/10, "nao aprovo D-328 nesta
+rodada", com 5 achados reais (2 Alta, 1 que voce descreveu junto do achado 1 mas tratei como
+achado separado - a rota antiga sem confirmacao -, 2 Media). Nota cega: voce ainda nao viu a nota
+do Claude desta rodada.
+
+Leia nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-2-claude-revision.md
+2. src/modules/identity/persistence/global-user-repository.ts (setPhoneNumber, agora
+   buildUnscopedVersionedUpdate)
+3. src/modules/notification/domain/whatsapp-phone-confirmation.ts (campo version novo)
+4. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (confirmPhone
+   inteiro - validacao de codigo no atalho idempotente + OCC no attemptCount/confirmedAt)
+5. src/modules/notification/http/preferences-handlers.ts (handleRecordWhatsAppOptIn removido)
+6. src/runtime/aws/handlers/notifications-handler.ts
+7. src/modules/bff/domain/proxy-allowlist.ts
+8. infra/modules/api-gateway/main.tf (rota whatsapp_opt_in removida)
+9. infra/modules/api-gateway/tests/api_gateway.tftest.hcl (asserção negativa nova)
+10. src/shared/contracts/schema-validator.ts (import/registro do schema removido)
+11. test/unit/identity/global-user-repository.test.ts (teste novo de version fence)
+12. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (2 testes novos)
+13. test/unit/notification/preferences-handlers.test.ts (3 testes da rota antiga removidos)
+
+NAO leia round-2-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto: corrigi 4 dos seus 5 achados com codigo real + testes de mutacao:
+- Achado 1 (Alta, setPhoneNumber sem OCC competindo com logoutAll): corrigido com
+  buildUnscopedVersionedUpdate() (occ.ts, mesmo builder ja usado por WebhookInbox/
+  ReminderScanLease - entidades sem tenantId). RESIDUAL ACEITO, NAO FECHADO: logoutAll()/
+  logoutDevice() continuam fazendo PutItem incondicional do objeto inteiro - so fechei a direcao
+  "confirmacao de telefone apaga logout concorrente", nao a oposta (logout apagando telefone
+  recem-confirmado). Julguei fora de proporcao converter esses 2 metodos tambem nesta revisao
+  (maior escopo, discussao de todo call site de logoutAll).
+- Achado 2 (Alta, atalho idempotente sem validar codigo): corrigido - o codigo ainda precisa bater
+  com o hash mesmo no atalho confirmedAt.
+- Rota antiga sem confirmacao (POST /notifications/whatsapp-opt-in): REMOVIDA por completo -
+  handler, rota Terraform, allowlist do BFF, schema, todos removidos.
+- Achado do attemptCount sem OCC: corrigido com o mesmo padrao versionado, novo campo version na
+  entidade WhatsAppPhoneConfirmation.
+
+NAO corrigido, registrado como pendencia de baixa prioridade: requestConfirmation() ainda pode
+disparar 2 envios reais sob concorrencia (double-click) - julguei isso puramente custo/UX
+duplicado, nunca um problema de seguranca/integridade como os outros 4, e hoje inatingivel de
+qualquer forma atras do flag WHATSAPP/E-019.
+
+Perguntas centrais desta rodada:
+- O residual aceito no achado 1 (logoutAll/logoutDevice sem OCC) e aceitavel para fechar ESTA
+  revisao, ou voce insiste que os 3 escritores de GlobalUser precisam de disciplina de
+  concorrencia coerente entre si antes de aprovar?
+- A remocao da rota antiga esta completa? Sobrou alguma referencia (infra, codigo, doc) que eu
+  perdi?
+- As correcoes de OCC (achados 1 e 4) estao corretas? Verifique especialmente o teste do
+  global-user-repository.test.ts (simula um escritor concorrente com versao antiga via
+  transactWrite direto, ja que setPhoneNumber() nao expoe a versao esperada como parametro).
+- E aceitavel deixar o achado de double-click de requestConfirmation() como pendencia registrada,
+  nao corrigida?
+- Qualquer achado novo que estas mudancas tenham introduzido.
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+atingir 9.0, isso ja seria convergencia formal se a Rodada 3 confirmar sem regressao. Termine com
+uma linha no formato exato:
+
+NOTA_CODEX: X.X

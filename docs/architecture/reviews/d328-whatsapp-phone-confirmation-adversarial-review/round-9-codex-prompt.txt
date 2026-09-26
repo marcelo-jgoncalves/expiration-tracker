@@ -1,0 +1,39 @@
+Rodada 9, protocolo Claude-Codex sobre D-328. Na Rodada 8 voce deu nota tecnica cega 9.2/10,
+confirmou R7-1 e R7-2 fechados "sem reabrir os achados" - primeira rodada >=9.0 genuinamente cega
+desta thread. Duas ressalvas pequenas, sem bloquear: (1) 2 comentarios desatualizados
+(challengeIdFenceCondition ainda dizia que o dublê dependia da convencao de sufixo; o comentario do
+retry de R7-2 dizia "challengeId/codigo novos" quando so challengeId e regenerado); (2) a afirmacao
+"sintaxe nao suportada sempre lanca erro" no avaliador generico e ampla demais por causa do
+curto-circuito de some/every.
+
+Novamente: NAO leia NEXT_SESSION_PROMPT.md. NAO leia round-9-claude-selfgrade.md - nota cega,
+arquivo separado.
+
+Leia apenas, nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-9-claude-revision.md
+2. src/modules/notification/application/whatsapp-phone-confirmation-service.ts, os 2 blocos de
+   comentario corrigidos: o comentario de challengeIdFenceCondition() (perto do topo do arquivo) e
+   o comentario do `continue` dentro do bloco `if (!current) { ... }` do retry loop de
+   requestConfirmation()
+
+Contexto: corrigi os 2 comentarios desatualizados que voce apontou - nenhuma mudanca de codigo
+executavel, so texto. Decisao que tomei e quero que voce valide explicitamente: NAO tentei corrigir
+a imprecisao "sintaxe nao suportada sempre lanca erro" no avaliador generico do dublê de teste
+(test/unit/notification/in-memory-store.ts, nao incluido nesta lista de leitura porque nao foi
+tocado nesta rodada) - voce mesmo classificou isso como nao afetando os formatos reais que este
+modulo usa hoje, e reforcar essa garantia exigiria reprojetar o avaliador para validar TODAS as
+clausulas de um AND mesmo depois de uma ja falhar, custo que me pareceu desproporcional ao achado.
+Concorda que isso pode ficar como limitacao conhecida e aceita, ou acha que merece correcao antes
+de D-328 fechar?
+
+Pergunta central: os 2 comentarios corrigidos refletem a realidade do codigo com precisao agora?
+Existe algum achado novo, ou algum dos achados anteriores (R5-1 a R7-2) que voce reconsidera diante
+desta leitura?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. A
+Rodada 8 ja foi >=9.0 genuinamente cega - se esta rodada TAMBEM atingir >=9.0 de forma genuinamente
+cega, isso fecha D-328 formalmente (2 rodadas consecutivas, protocolo AGENTS.md secao 4). Termine
+com uma linha no formato exato:
+
+NOTA_CODEX: X.X

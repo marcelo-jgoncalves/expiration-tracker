@@ -1,0 +1,51 @@
+Rodada 7, protocolo Claude-Codex sobre D-328. Na Rodada 6 voce deu nota tecnica 8.8/10, confirmou
+que R5-1 estava corrigido nas 3 comparacoes, mas achou um achado novo Media (R6-1): comparar
+challengeId so DEPOIS de um conflito de version (dentro do catch) nao bastava - a exclusao fisica
+do TTL do DynamoDB e assincrona, entao um escritor pausado podia ter seu expectedVersion
+coincidindo por acaso com o version=1 de um desafio genuinamente novo criado do zero na mesma
+chave, e a escrita condicionada sucedia contra a geracao errada sem nunca chegar ao catch.
+
+Novamente: NAO leia NEXT_SESSION_PROMPT.md - mesma razao da Rodada 6, pode conter o numero da
+minha auto-nota desta rodada. NAO leia round-7-claude-selfgrade.md - nota cega, arquivo separado.
+
+Leia apenas, nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-7-claude-revision.md
+2. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (funcao
+   challengeIdFenceCondition() nova, no topo do arquivo antes da classe; extraConditions
+   adicionado as 3 escritas condicionadas: dentro do retry loop de requestConfirmation(),
+   incrementAttemptCountWithRetry(), setConfirmedAtWithRetry())
+3. test/unit/notification/in-memory-store.ts (checagem de extraConditions generalizada de
+   so-tenantId/accountId para qualquer par nome/valor de igualdade, exceto placeholders
+   reservados/gerados; metodo novo _simulateTtlDeletion(), test-only, fora da interface
+   NotificationStore)
+4. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (teste novo no final do
+   describe de requestConfirmation: "a resend paused across a physical TTL deletion never
+   overwrites a from-scratch challenge that coincidentally reuses version=1 (R6-1)")
+
+Contexto: challengeIdFenceCondition() gera um par de placeholders #challengeIdFence/:challengeIdFence
+(mesmo sufixo compartilhado - convencao que buildScopedVersionedUpdate() ja usa para seus proprios
+#tenantId/:tenantId e #accountId/:accountId), anexado via extraConditions (mecanismo ja existente em
+occ.ts, usado por outros modulos - ex. o worker de purga W3-06 - para fences adicionais do mesmo
+tipo) as 3 escritas condicionadas do servico. Ao escrever o teste de regressao descobri que o dublê
+de teste do modulo (in-memory-store.ts) ignorava silenciosamente qualquer extraConditions alem de
+tenantId/accountId - generalizei a checagem para avaliar qualquer par nome/valor de igualdade
+presente (excluindo #version/#updatedAt e #set*/#rem*, que sao placeholders reservados/gerados,
+nunca condicoes). Verifiquei por mutacao DUAS vezes antes de submeter: (1) removida a
+extraConditions da escrita do reenvio - teste falhou; (2) antes disso, minha primeira tentativa de
+nomear os placeholders (#challengeIdFence/:expectedChallengeIdFence, sufixos diferentes) fazia o
+dublê generalizado calcular a chave de valor errada e pular a checagem silenciosamente - o teste
+passava mesmo com a correcao mutada (falso positivo) - descobri e corrigi isso ANTES de submeter.
+
+Perguntas centrais: a correcao fecha R6-1 de verdade, incluindo nas OUTRAS 2 escritas condicionadas
+(incrementAttemptCountWithRetry/setConfirmedAtWithRetry), nao so na que o teste novo exercita
+diretamente? A generalizacao do dublê de teste tem alguma lacuna que deixaria outro
+extraConditions futuro (neste ou em outro modulo que reuse este dublê) passar sem ser verificado de
+verdade? Existe um QUARTO lugar no codigo lido, ou um interleaving diferente, onde uma checagem de
+identidade de geracao ainda falta?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+esta rodada atingir >=9.0 E a proxima rodada tambem atingir >=9.0 de forma genuinamente cega, isso
+fecharia D-328 formalmente. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

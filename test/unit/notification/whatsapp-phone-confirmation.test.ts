@@ -32,7 +32,7 @@ describe("generateWhatsAppConfirmationCode", () => {
 
 describe("buildWhatsAppPhoneConfirmation", () => {
   it("builds a well-formed entity with a hashed code and a TTL-bound expiresAt", () => {
-    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW });
+    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW, version: 1, challengeId: "challenge-1" });
     expect(record.entityType).toBe("WhatsAppPhoneConfirmation");
     expect(record.PK).toBe("TENANT#t1#USER#u1");
     expect(record.SK).toBe("WHATSAPP_PHONE_CONFIRMATION#+15551234567");
@@ -44,7 +44,7 @@ describe("buildWhatsAppPhoneConfirmation", () => {
   });
 
   it("throws ValidationError before constructing anything, given a malformed phone number", () => {
-    expect(() => buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "not-a-phone", code: "123456", pepper: PEPPER, now: NOW })).toThrow(
+    expect(() => buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "not-a-phone", code: "123456", pepper: PEPPER, now: NOW, version: 1, challengeId: "challenge-1" })).toThrow(
       ValidationError,
     );
   });
@@ -52,7 +52,7 @@ describe("buildWhatsAppPhoneConfirmation", () => {
 
 describe("whatsAppConfirmationCodeMatches", () => {
   it("matches the exact code used to build the record, and rejects any other", () => {
-    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW });
+    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW, version: 1, challengeId: "challenge-1" });
     expect(whatsAppConfirmationCodeMatches(PEPPER, "123456", record.codeHash)).toBe(true);
     expect(whatsAppConfirmationCodeMatches(PEPPER, "654321", record.codeHash)).toBe(false);
     expect(whatsAppConfirmationCodeMatches("wrong-pepper", "123456", record.codeHash)).toBe(false);
@@ -61,7 +61,7 @@ describe("whatsAppConfirmationCodeMatches", () => {
 
 describe("isWhatsAppPhoneConfirmationExpired", () => {
   it("is false right at creation and true once the TTL has elapsed", () => {
-    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW });
+    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW, version: 1, challengeId: "challenge-1" });
     expect(isWhatsAppPhoneConfirmationExpired(record, NOW)).toBe(false);
     const afterExpiry = new Date(Date.parse(record.expiresAt) + 1000).toISOString();
     expect(isWhatsAppPhoneConfirmationExpired(record, afterExpiry)).toBe(true);
@@ -70,7 +70,7 @@ describe("isWhatsAppPhoneConfirmationExpired", () => {
 
 describe("isWhatsAppPhoneConfirmationInCooldown", () => {
   it("is true immediately after creation and false once the cooldown has passed", () => {
-    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW });
+    const record = buildWhatsAppPhoneConfirmation({ tenantId: "t1", userId: "u1", phoneE164: "+15551234567", code: "123456", pepper: PEPPER, now: NOW, version: 1, challengeId: "challenge-1" });
     expect(isWhatsAppPhoneConfirmationInCooldown(record, NOW)).toBe(true);
     const afterCooldown = new Date(Date.parse(NOW) + 61_000).toISOString();
     expect(isWhatsAppPhoneConfirmationInCooldown(record, afterCooldown)).toBe(false);

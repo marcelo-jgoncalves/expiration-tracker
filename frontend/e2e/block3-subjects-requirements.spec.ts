@@ -307,6 +307,14 @@ test("E2E-B3-13 (D-339): navigate A08 -> A09 (Requisitos already shown) -> open/
   // subject's name as a real substring of its own (correctly specific) aria-label.
   await page.getByRole("link", { name: "Fornecedor Alfa Ltda", exact: true }).click();
   await expect(page).toHaveURL(/\/subjects\/subj-1$/);
+  // toBeFocused() also requires document.hasFocus() (Playwright's _activelyFocused), which is
+  // window-level, not just document.activeElement - under many parallel CI workers, a sibling
+  // worker's page can hold real OS/browser focus at the moment this polls, independent of
+  // whether AppShell's own focus-on-route-change effect ran correctly. bringToFront() reclaims
+  // this page's window focus before asserting, so the check reflects the app's own behavior
+  // instead of cross-worker focus contention (root-caused via a 6-worker local repro of the
+  // documented CI flake - reproduced consistently without this line, gone with it).
+  await page.bringToFront();
   await expect(page.locator("#surface-content")).toBeFocused();
 
   // D-339: Requisitos is the index section - already visible, no extra navigation.

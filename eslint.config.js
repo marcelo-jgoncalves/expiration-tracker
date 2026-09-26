@@ -19,7 +19,10 @@ export default tseslint.config(
     // its `handler` export is invoked by the CloudFront runtime itself, never imported by any
     // TS module here, so no-unused-vars flags it incorrectly; it has its own unit test coverage
     // (test/unit/infra/spa-routing.test.ts) instead of lint coverage.
-    ignores: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/", "frontend/", "infra/modules/spa-hosting/spa-routing.js", ".claude/"],
+    // docs/architecture/reviews/**/*-repro.ts and *-loader.cjs are standalone repro scripts
+    // Codex wrote as adversarial-review evidence (run once via `node --require <loader> <repro>`,
+    // never imported by production code) — kept as historical evidence, not held to app lint rules.
+    ignores: ["dist/", "cdk.out/", "coverage/", "node_modules/", "prototype/", "frontend/", "infra/modules/spa-hosting/spa-routing.js", ".claude/", "docs/architecture/reviews/**/*-repro.ts", "docs/architecture/reviews/**/*-loader.cjs", "**/.local/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

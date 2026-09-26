@@ -14,5 +14,5 @@ export function buildIdentityDeps(client: DynamoDBDocumentClient, tableName: str
   const organizations = new DynamoDbOrganizationStore(client, tableName);
   const resolver = new RequestContextResolver(globalUsers, organizations, ids, store, tableName);
   const quota = new TenantQuotaService(store, tableName);
-  return { store, resolver, quota };
+  return { store, resolver, quota, globalUsers };
 }

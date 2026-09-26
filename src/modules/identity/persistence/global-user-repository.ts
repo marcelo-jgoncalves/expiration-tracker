@@ -20,7 +20,8 @@
  */
 import type { EntityKey, IdentityStore } from "../ports/identity-store.js";
 import { isValidE164 } from "../../../shared/text/phone-e164.js";
-import { ValidationError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { ValidationError, NotFoundError, DependencyUnavailableError } from "../../../shared/errors/app-error.js";
+import { buildUnscopedVersionedUpdate, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
 
 export interface GlobalUser {
   PK: string;
@@ -115,30 +116,93 @@ export class GlobalUserRepository {
 
   /** Logout global — implementation-blueprint.md §4.2: revokes every token issued before now,
    * across every Organization this user belongs to (physical model §10 — user-global by
-   * construction, not scoped to whichever Organization was active). */
-  async logoutAll(userId: string): Promise<void> {
-    const user = await this.get(userId);
+   * construction, not scoped to whichever Organization was active).
+   *
+   * D-332 revisão adversarial (achado real Média do Codex, D-328): mesmo `IdentityStore.update()`
+   * (PutItem incondicional do objeto INTEIRO lido antes) que motivou a correção de
+   * `setPhoneNumber()` abaixo - a direção REAL que o Codex apontou (não `logoutDevice()`, que
+   * escreve `SESSION#<deviceId>`, um item DIFERENTE - incluí-lo como concorrente de `GlobalUser`
+   * na Rodada 2 foi um erro meu, corrigido aqui): `logoutAll()` podia ler o telefone A/versão 1,
+   * esperar `setPhoneNumber()` confirmar B/versão 2, e depois sobrescrever de volta para A/versão 1
+   * - um telefone anterior com opt-in real podia voltar a ser o destinatário de lembretes.
+   * Corrigido com o mesmo `buildUnscopedVersionedUpdate()` (SET só em `globalLogoutAfter`, nunca
+   * `phoneE164`/qualquer outro campo) + retry limitado: logout deve sempre eventualmente suceder
+   * (nunca falhar por perder uma corrida OCC pontual), então em vez de propagar
+   * `TransactionCanceledException` ao chamador, relê o estado fresco e tenta de novo.
+   *
+   * D-332 Rodada 3 (2 achados reais Alta do Codex, reproduzidos com interleaving real):
+   * (1) o laço de retry anterior podia esgotar as 5 tentativas e retornar SUCESSO mesmo sem
+   * nenhuma escrita ter realmente persistido `globalLogoutAfter` - o BFF então prosseguia como se
+   * a revogação global tivesse acontecido. Corrigido: esgotar as tentativas agora lança
+   * `DependencyUnavailableError` (retryable), nunca retorna silenciosamente.
+   * (2) o `now` era capturado UMA VEZ no início e reusado em toda tentativa de retry - um logout A
+   * mais antigo podia perder a corrida, reler um watermark mais NOVO gravado por um logout B
+   * concorrente, e ainda assim retentar escrevendo o `now` mais ANTIGO de A por cima, retrocedendo
+   * o watermark de segurança (`resolve-request-context.ts`'s comparação `issuedAt <
+   * globalLogoutAfter` passaria a aceitar tokens que deveriam ter sido revogados). Corrigido:
+   * cada tentativa preserva o MAIOR valor entre o watermark já persistido e o solicitado - nunca
+   * escreve um valor mais antigo que o que já está lá, e se o watermark existente já é >= `now`,
+   * a intenção de segurança já está satisfeita e a função retorna sem escrever nada. */
+  async logoutAll(userId: string, tableName: string): Promise<void> {
+    let user = await this.get(userId);
     if (!user) return;
-    await this.store.update({ ...user, globalLogoutAfter: this.now(), updatedAt: this.now() });
+    const now = this.now();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (user.globalLogoutAfter && user.globalLogoutAfter >= now) return; // already at least as strict
+      const update = buildUnscopedVersionedUpdate({
+        tableName,
+        key: { PK: user.PK, SK: user.SK },
+        expectedVersion: user.version,
+        set: { globalLogoutAfter: now },
+        now,
+      });
+      try {
+        await this.store.transactWrite([{ Update: update }]);
+        return;
+      } catch (err) {
+        if (!isTransactionCanceled(err)) throw err;
+        const fresh = await this.get(userId);
+        if (!fresh) return; // user disappeared between read and write - nothing left to log out
+        user = fresh;
+      }
+    }
+    throw new DependencyUnavailableError("Não foi possível revogar todas as sessões agora - tente novamente.", { userId });
   }
 
   /**
    * D-6: validates E.164 shape BEFORE any read/write — a malformed value never reaches
-   * DynamoDB. Same unconditional read-then-`update()` pattern as `logoutAll` above (no OCC
-   * check on `version` here either — this repository has never done optimistic-concurrency
-   * writes on `GlobalUser`, a pre-existing property of this class, not introduced by this
-   * change). Not called from any HTTP route yet (fatia 1 is domain-only, per the design's
-   * named next action) — exists so the validation invariant is exercised by real,
-   * G-V3-tested code, not left in the type alone.
+   * DynamoDB. D-332 revisão adversarial (achado real Alta do Codex, D-328): esta rota permaneceu
+   * `IdentityStore.update()` (PutItem incondicional do objeto INTEIRO) enquanto era dead code
+   * (fatia 1 domain-only) — inofensivo porque nada a chamava de verdade. Ao tornar este writer
+   * alcançável (D-328's `confirmPhone()`), o mesmo `update()` passou a competir de verdade com
+   * `logoutAll()` (outro escritor de `GlobalUser`, mesmo item `PROFILE` - `logoutDevice()` escreve
+   * `SESSION#<deviceId>`, um item DIFERENTE, nunca concorrente deste) — um `PutItem` do objeto
+   * inteiro lido antes podia apagar um `globalLogoutAfter` gravado por um logout concorrente.
+   * Corrigido com `buildUnscopedVersionedUpdate()` (occ.ts - mesmo builder já usado
+   * por `WebhookInbox`/`ReminderScanLease`, entidades sem `tenantId` como `GlobalUser`): `SET`
+   * só em `phoneE164` (+ `version`/`updatedAt` automáticos do builder), condicionado ao `version`
+   * já lido - nunca reescreve o item inteiro, nunca pisa em nenhum outro campo, e lança
+   * `TransactionCanceledException` (capturável via `isTransactionCanceled()`) se outro escritor
+   * incrementou `version` no meio, em vez de sobrescrever silenciosamente. `tableName` é passado
+   * pelo chamador (não guardado no construtor - único método desta classe que precisa de
+   * `transactWrite`, evita adicionar `tableName` ao construtor só por causa dele, o que quebraria
+   * os ~20 call sites existentes que só passam `store`).
    */
-  async setPhoneNumber(userId: string, phoneE164: string): Promise<GlobalUser> {
+  async setPhoneNumber(userId: string, phoneE164: string, tableName: string): Promise<GlobalUser> {
     if (!isValidE164(phoneE164)) {
       throw new ValidationError(`Invalid E.164 phone number: ${phoneE164}`, { phoneE164 });
     }
     const user = await this.get(userId);
     if (!user) throw new NotFoundError(`GlobalUser not found: ${userId}`, { userId });
-    const updated: GlobalUser = { ...user, phoneE164, updatedAt: this.now() };
-    await this.store.update(updated);
-    return updated;
+    const now = this.now();
+    const update = buildUnscopedVersionedUpdate({
+      tableName,
+      key: { PK: user.PK, SK: user.SK },
+      expectedVersion: user.version,
+      set: { phoneE164 },
+      now,
+    });
+    await this.store.transactWrite([{ Update: update }]);
+    return { ...user, phoneE164, version: user.version + 1, updatedAt: now };
   }
 }
