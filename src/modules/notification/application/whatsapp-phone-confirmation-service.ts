@@ -86,9 +86,10 @@ export interface WhatsAppPhoneConfirmationServiceDeps {
  * or not. */
 function challengeIdFenceCondition(expectedChallengeId: string): { expression: string; names: Record<string, string>; values: Record<string, unknown> } {
   // Placeholder names/values share the same suffix (`#challengeIdFence`/`:challengeIdFence`) -
-  // same convention `buildScopedVersionedUpdate()` itself uses for its own `#tenantId`/`:tenantId`
-  // and `#accountId`/`:accountId` scope fences, which both this file's test double and any other
-  // generic equality-clause evaluator can rely on without parsing the expression string.
+  // just readability, matching `buildScopedVersionedUpdate()`'s own `#tenantId`/`:tenantId` and
+  // `#accountId`/`:accountId` style (D-328 revisão adversarial, Codex Rodada 7/8: a suíte de
+  // teste NÃO depende mais disso - `test/unit/notification/in-memory-store.ts` interpreta a
+  // `ConditionExpression` de verdade, nunca por convenção de nome).
   return {
     expression: "#challengeIdFence = :challengeIdFence",
     names: { "#challengeIdFence": "challengeId" },
@@ -223,7 +224,9 @@ export class WhatsAppPhoneConfirmationService {
         // (exclusão assíncrona, mesma janela do R6-1) fazia `won!.expiresAt` estourar em runtime, a
         // asserção `!` do TypeScript não protege nada além de compilação. Corrigido: sem vencedor
         // para adotar, a vaga está livre de novo - tenta criar mais uma vez (próxima iteração gera
-        // um `challengeId`/código novos), nunca assume que `won` existe.
+        // um `challengeId` novo; o código de 6 dígitos em si é capturado uma única vez, fora do
+        // laço, no topo do método - só a identidade da geração muda, nunca o código já enviado),
+        // nunca assume que `won` existe.
         if (won) return { expiresAt: won.expiresAt };
         continue; // vaga livre de novo - `current` já é undefined nesta ramificação
       }
