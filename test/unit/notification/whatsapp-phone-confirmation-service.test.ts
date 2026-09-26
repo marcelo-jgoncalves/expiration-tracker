@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import crypto from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { WhatsAppOptInService } from "../../../src/modules/notification/application/whatsapp-opt-in-service.js";
 import { WhatsAppPhoneConfirmationService } from "../../../src/modules/notification/application/whatsapp-phone-confirmation-service.js";
@@ -228,7 +230,7 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
   // para outro reenvio imediato. Este teste pausa a escrita do reenvio B logo após sua leitura,
   // deixa um reenvio C genuinamente mais novo vencer de verdade, e só então libera B - prova que B
   // adota o resultado de C em vez de sobrescrevê-lo. Mutação: remover a checagem
-  // `fresh.codeHash !== initial.codeHash` (voltando a sempre sobrescrever com o `record` local)
+  // `fresh.challengeId !== initial.challengeId` (voltando a sempre sobrescrever com o `record` local)
   // faria este teste falhar (o `expiresAt` retornado por B não bateria com o de C, e `createdAt`
   // regrediria para o timestamp de B).
   it("a resend that loses its conditioned write to a genuinely newer concurrent resend adopts the winner, never regressing createdAt", async () => {
@@ -267,6 +269,113 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
     const record = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
     expect(record?.createdAt).not.toBe("2026-09-23T00:01:01.000Z"); // B's own stale timestamp never landed
     expect(provider.sent).toHaveLength(3); // initial + B + C all sent for real - only the DB write was arbitrated
+  });
+
+  // D-328 revisão adversarial (achado real Baixa, Codex Rodada 5, residual R5-1): o teste acima
+  // prova a arbitragem quando B e C sorteiam códigos DIFERENTES - mas a checagem "isto ainda é o
+  // mesmo desafio?" comparava `codeHash`, não uma identidade de geração. Dois reenvios que
+  // sorteiam o MESMO código de 6 dígitos (1/1.000.000, sob corrida real) produziam o mesmo
+  // `codeHash` mesmo sendo desafios genuinamente diferentes - o perdedor não se reconhecia como
+  // perdedor e sobrescrevia o vencedor de qualquer forma (regredindo `createdAt`, reabrindo o
+  // cooldown). Este teste força esse exato colapso sorteando o MESMO código para o desafio
+  // inicial e para C. Mutação: trocar `challengeId` de volta por `codeHash` nas 3 checagens do
+  // serviço faria este teste falhar (B sobrescreveria C, `createdAt` regrediria).
+  it("a resend that coincidentally draws the SAME 6-digit code as a genuinely newer concurrent resend still adopts the winner (R5-1)", async () => {
+    const cryptoAsMutable = crypto as unknown as { randomInt: (...args: unknown[]) => number };
+    const originalRandomInt = cryptoAsMutable.randomInt;
+    const codeQueue: number[] = [111111, 222222, 111111]; // initial=111111, B=222222, C=111111 (coincides with initial)
+    cryptoAsMutable.randomInt = (..._args: unknown[]) => codeQueue.shift()!;
+    syncBuiltinESMExports();
+    try {
+      let now = "2026-09-23T00:00:00.000Z";
+      const { service, store, provider } = buildService({ now: () => now });
+      await service.requestConfirmation(ctx(), PHONE); // initial challenge, code 111111
+      now = new Date(Date.parse(now) + 61_000).toISOString(); // past cooldown
+
+      const realTransactWrite = store.transactWrite.bind(store);
+      let releasePause: () => void = () => {};
+      const paused = new Promise<void>((resolve) => {
+        let intercepted = false;
+        store.transactWrite = (async (entries) => {
+          if (!intercepted) {
+            intercepted = true;
+            const gate = new Promise<void>((resumeIt) => {
+              releasePause = resumeIt;
+            });
+            resolve();
+            await gate;
+          }
+          return realTransactWrite(entries);
+        }) as typeof store.transactWrite;
+      });
+
+      const pendingB = service.requestConfirmation(ctx(), PHONE); // reads v1, draws 222222, pauses before writing
+      await paused;
+
+      now = new Date(Date.parse(now) + 61_000).toISOString(); // C resends later, for real, draws 111111 (same as initial)
+      const resultC = await service.requestConfirmation(ctx(), PHONE);
+
+      releasePause();
+      const resultB = await pendingB;
+
+      expect(resultB.expiresAt).toBe(resultC.expiresAt); // B adopted C, never overwrote it
+      const record = await store.get<WhatsAppPhoneConfirmation>(whatsAppPhoneConfirmationKey(TENANT, USER, PHONE));
+      expect(record?.createdAt).not.toBe("2026-09-23T00:01:01.000Z"); // B's own stale timestamp never landed
+      expect(provider.sent).toHaveLength(3);
+    } finally {
+      cryptoAsMutable.randomInt = originalRandomInt;
+      syncBuiltinESMExports();
+    }
+  });
+
+  // D-328 revisão adversarial (achado real Média, Codex Rodada 6, R6-1): o teste acima prova a
+  // arbitragem quando o desafio anterior ainda existe fisicamente na hora da escrita pausada -
+  // mas a exclusão física do TTL do DynamoDB é assíncrona (pode levar horas). Este teste simula
+  // esse caso: A é fisicamente removido ENQUANTO B está pausado (não substituído por um reenvio -
+  // apagado de verdade), e C cria um desafio do ZERO na mesma chave (primeira requisição, não
+  // reenvio), que também começa em `version=1`. A escrita condicionada de B (expectedVersion=1)
+  // coincide com o `version=1` de C só por acidente de numeração, não porque são a mesma geração.
+  // Mutação: remover `extraConditions: [challengeIdFenceCondition(...)]` das 3 escritas do serviço
+  // faria este teste falhar (a condição de versão sozinha aceitaria a escrita de B contra C, sem
+  // nunca cair no `catch` que checa `challengeId`).
+  it("a resend paused across a physical TTL deletion never overwrites a from-scratch challenge that coincidentally reuses version=1 (R6-1)", async () => {
+    let now = "2026-09-23T00:00:00.000Z";
+    const { service, store, provider } = buildService({ now: () => now });
+    await service.requestConfirmation(ctx(), PHONE); // A: initial challenge, version=1
+    const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // past cooldown
+
+    const realTransactWrite = store.transactWrite.bind(store);
+    let releasePause: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      let intercepted = false;
+      store.transactWrite = (async (entries) => {
+        if (!intercepted) {
+          intercepted = true;
+          const gate = new Promise<void>((resumeIt) => {
+            releasePause = resumeIt;
+          });
+          resolve();
+          await gate;
+        }
+        return realTransactWrite(entries);
+      }) as typeof store.transactWrite;
+    });
+
+    const pendingB = service.requestConfirmation(ctx(), PHONE); // reads A/v1, pauses before writing
+    await paused;
+
+    store._simulateTtlDeletion(key); // A is physically gone - not replaced, genuinely deleted
+    now = new Date(Date.parse(now) + 61_000).toISOString(); // C is genuinely later than B's own stale `now`
+    const resultC = await service.requestConfirmation(ctx(), PHONE); // from-scratch create, version=1 again
+
+    releasePause();
+    const resultB = await pendingB;
+
+    expect(resultB.expiresAt).toBe(resultC.expiresAt); // B recognized it lost despite the version coincidence
+    const record = await store.get<WhatsAppPhoneConfirmation>(key);
+    expect(record?.expiresAt).toBe(resultC.expiresAt); // C's record survived, B never overwrote it
+    expect(provider.sent).toHaveLength(3); // initial + B + C
   });
 });
 

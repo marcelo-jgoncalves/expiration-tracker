@@ -1,0 +1,52 @@
+Rodada 6, protocolo Claude-Codex sobre D-328. Na Rodada 5 voce deu nota tecnica 9.0/10, mas
+registrou dois problemas: (1) a nota cega ficou comprometida - NEXT_SESSION_PROMPT.md, que o inicio
+de sessao padrao deste repo manda ler, ja expunha minha auto-nota daquela rodada antes de voce
+formar seu proprio parecer; (2) mesmo com nota tecnica 9.0, R4 (8.4) e R5 (9.0) nao contam como duas
+rodadas consecutivas >=9.0 pelo texto do proprio protocolo. Voce tambem achou um residual real de
+severidade Baixa (R5-1): as 3 checagens de "isto ainda e o mesmo desafio ou ja houve uma escrita
+concorrente genuina?" comparavam codeHash (hash do codigo de 6 digitos) em vez de uma identidade de
+geracao - dois reenvios que por acaso sorteiam o MESMO codigo produzem o MESMO hash, entao o
+perdedor da corrida nao se reconhecia como perdedor e sobrescrevia o vencedor de qualquer forma.
+
+Correcao de processo nesta rodada: NAO leia NEXT_SESSION_PROMPT.md. Esta rodada nao depende dele, e
+ele pode conter o numero da minha auto-nota desta rodada assim que eu terminar de escrever este
+prompt - o unico jeito de garantir nota cega de verdade agora e voce simplesmente nao abrir esse
+arquivo. Se algum outro arquivo fora da lista abaixo mencionar uma nota numerica desta rodada
+especificamente, ignore-a e me avise no parecer, mas nao deixe isso mudar sua nota tecnica.
+
+Leia apenas, nesta ordem:
+
+1. docs/architecture/reviews/d328-whatsapp-phone-confirmation-adversarial-review/round-6-claude-revision.md
+2. src/modules/notification/domain/whatsapp-phone-confirmation.ts (campo novo `challengeId` na
+   interface + `buildWhatsAppPhoneConfirmation()` recebendo-o como input obrigatorio do chamador)
+3. src/modules/notification/application/whatsapp-phone-confirmation-service.ts (3 comparacoes que
+   eram `codeHash` agora sao `challengeId`: dentro do retry loop de requestConfirmation(),
+   incrementAttemptCountWithRetry(), setConfirmedAtWithRetry())
+4. test/unit/notification/whatsapp-phone-confirmation-service.test.ts (teste novo no final do
+   describe de requestConfirmation: "a resend that coincidentally draws the SAME 6-digit code...")
+
+NAO leia round-6-claude-selfgrade.md - nota cega, arquivo separado. NAO leia
+NEXT_SESSION_PROMPT.md - ver acima.
+
+Contexto: challengeId e um UUID gerado a cada chamada de requestConfirmation() (this.newId()),
+persistido junto do registro, nunca reiniciado. codeHash continua existindo e sendo usado
+exclusivamente para verificar o codigo digitado (whatsAppConfirmationCodeMatches), nunca mais para
+decidir "e a mesma geracao do desafio?". O teste novo mocka crypto.randomInt (via
+syncBuiltinESMExports(), mesma tecnica dos seus proprios repros das Rodadas 3-4) para forcar o
+desafio inicial e um reenvio C genuinamente mais novo a sortearem o MESMO codigo de 6 digitos,
+enquanto B (pausado antes de escrever, codigo diferente) perde a corrida - prova que B ainda assim
+reconhece que perdeu (via challengeId, nao mais via codeHash) e adota o vencedor. Verificado por
+mutacao: revertida temporariamente a comparacao de challengeId para codeHash no retry loop de
+requestConfirmation(), o teste falhou exatamente como esperado, depois restaurada.
+
+Pergunta central: a correcao fecha R5-1 de verdade? Existe algum outro lugar no codigo lido que
+ainda usa codeHash (ou qualquer outro campo colidivel) como proxy de identidade de geracao, que eu
+tenha deixado passar? O UUID novo por geracao tem alguma lacuna de unicidade/colisao que eu nao
+considerei (ex.: newId() nao criptograficamente forte em algum ambiente real)?
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+esta rodada atingir >=9.0 E a proxima rodada tambem atingir >=9.0 de forma genuinamente cega (sem o
+incidente de NEXT_SESSION_PROMPT.md se repetir), isso fecharia D-328 formalmente. Termine com uma
+linha no formato exato:
+
+NOTA_CODEX: X.X

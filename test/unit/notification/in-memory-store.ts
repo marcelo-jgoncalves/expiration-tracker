@@ -14,6 +14,15 @@ export class InMemoryNotificationStore implements NotificationStore {
     return this.items.get(this.k(key)) as T | undefined;
   }
 
+  /** Test-only, NOT part of `NotificationStore` (real DynamoDB TTL deletion is a server-side,
+   * asynchronous background process - no application code ever calls a "delete" RPC for it). Lets
+   * a test simulate a row having been physically removed by TTL cleanup mid-scenario (D-328 R6-1:
+   * a paused writer's `expectedVersion` can then coincidentally match a brand-new row recreated at
+   * the same key, since both start at `version=1`). */
+  _simulateTtlDeletion(key: EntityKey): void {
+    this.items.delete(this.k(key));
+  }
+
   async putIfAbsent<T extends EntityKey>(item: T): Promise<boolean> {
     const key = this.k(item);
     if (this.items.has(key)) return false;
@@ -80,14 +89,23 @@ export class InMemoryNotificationStore implements NotificationStore {
             anyFailed = true;
             return;
           }
-          // Generic scope fence check - `buildVersionedUpdate()` uses `#tenantId`/`:tenantId`,
-          // `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5) uses `#accountId`/`:accountId`
-          // instead - whichever is present in this entry's own placeholders is the one asserted,
-          // same generic behavior real DynamoDB gives any ConditionExpression.
+          // Generic equality-fence check - `buildVersionedUpdate()` uses `#tenantId`/`:tenantId`,
+          // `buildAccountScopedVersionedUpdate()` (D-197 fatia 3/5) uses `#accountId`/`:accountId`,
+          // and any caller-supplied `extraConditions` (occ.ts) adds its own `#name`/`:value` pair
+          // (e.g. D-328 R6-1's `#challengeIdFence = :expectedChallengeIdFence`) - whichever
+          // placeholders are present in this entry's own names/values is what's asserted, same
+          // generic behavior real DynamoDB gives any equality clause in a ConditionExpression.
+          // Deliberately excludes `#version`/`#updatedAt` (already handled above/always written,
+          // never a condition subject beyond `version`) and `#set*`/`#rem*` (SET/REMOVE targets,
+          // not condition placeholders) - every OTHER placeholder here is a condition to enforce,
+          // not just tenantId/accountId (narrower special-case this generalizes, same posture as
+          // test/unit/reminder/in-memory-store.ts's fuller expression evaluator for that module).
           const names = entry.Update.ExpressionAttributeNames ?? {};
           for (const [nameKey, attrName] of Object.entries(names)) {
-            if (attrName !== "tenantId" && attrName !== "accountId") continue;
+            if (attrName === "version" || attrName === "updatedAt") continue;
+            if (nameKey.startsWith("#set") || nameKey.startsWith("#rem")) continue;
             const valueKey = `:${nameKey.slice(1)}`;
+            if (!(valueKey in entry.Update.ExpressionAttributeValues)) continue;
             if (existing[attrName] !== entry.Update.ExpressionAttributeValues[valueKey]) {
               reasons[i] = { Code: "ConditionalCheckFailed" };
               anyFailed = true;

@@ -74,6 +74,28 @@ export interface WhatsAppPhoneConfirmationServiceDeps {
   newId?: () => string;
 }
 
+/** D-328 revisão adversarial (achado real Média, Codex Rodada 6, R6-1): comparar `challengeId`
+ * only AFTER a version conflict (the `catch` blocks below) isn't enough on its own - DynamoDB TTL
+ * deletion is asynchronous (can take hours), so a paused writer's `expectedVersion` (read from a
+ * challenge that then gets physically deleted) can coincidentally match a BRAND NEW challenge's
+ * `version` at the same key (both start at 1, since `nextVersion = (current?.version ?? 0) + 1`
+ * with `current` null on a from-scratch create) - the conditioned write would then SUCCEED against
+ * the wrong generation, never even reaching the `catch` block that checks `challengeId`. Folding
+ * `challengeId` into the SAME atomic ConditionExpression (not just the version) closes this: the
+ * write can only ever succeed against the exact generation it was computed from, version coincidence
+ * or not. */
+function challengeIdFenceCondition(expectedChallengeId: string): { expression: string; names: Record<string, string>; values: Record<string, unknown> } {
+  // Placeholder names/values share the same suffix (`#challengeIdFence`/`:challengeIdFence`) -
+  // same convention `buildScopedVersionedUpdate()` itself uses for its own `#tenantId`/`:tenantId`
+  // and `#accountId`/`:accountId` scope fences, which both this file's test double and any other
+  // generic equality-clause evaluator can rely on without parsing the expression string.
+  return {
+    expression: "#challengeIdFence = :challengeIdFence",
+    names: { "#challengeIdFence": "challengeId" },
+    values: { ":challengeIdFence": expectedChallengeId },
+  };
+}
+
 export class WhatsAppPhoneConfirmationService {
   private readonly store: NotificationStore;
   private readonly whatsAppOptIn: WhatsAppOptInService;
@@ -159,16 +181,34 @@ export class WhatsAppPhoneConfirmationService {
     // REENVIO concorrente já tinha vencido a corrida - isso fazia `createdAt` retroceder (o
     // perdedor sobrescrevia o vencedor com seu próprio timestamp mais antigo), o que por sua vez
     // reabria a janela de cooldown e permitia outro reenvio imediato. Corrigido: se o estado fresco
-    // mostra um `codeHash` DIFERENTE do que existia quando este resend começou, um reenvio
+    // mostra um `challengeId` DIFERENTE do que existia quando este resend começou, um reenvio
     // concorrente genuinamente diferente já venceu - adota o vencedor (retorna o `expiresAt` dele)
     // em vez de tentar sobrescrevê-lo com o código já enviado e agora obsoleto deste chamador. Uma
-    // divergência de `codeHash` SEM isso (ex. só uma tentativa errada incrementou `attemptCount` no
-    // desafio original) continua segura para sobrescrever - é o mesmo desafio, só mais tentativas
-    // registradas nele.
+    // divergência de `challengeId` SEM isso (ex. só uma tentativa errada incrementou `attemptCount`
+    // no desafio original) continua segura para sobrescrever - é o mesmo desafio, só mais
+    // tentativas registradas nele.
+    //
+    // D-328 revisão adversarial (achado real Baixa, Codex Rodada 5, residual R5-1): esta checagem
+    // comparava `codeHash`, não uma identidade de geração - dois reenvios concorrentes que
+    // sorteassem o MESMO código de 6 dígitos (1/1.000.000, sob corrida real) produziam o mesmo
+    // `codeHash` mesmo sendo desafios genuinamente diferentes, então o perdedor não se reconhecia
+    // como perdedor e sobrescrevia o vencedor (regredindo `createdAt`, reabrindo o cooldown).
+    // Corrigido: compara `challengeId` (um UUID novo por geração, nunca colide por acaso), nunca o
+    // segredo curto.
+    //
+    // D-328 revisão adversarial (achado real Média, Codex Rodada 6, R6-1): comparar `challengeId`
+    // só DEPOIS do conflito de `version` (no `catch` abaixo) ainda não bastava - a exclusão física
+    // do TTL do DynamoDB é assíncrona (pode levar horas), então um escritor pausado (que leu A antes
+    // de A ser fisicamente apagado) podia coincidir seu `expectedVersion` com o de um desafio C
+    // recriado do zero na mesma chave (ambos começam em `version=1`) - a escrita condicionada
+    // SUCEDIA contra a geração errada, sem nunca chegar ao `catch` que checa `challengeId`.
+    // Corrigido: `challengeId` entra na PRÓPRIA `ConditionExpression` atômica (`extraConditions`),
+    // não só na checagem pós-conflito - a escrita só pode suceder contra a geração exata de onde foi
+    // calculada, coincidência de `version` ou não.
     let current = initial;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const nextVersion = (current?.version ?? 0) + 1;
-      const record = buildWhatsAppPhoneConfirmation({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId, phoneE164, code, pepper: this.pepper, now, version: nextVersion });
+      const record = buildWhatsAppPhoneConfirmation({ tenantId: ctx.tenant.tenantId, userId: ctx.principal.userId, phoneE164, code, pepper: this.pepper, now, version: nextVersion, challengeId: this.newId() });
       if (!current) {
         // First-ever request for this key - create-once, same discipline as WhatsAppOptIn's
         // recordOptIn(). If lost, a concurrent first request already won - adopt IT (same
@@ -183,9 +223,10 @@ export class WhatsAppPhoneConfirmationService {
         tableName: this.tableName,
         key,
         expectedVersion: current.version,
-        set: { codeHash: record.codeHash, attemptCount: 0, createdAt: record.createdAt, expiresAt: record.expiresAt, purgeAfterTtl: record.purgeAfterTtl },
+        set: { codeHash: record.codeHash, challengeId: record.challengeId, attemptCount: 0, createdAt: record.createdAt, expiresAt: record.expiresAt, purgeAfterTtl: record.purgeAfterTtl },
         remove: ["confirmedAt"],
         now,
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
       });
       try {
         await this.store.transactWrite([{ Update: update }]);
@@ -193,7 +234,7 @@ export class WhatsAppPhoneConfirmationService {
       } catch (err) {
         if (!isTransactionCanceled(err)) throw err;
         const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
-        if (fresh && initial && fresh.codeHash !== initial.codeHash) {
+        if (fresh && initial && fresh.challengeId !== initial.challengeId) {
           return { expiresAt: fresh.expiresAt }; // a genuinely concurrent resend already won
         }
         current = fresh;
@@ -288,6 +329,7 @@ export class WhatsAppPhoneConfirmationService {
         key,
         expectedVersion: current.version,
         set: { attemptCount: current.attemptCount + 1 },
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
       });
       try {
         await this.store.transactWrite([{ Update: update }]);
@@ -296,12 +338,13 @@ export class WhatsAppPhoneConfirmationService {
         if (!isTransactionCanceled(err)) throw err;
         const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
         // The record disappeared (physical TTL cleanup) or a resend replaced it with a genuinely
-        // different challenge (`codeHash` only ever changes on resend, `phoneE164` is part of the
-        // key itself and can never differ) - stop retrying, this specific wrong guess was already
-        // checked against a challenge that no longer exists, its attempt budget doesn't carry
-        // over to whatever challenge exists now (the caller still gets rejected via the
-        // ValidationError thrown by confirmPhone() regardless).
-        if (!fresh || fresh.codeHash !== initial.codeHash) return;
+        // different challenge (`challengeId` only ever changes on resend, `phoneE164` is part of
+        // the key itself and can never differ - D-328 Rodada 5 residual R5-1: was `codeHash`,
+        // which two different resends can coincidentally share, see the field's own doc comment)
+        // - stop retrying, this specific wrong guess was already checked against a challenge that
+        // no longer exists, its attempt budget doesn't carry over to whatever challenge exists now
+        // (the caller still gets rejected via the ValidationError thrown by confirmPhone() regardless).
+        if (!fresh || fresh.challengeId !== initial.challengeId) return;
         current = fresh;
       }
     }
@@ -312,10 +355,11 @@ export class WhatsAppPhoneConfirmationService {
    * a duplicated network retry) can lose the race; each iteration re-reads and retries against the
    * fresh version instead of giving up. If a fresh read shows `confirmedAt` already set (the
    * concurrent call won), this is the same idempotent outcome, so it stops retrying too. A resend
-   * swaps in a genuinely different challenge (`codeHash` changes, `version` keeps climbing
+   * swaps in a genuinely different challenge (`challengeId` changes, `version` keeps climbing
    * monotonically per `buildWhatsAppPhoneConfirmation()`'s own doc comment) - retrying against
-   * THAT would confirm the wrong challenge with the old code, so this checks `codeHash` before
-   * ever retrying, never just `version`.
+   * THAT would confirm the wrong challenge with the old code, so this checks `challengeId` before
+   * ever retrying, never just `version` (D-328 Rodada 5 residual R5-1: was `codeHash`, which two
+   * different resends can coincidentally share - see the field's own doc comment).
    *
    * D-332 Rodada 3 (2 achados reais Média, Codex reproduziu ambos com interleaving real):
    * (1) uma confirmação correta que perdia a corrida contra uma 5ª tentativa errada concorrente
@@ -334,6 +378,7 @@ export class WhatsAppPhoneConfirmationService {
         key,
         expectedVersion: current.version,
         set: { confirmedAt: now },
+        extraConditions: [challengeIdFenceCondition(current.challengeId)],
       });
       try {
         await this.store.transactWrite([{ Update: update }]);
@@ -341,7 +386,7 @@ export class WhatsAppPhoneConfirmationService {
       } catch (err) {
         if (!isTransactionCanceled(err)) throw err;
         const fresh = await this.store.get<WhatsAppPhoneConfirmation>(key, true);
-        if (!fresh || fresh.codeHash !== initial.codeHash) throw new ValidationError("Código inválido ou expirado.");
+        if (!fresh || fresh.challengeId !== initial.challengeId) throw new ValidationError("Código inválido ou expirado.");
         const freshNow = this.now();
         // D-332 achado real Média (Codex Rodada 4): esta checagem de expiração ficava DEPOIS do
         // atalho `if (fresh.confirmedAt) return` - uma chamada duplicada de confirmPhone() (ex.

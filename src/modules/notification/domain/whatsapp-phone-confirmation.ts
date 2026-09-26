@@ -50,6 +50,15 @@ export interface WhatsAppPhoneConfirmation extends EntityKey {
   phoneE164: string;
   /** HMAC-SHA256(pepper, code) — the raw 6-digit code is never persisted. */
   codeHash: string;
+  /** D-328 revisão adversarial (achado real Baixa, Codex Rodada 5): identifica uma GERAÇÃO do
+   * desafio, independente do segredo curto de 6 dígitos. Antes desta correção, o serviço usava
+   * `codeHash` para essa mesma checagem ("é ainda o mesmo desafio ou já houve um reenvio
+   * concorrente?") — mas dois reenvios distintos sorteando o MESMO código de 6 dígitos (1 em
+   * 1.000.000, sob corrida real) produzem o MESMO `codeHash`, fazendo um perdedor da corrida
+   * sobrescrever um vencedor genuíno e regredir `createdAt`. Um UUID novo a cada geração não tem
+   * esse colapso. `version` sozinho não serve (também sobe em tentativas erradas e confirmação,
+   * não só em reenvios — ver o comentário de `buildWhatsAppPhoneConfirmation`'s `version`). */
+  challengeId: string;
   attemptCount: number;
   createdAt: string;
   expiresAt: string;
@@ -104,6 +113,10 @@ export function buildWhatsAppPhoneConfirmation(input: {
    * então uma escrita OCC condicionada ao `version` de um desafio anterior falha sempre que um
    * reenvio já aconteceu, não apenas quando os números "por acaso" não colidem. */
   version: number;
+  /** Caller-supplied so tests can inject determinism (same posture as `now`) — one fresh id per
+   * call, identifying this specific generation of the challenge (see the field's own doc comment
+   * on `WhatsAppPhoneConfirmation`). */
+  challengeId: string;
   crypto?: WhatsAppPhoneConfirmationCrypto;
 }): WhatsAppPhoneConfirmation {
   if (!isValidE164(input.phoneE164)) {
@@ -119,6 +132,7 @@ export function buildWhatsAppPhoneConfirmation(input: {
     userId: input.userId,
     phoneE164: input.phoneE164,
     codeHash: crypto.hash(input.pepper, input.code),
+    challengeId: input.challengeId,
     attemptCount: 0,
     createdAt: input.now,
     expiresAt,
