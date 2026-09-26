@@ -16,13 +16,17 @@
   height: 20px;
 }
 
-/* Marcelo, 2026-09-20 (achado na tela Fornecedores): um ícone de linha de tabela não é um botão
-   de ação primária isolado - um bloco preenchido a cada ação (o tratamento padrão de `Button`)
-   deixa a linha pesada quando há 2-3 lado a lado. A cor vai no próprio glifo (via `currentColor`,
-   que todo ícone Lucide usa por padrão), fundo/borda ficam transparentes em repouso e só
-   aparecem no hover/focus como uma pista de forma - nunca cor isolada (mission §98). Sobrescreve
-   TODAS as variantes de `Button.css`, nunca só a `secondary` usada aqui hoje, pra qualquer uso
-   futuro de `IconButton`/`IconButtonLink` herdar o mesmo tratamento automaticamente. */
+/* Um ícone de linha de tabela não é um botão de ação primária isolado - um bloco preenchido a
+   cada ação (o tratamento padrão de `Button`) deixa a linha pesada quando há 2-3 lado a lado. A
+   cor vai no próprio glifo (via `currentColor`, que todo ícone Lucide usa por padrão), fundo/
+   borda ficam transparentes em repouso e só aparecem no hover/focus como uma pista de forma.
+   Sobrescreve TODAS as variantes de `Button.css`, nunca só a `secondary` usada aqui hoje, pra
+   qualquer uso futuro de `IconButton`/`IconButtonLink` herdar o mesmo tratamento automaticamente.
+   Corrigido 2026-09-26 (achado real, comparação direta com `prototype/novasTelas/OmniVence-
+   *-prototipo.html`, mesmo padrão em `fornecedores` e `vencimentos`): as 3 ações de linha
+   (editar/arquivar/excluir) ficam na MESMA cor neutra em repouso - a cor de destaque (roxo para
+   editar/arquivar, vermelho para excluir) aparece só no hover, nunca em repouso. Uma decisão
+   anterior (2026-09-20) tinha dado 3 matizes já em repouso; superada por este achado. */
 .ui-icon-button,
 .ui-icon-button:hover:not(:disabled),
 .ui-icon-button:active:not(:disabled) {
@@ -30,7 +34,10 @@
   border-color: transparent;
 }
 
-.ui-icon-button.ui-button--secondary {
+.ui-icon-button.ui-button--secondary,
+.ui-icon-button.ui-button--tertiary,
+.ui-icon-button.ui-button--ghost,
+.ui-icon-button.ui-button--danger {
   color: var(--color-text-secondary);
 }
 
@@ -39,26 +46,11 @@
   color: var(--color-text-primary);
 }
 
-/* `tertiary` keeps `Button.css`'s own violet (`--color-text-link`) unchanged - no override
-   needed here. `ghost` diverges from it ONLY for icon-only buttons (Button.css keeps the two
-   visually identical otherwise): Marcelo, 2026-09-20, wanted a 3rd distinct hue for row actions
-   (Editar=violeta via `tertiary`, Arquivar/Reativar=azul via `ghost`, Excluir=vermelho via
-   `danger` below) - reuses the existing status-info palette instead of inventing a new one. */
-.ui-icon-button.ui-button--tertiary:hover:not(:disabled) {
+/* Editar/Arquivar: mesmo tratamento de hover (roxo), igual ao protótipo. */
+.ui-icon-button.ui-button--tertiary:hover:not(:disabled),
+.ui-icon-button.ui-button--ghost:hover:not(:disabled) {
   background: var(--color-surface-selected);
   color: var(--color-action-primary-pressed);
-}
-
-.ui-icon-button.ui-button--ghost {
-  color: var(--color-status-info-fg);
-}
-
-.ui-icon-button.ui-button--ghost:hover:not(:disabled) {
-  background: var(--color-status-info-bg);
-}
-
-.ui-icon-button.ui-button--danger {
-  color: var(--color-action-danger);
 }
 
 .ui-icon-button.ui-button--danger:hover:not(:disabled) {
