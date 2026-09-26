@@ -1,0 +1,60 @@
+Voce e o Codex, participando do protocolo de revisao adversarial Claude<->Codex deste
+repositorio (expiration-tracker / OmniVence). Contexto: ja existe uma auditoria de seguranca
+completa em 2 rodadas anteriores (E-018, docs/engineering/reviews/full-audit-round2-seguranca-summary.md,
+nota consenso ~8,02/10, fechada 2026-09-12), com criterios calibrados a partir de OWASP ASVS 5.0 /
+Top 10:2025 / SAMM / least-privilege IAM AWS em docs/engineering/joint-review-criteria.md (secao
+"Eixo: Seguranca da Informacao e AppSec", 10 criterios ponderados). NAO refaca essa auditoria do
+zero e NAO relitigate os 5 achados ja nomeados la (SEC-R2-01 a 05) - eles ja tem status conhecido
+(3 corrigidos, 1 aceito como risco residual documentado via protocolo proprio D-234, 1 pendente de
+acao humana). Sua tarefa e uma RODADA 3, focada especificamente em superficie de codigo criada ou
+reescrita DEPOIS de 2026-09-12 (a data de fechamento do round2), que portanto nunca passou por
+revisao de seguranca nenhuma.
+
+ESCOPO DESTA RODADA (bloco 1 de uma auditoria maior, os outros blocos ficam para depois):
+
+1. Reminder Producer / Control Plane dedicado (decisions-log.md D-299 a D-304): uma tabela
+   DynamoDB dedicada + stream + relay + filas SQS dedicadas, separadas da tabela/outbox principal,
+   para resolver head-of-line blocking do scan de lembretes em escala. Mensagens de sistema usam
+   um tenantId sentinela literal "SYSTEM" (nunca um tenant real) - ver
+   src/shared/outbox/outbox.ts (comentario sobre SQS_REMINDER_SCAN_CONTINUATION_V1),
+   src/workers/reminder-scan-control/model.ts, src/workers/reminder-scan/lease.ts,
+   src/workers/reminder-scan/ (enumerator, scan-page), src/workers/reminder-dispatch/,
+   infra/modules/reminder-scan-control-table/, e os handlers Lambda correspondentes em
+   src/runtime/aws/handlers/reminder-scan-*.ts e reminder-dispatch*.ts. Leia tambem
+   docs/architecture/reviews/reminder-scan-control-plane/DECISION.md e
+   docs/architecture/reviews/reminder-scan-control-plane/AMENDMENT-001.md para o design aprovado
+   (D-301/D-302, ja aprovado pelo dono do projeto diretamente, protocolo dispensado na epoca -
+   voce esta verificando a IMPLEMENTACAO contra esse design aprovado, nao re-debatendo o design).
+
+2. CSV Bulk Import para Item (decisions-log.md D-330): rota HTTP de upload de CSV, parse
+   assincrono via SQS, preview, commit em lote. Ja passou por protocolo Claude-Codex mas focado em
+   correcao funcional (dedupe/idempotencia), nao em seguranca adversarial de upload/parsing em
+   massa (ex: CSV injection/formula injection na exportacao gerada a partir de dados importados,
+   zip-bomb-like amplificacao via linhas patologicas, DoS via arquivo grande, path
+   traversal/SSRF via nomes de arquivo ou URLs em campos, exposicao de erro interno em mensagens
+   de falha de linha). Arquivos: src/modules/import*/ (procure o modulo real via
+   grep -rl "ImportJob" src/modules), rotas HTTP correspondentes, schemas em schemas/api/*import*.
+
+3. Login/Signup/Reset de senha via UI propria (decisions-log.md D-320, D-321, D-329): antes desta
+   feature, autenticacao era so via Cognito Hosted UI; agora ha UI propria por tras da mesma
+   Lambda BFF. Foco: enumeracao de conta (signup ja documenta que revela e-mail cadastrado via
+   409 - avalie se essa e uma decisao aceitavel ou se ha oportunidade de mitigacao barata sem
+   redesenho), forca de senha/politica Cognito real vs esperada, CSRF nas rotas de
+   login/signup/reset, rate-limiting (D-329 ja registra que rate-limiting dedicado por conta/IP
+   esta faltando e e obrigatorio antes de usuario real - confirme se isso ainda e verdade por
+   leitura de codigo, ou se foi corrigido silenciosamente depois sem atualizar o registro - mesmo
+   padrao de drift documental que outras partes desta auditoria ja encontraram). Arquivos:
+   src/modules/bff/**, frontend/src (paginas de Login/Signup/ResetPassword).
+
+METODO: leia o codigo real (nao confie em comentarios/decisions-log sem confirmar), cite
+arquivo:linha para cada achado. Para cada achado, classifique severidade (Critico/Alto/Medio/
+Baixo) e diga a qual dos 10 criterios de joint-review-criteria.md ele pertence. Se um achado exigir
+mudanca de design (nivel 5-6 na escala de docs/engineering/change-risk-scale.md), diga isso
+explicitamente - nao proponha a correcao, so nomeie o achado e o criterio afetado. Se voce nao
+encontrar nada de novo em algum dos 3 sub-blocos, diga isso explicitamente tambem (silencio nao e
+aceitavel - "revisei X e nao encontrei achado novo alem do que ja esta registrado" e uma resposta
+valida e esperada quando for o caso real).
+
+Responda em portugues, formato: por sub-bloco (1/2/3), lista de achados (ou "nenhum achado novo"),
+cada um com severidade + criterio + arquivo:linha + descricao de 2-4 frases do cenario de falha
+concreto (nao generico).
