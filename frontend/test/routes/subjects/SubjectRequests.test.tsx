@@ -109,13 +109,14 @@ beforeEach(() => {
 });
 
 describe("SubjectRequests (A14)", () => {
-  it("renders the header with a back link to the subject, and lists series + requests", async () => {
+  it("renders the section heading and lists series + requests, without a duplicate subject header", async () => {
     mockRole("VIEWER");
     mockData({ series: [series()], requests: [documentRequest()] });
     renderScreen();
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Solicitações e recorrência" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: /Voltar para Atlas Schindler/ })).toBeInTheDocument();
+    // D-339: back link/subject header removed here - SubjectLayout already shows identity persistently.
+    expect(screen.queryByRole("link", { name: /Voltar para/ })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("CND Federal").length).toBeGreaterThan(0));
     expect(screen.getByText("Ativa")).toBeInTheDocument();
     expect(screen.getByText("Trimestral")).toBeInTheDocument();

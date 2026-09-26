@@ -47,6 +47,12 @@ export function renderAtRoute(
   element: ReactElement,
   initialEntry: InitialEntry,
   activeOrganization?: Partial<ActiveOrganizationValue>,
+  /** D-339 (redesenho do fluxo de detalhe de Fornecedor): opcional, para testar um componente de
+   * casca real (`SubjectLayout`) que renderiza um `<Outlet>` - as rotas filhas passadas aqui viram
+   * filhas reais de `element` no mesmo `<Routes>`, nunca uma segunda árvore de rotas separada.
+   * `undefined` (o padrão) mantém o comportamento antigo, byte-a-byte, para todo chamador
+   * existente que nunca precisou disso. */
+  children?: ReactElement,
 ) {
   const value = { ...defaultActiveOrganizationValue(), ...activeOrganization };
   const orgId = value.organizationId ?? TEST_ORGANIZATION_ID;
@@ -56,7 +62,9 @@ export function renderAtRoute(
       <ActiveOrganizationContext.Provider value={value}>
         <MemoryRouter initialEntries={[withOrgPrefix(initialEntry, orgId)]}>
           <Routes>
-            <Route path={`/app/:orgId${routePath}`} element={element} />
+            <Route path={`/app/:orgId${routePath}`} element={element}>
+              {children}
+            </Route>
           </Routes>
         </MemoryRouter>
       </ActiveOrganizationContext.Provider>

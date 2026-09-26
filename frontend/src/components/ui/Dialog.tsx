@@ -2,7 +2,7 @@
  * Dialog (design-system.md §47/§48) — first real usage in this codebase, added for A14 (Block
  * 6, D-2xx): two short creation forms (avulsa/série) and an edit/cancel flow all need it. Every
  * prior screen that needed a confirmation built its own local `role="alertdialog"` div
- * (SubjectHub.tsx's `DeleteConfirmDialog`) — this generalizes that same minimal shape (no
+ * (SubjectLayout.tsx's `DeleteConfirmDialog`) — this generalizes that same minimal shape (no
  * portal, inline in the DOM, a backdrop + centered panel) rather than reaching for a heavier
  * library, per implementation-sequencing-plan.md §2's "extend the design system only when a
  * journey demonstrates the need".
@@ -42,7 +42,7 @@ export function Dialog({ title, onClose, children, variant = "dialog" }: DialogP
     triggerRef.current = document.activeElement;
     const panel = panelRef.current;
     const firstFocusable = panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-    // Design-system.md §48 / SubjectHub.tsx's DeleteConfirmDialog precedent: initial focus never
+    // Design-system.md §48 / SubjectLayout.tsx's DeleteConfirmDialog precedent: initial focus never
     // lands on a destructive/primary confirm control by accident - the first focusable element
     // in DOM order is always Cancel/the least-destructive control in this codebase's own form
     // layout convention (cancel before confirm).

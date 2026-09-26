@@ -46,7 +46,7 @@
  * visual claim than the data supports.
  */
 import { useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
@@ -84,14 +84,38 @@ const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical
 
 export function RequirementsCollection() {
   const orgPath = useOrgPath();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const filterSubjectId = searchParams.get("subjectId") ?? undefined;
+  // D-339 (redesenho do fluxo de detalhe de Fornecedor): este componente agora também é montado
+  // como a seção "Requisitos" (índice) dentro da casca de `SubjectLayout`
+  // (`/subjects/:subjectId` e `/subjects/:subjectId/requirements/:requirementId`) - `routeParams`
+  // é o sinal de "estou aninhado", nunca a query string sozinha (que continua funcionando para
+  // qualquer link antigo/externo que ainda a use).
+  const routeParams = useParams<{ subjectId?: string; requirementId?: string }>();
+  const nested = Boolean(routeParams.subjectId);
+  const filterSubjectId = searchParams.get("subjectId") ?? routeParams.subjectId ?? undefined;
   const [statusTab, setStatusTab] = useState<"ALL" | RequirementStatus>("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [viewingRequirement, setViewingRequirement] = useState<{ subjectId: string; requirementId: string } | null>(null);
   const role = useCurrentMembershipRole();
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
+
+  // Aninhado: o requisito aberto vem da URL (`:requirementId`), nunca de estado local - fecha o
+  // achado "RequirementDetail sem endereço próprio" (D-339, achado do Codex Rodada 1/precedente
+  // já usado por `/subjects/:subjectId/series/:seriesId`). Fora da casca (rota antiga por query
+  // string): mantém o overlay controlado por estado local, comportamento inalterado.
+  const effectiveViewing = nested ? (routeParams.requirementId && filterSubjectId ? { subjectId: filterSubjectId, requirementId: routeParams.requirementId } : null) : viewingRequirement;
+
+  function openRequirement(r: Requirement) {
+    if (nested) navigate(orgPath(`/subjects/${r.subjectId}/requirements/${r.requirementId}`));
+    else setViewingRequirement({ subjectId: r.subjectId, requirementId: r.requirementId });
+  }
+
+  function closeRequirement() {
+    if (nested && filterSubjectId) navigate(orgPath(`/subjects/${filterSubjectId}`));
+    else setViewingRequirement(null);
+  }
 
   const subjectQuery = useRequirementsForSubject(filterSubjectId ?? "");
 
@@ -142,11 +166,22 @@ export function RequirementsCollection() {
 
   return (
     <div>
-      <PageHeader
-        title="Requisitos documentais"
-        description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
-        actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
-      />
+      {/* D-339: dentro da casca do fornecedor (`nested`), o próprio `SubjectLayout` já mostra o
+          nome/tipo/ações do fornecedor - um segundo cabeçalho aqui seria duplicado. Fora dela
+          (rota tenant-wide antiga), o cabeçalho continua completo, sem mudança. */}
+      {nested ? (
+        canWrite ? (
+          <p className="requirements-nested-actions">
+            <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button>
+          </p>
+        ) : null
+      ) : (
+        <PageHeader
+          title="Requisitos documentais"
+          description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
+          actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
+        />
+      )}
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
           Não foi possível carregar {failedCount} de {allQueries.length} categorias de status — a lista abaixo está incompleta.
@@ -158,9 +193,7 @@ export function RequirementsCollection() {
         </InlineNotice>
       ) : null}
       {showCreate ? <CreateRequirementForm defaultSubjectId={filterSubjectId} onClose={() => setShowCreate(false)} /> : null}
-      {viewingRequirement ? (
-        <RequirementDetail subjectId={viewingRequirement.subjectId} requirementId={viewingRequirement.requirementId} onClose={() => setViewingRequirement(null)} />
-      ) : null}
+      {effectiveViewing ? <RequirementDetail subjectId={effectiveViewing.subjectId} requirementId={effectiveViewing.requirementId} onClose={closeRequirement} /> : null}
       {filterSubjectId ? null : (
         <div className="requirements-metrics" role="group" aria-label="Filtrar por status">
           <button
@@ -223,21 +256,44 @@ export function RequirementsCollection() {
               header: "Requisito",
               primary: true,
               render: (r) => (
+                // D-339 achado 1: o nome abria o FORNECEDOR (mesmo destino de um clique errado) -
+                // o requisito já tem um destino próprio (o botão "Ver" mais à direita); o nome
+                // agora abre o MESMO destino, nunca um recurso diferente do que anuncia. O link
+                // para o fornecedor mora no identificador abaixo, onde genuinamente pertence.
                 <>
-                  <Link to={orgPath(`/subjects/${r.subjectId}`)}>{r.name}</Link>
-                  <CellSecondary>{r.subjectId}</CellSecondary>
+                  <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
+                    {r.name}
+                  </Button>
+                  <CellSecondary>
+                    <Link to={orgPath(`/subjects/${r.subjectId}`)}>{r.subjectId}</Link>
+                  </CellSecondary>
                 </>
               ),
             },
             { key: "assignee", header: "Responsável", render: (r) => r.assigneeUserId ?? "Sem responsável" },
             { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.status)} /> },
-            { key: "validity", header: "Validade", numeric: true, render: (r) => (r.evidenceValidUntil ? formatAbsoluteDate(r.evidenceValidUntil) : "—") },
+            {
+              key: "validity",
+              header: "Validade",
+              numeric: true,
+              render: (r) =>
+                // D-339 achado 3: evidência vinculada não tinha link nenhum para o documento
+                // real - o dado (`evidenceDocumentId`) já existe no contrato, só nunca virou link.
+                // Isto NÃO é uma coleção completa de documentos do fornecedor (achado mantido,
+                // não fingido como resolvido) - só o acesso ao documento já vinculado a este
+                // requisito específico.
+                r.evidenceValidUntil ? (
+                  r.evidenceDocumentId ? <Link to={orgPath(`/documents/${r.evidenceDocumentId}`)}>{formatAbsoluteDate(r.evidenceValidUntil)}</Link> : formatAbsoluteDate(r.evidenceValidUntil)
+                ) : (
+                  "—"
+                ),
+            },
             {
               key: "view",
               header: "",
               actions: true,
               render: (r) => (
-                <Button variant="tertiary" size="sm" onClick={() => setViewingRequirement({ subjectId: r.subjectId, requirementId: r.requirementId })}>
+                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
                   Ver
                 </Button>
               ),
@@ -353,6 +409,12 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
 
 function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => void; defaultSubjectId?: string }) {
   const mutation = useCreateRequirement();
+  // D-339 achado 2: quando `defaultSubjectId` vem do contexto (filtro/rota de um fornecedor
+  // específico), o fornecedor NUNCA é um campo de formulário editável - antes, `defaultSubjectId`
+  // só pré-preenchia um `TextField` que continuava aceitando qualquer edição, permitindo trocar
+  // de fornecedor silenciosamente ao criar. Fixo por construção agora: nem renderiza o campo
+  // nesse caso, só usa `defaultSubjectId` direto no payload. A criação a partir da coleção
+  // GLOBAL (sem fornecedor conhecido) continua exigindo o ID explícito.
   const [subjectId, setSubjectId] = useState(defaultSubjectId ?? "");
   const [name, setName] = useState("");
   const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
@@ -360,13 +422,14 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!subjectId.trim() || !name.trim()) {
+    const effectiveSubjectId = defaultSubjectId ?? subjectId;
+    if (!effectiveSubjectId.trim() || !name.trim()) {
       setErrors(["Informe o fornecedor (ID) e o nome do requisito."]);
       return;
     }
     setErrors([]);
     try {
-      await mutation.mutateAsync({ subjectId: subjectId.trim(), name: name.trim(), applicability });
+      await mutation.mutateAsync({ subjectId: effectiveSubjectId.trim(), name: name.trim(), applicability });
       onClose();
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar este requisito."]);
@@ -376,7 +439,9 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
   return (
     <form onSubmit={(event) => void handleSubmit(event)} noValidate>
       <FormErrorSummary errors={errors} />
-      <TextField id="req-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
+      {defaultSubjectId ? null : (
+        <TextField id="req-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
+      )}
       <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
       <SelectField
         id="req-applicability"

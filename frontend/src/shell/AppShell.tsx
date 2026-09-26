@@ -83,6 +83,17 @@ function useFocusMainOnRouteChange(mainRef: RefObject<HTMLElement>) {
       isFirstRender.current = false;
       return;
     }
+    // D-339 achado real: dar rota própria a um Dialog (ex.: RequirementDetail,
+    // `/subjects/:subjectId/requirements/:requirementId`) faz seu mount coincidir, no MESMO
+    // commit React, com esta troca de `location.pathname` - efeitos rodam de baixo para cima
+    // (filho antes do pai), então o próprio foco inicial do Dialog (`Dialog.tsx`, no primeiro
+    // elemento focável do painel) roda primeiro, e ESTE efeito, um ancestral, rodava depois e
+    // devolvia o foco para `<main>`, sequestrando-o de volta - nunca reproduzido antes porque
+    // nenhum Dialog neste app tinha rota própria até agora. Nunca sequestrar foco que já está
+    // dentro de um dialog real (ex.: a própria navegação que abriu ESSE dialog) - meio termo
+    // seguro: perguntar ao DOM se o foco atual já está dentro de um `[role=dialog]`/
+    // `[role=alertdialog]`, não uma lista fixa de rotas.
+    if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')) return;
     mainRef.current?.focus();
   }, [location.pathname, mainRef]);
 }

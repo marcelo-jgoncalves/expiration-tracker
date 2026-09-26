@@ -36,7 +36,29 @@ describe("RequirementsCollection (A11)", () => {
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
 
     expect(screen.getByText("Carregando requisitos…")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("link", { name: "CND Federal" })).toBeInTheDocument());
+    // D-339 achado 1: o nome do requisito abria o FORNECEDOR (link), nunca o próprio requisito -
+    // agora abre o mesmo destino do botão "Ver" (o link para o fornecedor mora no identificador
+    // abaixo do nome, testado separadamente).
+    await waitFor(() => expect(screen.getByRole("button", { name: "CND Federal" })).toBeInTheDocument());
+  });
+
+  it("the requirement name opens the requirement itself (not the subject) - D-339 achado 1", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("/search?")) {
+        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirement()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
+      }
+      if (path.includes("/document-requests")) return Promise.resolve({ documentRequests: [] });
+      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [requirement()] });
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "CND Federal" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "CND Federal" }));
+
+    expect(await screen.findByRole("dialog", { name: "CND Federal" })).toBeInTheDocument();
+    // The subject link still exists, just under the identifier, never the requirement's own name.
+    expect(screen.getByRole("link", { name: "subject-1" })).toBeInTheDocument();
   });
 
   it("distinguishes NOT_APPLICABLE from MISSING with different labels", async () => {
@@ -51,7 +73,7 @@ describe("RequirementsCollection (A11)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Não se aplica/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Não se aplica/ }));
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "Comprovante" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Comprovante" })).toBeInTheDocument());
     // NOT_APPLICABLE renders as a distinct badge label from MISSING's ("Em falta") - never
     // collapsed into the same text, per the audit fix this screen implements.
     expect(screen.getAllByText("Não se aplica").length).toBeGreaterThanOrEqual(2); // filter tab + status badge

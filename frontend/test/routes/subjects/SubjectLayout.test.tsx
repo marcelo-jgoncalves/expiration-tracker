@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor, within, fireEvent } from "@testing-library/react";
+import { Route } from "react-router-dom";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
-import { SubjectHub } from "../../../src/routes/subjects/SubjectHub.js";
+import { SubjectLayout } from "../../../src/routes/subjects/SubjectLayout.js";
 import type { TrackedSubject } from "../../../src/api/types.js";
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
@@ -35,20 +36,32 @@ function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
   };
 }
 
+/** Placeholder for the real nested content (`RequirementsCollection`, tested on its own) - this
+ * file is only about `SubjectLayout` itself: identity/actions/compliance/local nav never
+ * unmounting, per D-339. */
+function IndexPlaceholder() {
+  return <p>conteúdo de requisitos aqui</p>;
+}
+
+function renderLayout(initialEntry: string) {
+  return renderAtRoute(
+    "/subjects/:subjectId/*",
+    <SubjectLayout />,
+    initialEntry,
+    undefined,
+    <>
+      <Route index element={<IndexPlaceholder />} />
+      <Route path="requests" element={<p>conteúdo de solicitações aqui</p>} />
+    </>,
+  );
+}
+
 beforeEach(() => {
   getMock.mockReset();
   fetchOrganizationsMock.mockReset();
   getMock.mockImplementation((path: string) => {
     if (path.includes("/compliance")) {
       return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
-    }
-    if (path.startsWith("/document-archive/requirements/")) {
-      return Promise.resolve({ requirements: [] });
-    }
-    // A14 (Block 6) - active-series count for the "Solicitações e recorrência" card (holistic
-    // frontend review fix - this card used to be a dead "Em breve" placeholder).
-    if (path.startsWith("/document-archive/series/")) {
-      return Promise.resolve({ series: [] });
     }
     if (path.startsWith("/subjects/")) {
       return Promise.resolve({ subject: subject() });
@@ -57,31 +70,30 @@ beforeEach(() => {
   });
 });
 
-describe("SubjectHub (A09)", () => {
-  it("renders the subject name, type, and compliance numerator/denominator", async () => {
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+describe("SubjectLayout (D-339, substitui A09 SubjectHub)", () => {
+  it("renders the subject name, type, and compliance numerator/denominator, with the index section's content", async () => {
+    renderLayout("/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Conservare Facilities ME" })).toBeInTheDocument());
     expect(screen.getByText(/Fornecedor.*14\.221\.900/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("1 de 2 requisitos satisfeitos")).toBeInTheDocument());
     expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.getByText("conteúdo de requisitos aqui")).toBeInTheDocument();
   });
 
-  it("A14 (Block 6, holistic frontend review fix): renders 'Solicitações e recorrência' as a real link with the active-series count, never 'Em breve' text", async () => {
-    getMock.mockImplementation((path: string) => {
-      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
-      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.startsWith("/document-archive/series/")) {
-        return Promise.resolve({ series: [{ status: "ACTIVE" }, { status: "ACTIVE" }, { status: "CANCELLED" }] });
-      }
-      return Promise.resolve({ subject: subject() });
-    });
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+  it("keeps the subject identity/compliance/nav mounted while switching to the Solicitações section", async () => {
+    renderLayout("/subjects/subject-1/requests");
 
-    const link = await screen.findByRole("link", { name: /Solicitações e recorrência/ });
-    expect(link).toHaveAttribute("href", expect.stringContaining("/subjects/subject-1/requests"));
-    expect(within(link).getByText("2")).toBeInTheDocument();
-    expect(screen.queryByText(/Em breve/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Conservare Facilities ME" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("50%")).toBeInTheDocument());
+    expect(screen.getByText("conteúdo de solicitações aqui")).toBeInTheDocument();
+    expect(screen.queryByText("conteúdo de requisitos aqui")).not.toBeInTheDocument();
+  });
+
+  it("local nav marks 'Requisitos' as current on the index route, and 'Solicitações' on /requests", async () => {
+    renderLayout("/subjects/subject-1");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Requisitos" })).toHaveAttribute("aria-current", "page"));
+    expect(screen.getByRole("link", { name: "Solicitações" })).not.toHaveAttribute("aria-current");
   });
 
   it("shows '—' (never 0%) when totalRequirements is 0", async () => {
@@ -89,22 +101,18 @@ describe("SubjectHub (A09)", () => {
       if (path.includes("/compliance")) {
         return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       }
-      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject() });
     });
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+    renderLayout("/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument());
-    // Scoped to the compliance panel's percentage element - the page also renders other em
-    // dashes now too (e.g. a loading MetricCard before its query resolves).
     const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
     expect(section?.querySelector(".ui-compliance__percent")?.textContent).toBe("—");
   });
 
   it("'Editar fornecedor' opens the SubjectFormDialog modal pre-filled, instead of navigating to a route", async () => {
     mockAsRole("OWNER");
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+    renderLayout("/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Editar fornecedor" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Editar fornecedor" }));
@@ -116,11 +124,9 @@ describe("SubjectHub (A09)", () => {
   it("shows the archived InlineNotice for an ARCHIVED subject", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
-      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
     });
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+    renderLayout("/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByText(/Este fornecedor está arquivado/)).toBeInTheDocument());
   });

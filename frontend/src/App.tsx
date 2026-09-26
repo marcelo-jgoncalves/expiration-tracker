@@ -47,7 +47,7 @@ const ItemReminderPolicy = lazy(() =>
 const SubjectsCollection = lazy(() =>
   import("./routes/subjects/SubjectsCollection.js").then((m) => ({ default: m.SubjectsCollection })),
 );
-const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
+const SubjectLayout = lazy(() => import("./routes/subjects/SubjectLayout.js").then((m) => ({ default: m.SubjectLayout })));
 const RequirementsCollection = lazy(() =>
   import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
 );
@@ -178,14 +178,24 @@ export function App() {
                 <Route path="items/:itemId" element={<ItemDetail />} />
                 <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
-                <Route path="subjects/:subjectId" element={<SubjectHub />} />
-                {/* A14 (Block 6, D-2xx) - Solicitações e recorrência, `docarchive:series-read`
-                    (all roles, incl. VIEWER). Same component for both routes - the seriesId
-                    route opens the series detail overlay on top of the same two panels. */}
-                <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
-                <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
+                {/* D-339 (redesenho do fluxo de detalhe de Fornecedor, item 35): casca persistente
+                    substitui o antigo hub-de-cards (A09) - Requisitos (índice, com Conformidade
+                    fundida como resumo em SubjectLayout) e Solicitações (A14) viram seções da
+                    MESMA navegação local, nunca páginas irmãs desconectadas. RequirementDetail
+                    ganha rota própria (nunca mais só `useState` local) - mesmo componente
+                    (`RequirementsCollection`) atende ao índice e ao detalhe, mesmo precedente já
+                    usado abaixo por `series/:seriesId`. */}
+                <Route path="subjects/:subjectId" element={<SubjectLayout />}>
+                  <Route index element={<RequirementsCollection />} />
+                  <Route path="requirements/:requirementId" element={<RequirementsCollection />} />
+                  <Route path="requests" element={<SubjectRequests />} />
+                  <Route path="series/:seriesId" element={<SubjectRequests />} />
+                </Route>
                 {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
-                    top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
+                    top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos").
+                    Continua rota própria fora da casca (D-339 fechamento) - `runId` na URL
+                    retoma geração após sair/recarregar, propriedade que uma casca compartilhada
+                    quebraria sem reconciliação própria. */}
                 <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
                 <Route path="requirements" element={<RequirementsCollection />} />
                 {/* A13 (Block 5, D-2xx) - Fila de revisão, `docarchive:read` (all roles). */}

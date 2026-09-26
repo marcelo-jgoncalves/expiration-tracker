@@ -30,3 +30,31 @@
   margin: 0;
   padding: 0;
 }
+
+/* D-339 (redesenho do fluxo de detalhe de Fornecedor) - navegação local persistente
+   (Requisitos/Solicitações), sempre visível abaixo do painel de Conformidade e acima da seção
+   ativa. Mesmos tokens de cor já usados no hover roxo de IconButton (nunca uma cor nova). */
+.subject-layout__nav {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.subject-layout__nav-link {
+  display: inline-block;
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+}
+
+.subject-layout__nav-link:hover {
+  color: var(--color-text-primary);
+}
+
+.subject-layout__nav-link[aria-current="page"] {
+  color: var(--color-action-primary-pressed);
+  border-bottom-color: var(--color-action-primary-pressed);
+}
