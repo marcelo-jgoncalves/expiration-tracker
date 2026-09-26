@@ -19,8 +19,16 @@ const logger = new SecureLogger({ baseContext: { service: "reminder-scan-control
 export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatchResponse> {
   const failures: { itemIdentifier: string }[] = [];
   for (const record of event.Records) {
-    const recordId = record.eventID ?? record.dynamodb?.SequenceNumber ?? "unknown";
-    await runWithContext({ correlationId: recordId }, async () => {
+    // full-audit round3/seguranca (R3-03, 2026-09-25): `itemIdentifier` in `batchItemFailures`
+    // MUST be the DynamoDB Stream record's `SequenceNumber` - it's what Lambda uses to find the
+    // checkpoint to resume from (docs.aws.amazon.com/lambda/latest/dg/services-ddb-batchfailurereporting.html).
+    // `eventID` is a fine value for a LOG correlation id (any unique string works there) but is
+    // never a valid checkpoint - reporting it as the failed item silently breaks selective
+    // partial-batch retry. The two ids are kept separate on purpose; only `sequenceNumber` may
+    // ever be pushed into `failures`.
+    const sequenceNumber = record.dynamodb?.SequenceNumber;
+    const logId = record.eventID ?? sequenceNumber ?? "unknown";
+    await runWithContext({ correlationId: logId }, async () => {
       try {
         if (record.eventName !== "INSERT" && record.eventName !== "MODIFY") return;
         const image = record.dynamodb?.NewImage;
@@ -35,12 +43,12 @@ export async function handler(event: DynamoDBStreamEvent): Promise<DynamoDBBatch
             },
             markPublished: store.markPublished.bind(store), now: () => new Date().toISOString(),
           }, item);
-          logger.info("reminder-scan-control-relay outcome", { recordId, eventId: item.eventId, outcome });
+          logger.info("reminder-scan-control-relay outcome", { recordId: logId, eventId: item.eventId, outcome });
         });
       } catch (error) {
         const appError = toAppError(error);
-        logger.error("reminder-scan-control-relay failed", { recordId, errorCode: appError.code, retryable: appError.retryable });
-        failures.push({ itemIdentifier: recordId });
+        logger.error("reminder-scan-control-relay failed", { recordId: logId, errorCode: appError.code, retryable: appError.retryable });
+        if (sequenceNumber) failures.push({ itemIdentifier: sequenceNumber });
       }
     });
   }

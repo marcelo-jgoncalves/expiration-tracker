@@ -33,7 +33,7 @@ import {
 } from "../domain/import-row.js";
 import { normalizeDisplayName, type TrackedSubjectType } from "../../subject/domain/tracked-subject.js";
 import { importDedupKey, type ImportDedupRecord } from "../domain/import-dedup.js";
-import { buildImportJobClaim, importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
+import { buildImportJobClaim, importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_HEADER_COLUMNS, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
 import { isTransactionCanceled, type ImportStore } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import type { SubjectStore } from "../../subject/ports/subject-store.js";
@@ -117,6 +117,9 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
     }
 
     const { header, rows } = parseCsv(bytes.toString("utf-8"));
+    if (header.length > MAX_IMPORT_HEADER_COLUMNS) {
+      return await failJob(deps, tenantId, claimedJob, "TOO_MANY_COLUMNS");
+    }
     if (rows.length > MAX_IMPORT_ROWS) {
       return await failJob(deps, tenantId, claimedJob, "TOO_MANY_ROWS");
     }

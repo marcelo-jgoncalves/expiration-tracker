@@ -180,6 +180,18 @@ describe("parseImportJob (M11, D-042)", () => {
     expect(job?.status).toBe("FAILED");
   });
 
+  it("fails the job when the header exceeds the column limit, never materializing a row object per column (R3-04)", async () => {
+    const header = Array.from({ length: 51 }, (_, i) => `col${i}`).join(",") + "\n";
+    const row = Array.from({ length: 51 }, () => "x").join(",") + "\n";
+    objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, header + row);
+
+    const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
+
+    expect(outcome).toEqual({ kind: "FAILED", reason: "TOO_MANY_COLUMNS" });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("FAILED");
+  });
+
   it("accepts a formula-like displayName with a warning recorded in the plan, never rejecting it", async () => {
     objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, 'displayName,type\n"=SUM(A1:A2)",VENDOR\n');
 
