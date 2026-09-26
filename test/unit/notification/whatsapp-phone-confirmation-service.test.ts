@@ -120,7 +120,7 @@ describe("WhatsAppPhoneConfirmationService.requestConfirmation", () => {
   // (voltando a `version: 1` fixo) faria esta escrita simulada suceder em vez de falhar.
   it("a resend's version never coincides with a pending write's expectedVersion from the old challenge", async () => {
     let now = "2026-09-23T00:00:00.000Z";
-    const { service, store, provider } = buildService({ now: () => now });
+    const { service, store } = buildService({ now: () => now });
     await service.requestConfirmation(ctx(), PHONE);
     const key = whatsAppPhoneConfirmationKey(TENANT, USER, PHONE);
     const oldChallenge = await store.get<WhatsAppPhoneConfirmation>(key);
@@ -479,7 +479,7 @@ describe("WhatsAppPhoneConfirmationService.confirmPhone", () => {
   // em `confirmPhone()` faria o `store.transactWrite` direto abaixo (que usa o `version` real
   // pós-primeira tentativa errada) não detectar conflito nenhum.
   it("the attemptCount write is version-fenced - a stale concurrent writer is rejected, never silently overwritten", async () => {
-    const { service, store, provider } = buildService();
+    const { service, store } = buildService();
     await service.requestConfirmation(ctx(), PHONE);
     await service.confirmPhone(ctx(), PHONE, "000000").catch(() => {}); // version 1 -> 2 (attemptCount 0 -> 1)
 
