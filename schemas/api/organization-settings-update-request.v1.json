@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json",
+  "title": "OrganizationSettingsUpdateRequest v1",
+  "description": "PATCH /organizations/settings request body — Wave B2B-10. `expectedVersion` travels in the If-Match header, not the body. Item 11 adversarial review (2026-09-25) real finding: this route had no Ajv schema at all, so a non-string field (e.g. a number) reached UpdateOrganizationSettingsService.update() and crashed as an uncaught TypeError (500) instead of a clean 400.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "timezone": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "defaultReminderLocalTime": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+  }
+}

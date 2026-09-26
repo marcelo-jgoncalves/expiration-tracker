@@ -16,19 +16,14 @@
 import type {
   ExpirationItem,
   ExpirationItemStatus,
-  DocumentSubmissionStatus,
   DocumentStatus,
   DocumentTypeStatus,
-  RequirementAssignmentStatus,
   RequirementStatus,
   RequirementTemplateStatus,
   TrackedSubjectType,
   DocumentRequest,
   DocumentRequestSeriesStatus,
-  LegacyDocumentRequestStatus,
   ImportJobStatus,
-  DocumentChasingTier,
-  DocumentChasingOccurrenceStatus,
   Member,
   MembershipRole,
   MembershipStatus,
@@ -182,36 +177,32 @@ export function sortByDueDateAscending<T extends Pick<ExpirationItem, "dueDate">
 }
 
 /**
- * BLOCKER-C review queue labels. Same Epistemic Integrity discipline the interface planning
- * docs established (interface-conceptual-model-and-information-architecture.md §44) and this
- * file's own header comment restates: never a claim stronger than the domain actually
- * supports. `SATISFIED` is a link recorded once, never revalidated against the linked item's
- * own current status - it means "vinculado", never "em dia"/"válido" (that would require
- * live recomputation this domain doesn't do). `CLEAN` on a submission means only that the
- * malware scan passed, never that a human confirmed the document's content is correct.
+ * Epistemic Integrity discipline the interface planning docs established
+ * (interface-conceptual-model-and-information-architecture.md §44) and this file's own header
+ * comment restates: never a claim stronger than the domain actually supports. `CLEAN` means
+ * only that the malware scan passed, never that a human confirmed the document's content is
+ * correct. ADR-0016 (2026-09-25) retired the subject module's own `RequirementAssignment`/
+ * `DocumentSubmission` (A10, M9/M10) this file used to also present via
+ * `presentRequirementStatus`/`presentSubmissionStatus` - `presentDocumentStatus` below now owns
+ * this switch directly rather than aliasing a function that no longer exists.
  */
-export function presentRequirementStatus(status: RequirementAssignmentStatus): StatusPresentation {
-  switch (status) {
-    case "MISSING":
-      return { label: "Faltando", tone: "warning" };
-    case "REQUESTED":
-      return { label: "Solicitado", tone: "neutral" };
-    case "SUBMITTED":
-      return { label: "Enviado, aguardando revisão", tone: "warning" };
-    case "UNDER_REVIEW":
-      return { label: "Em análise", tone: "neutral" };
-    case "REJECTED":
-      return { label: "Rejeitado", tone: "danger" };
-    case "SATISFIED":
-      return { label: "Vinculado a um vencimento", tone: "neutral" };
-  }
-}
-
-/** A07 (Block 2) - `Document` (`src/modules/document/domain/document.ts`) shares the exact
- * same status vocabulary as `DocumentSubmission` (`presentSubmissionStatus` above), so this is
- * a thin alias rather than a re-derivation of the same mapping rule in a second place. */
 export function presentDocumentStatus(status: DocumentStatus): StatusPresentation {
-  return presentSubmissionStatus(status);
+  switch (status) {
+    case "PENDING_UPLOAD":
+      return { label: "Aguardando envio", tone: "neutral" };
+    case "SCANNING":
+      return { label: "Verificando segurança", tone: "neutral" };
+    case "CLEAN":
+      return { label: "Verificado (segurança) — conteúdo não conferido", tone: "neutral" };
+    case "REJECTED":
+      return { label: "Rejeitado (ameaça detectada)", tone: "danger" };
+    case "UNSUPPORTED":
+      return { label: "Arquivo não suportado", tone: "danger" };
+    case "TIMEOUT":
+      return { label: "Envio expirado", tone: "warning" };
+    case "DELETED":
+      return { label: "Excluído", tone: "neutral" };
+  }
 }
 
 /** A06 (Block 2 D-258) - reminder channel availability. WhatsApp has no consent flow yet
@@ -244,8 +235,7 @@ export function presentSubjectType(type: TrackedSubjectType): string {
   }
 }
 
-/** A11 (Block 3, D-2xx) - `document-archive` module's `Requirement` (5-state, evidence-backed),
- * distinct from `presentRequirementStatus` above (the legacy `RequirementAssignment`, A10).
+/** A11 (Block 3, D-2xx) - `document-archive` module's `Requirement` (5-state, evidence-backed).
  * `NOT_APPLICABLE` gets its own label/tone pair, deliberately never collapsed into MISSING's
  * text even though both could read as "not fulfilled" - the audit fix names this explicitly. */
 export function presentRequirementDocStatus(status: RequirementStatus): StatusPresentation {
@@ -284,25 +274,6 @@ export function presentRequirementTemplateStatus(status: RequirementTemplateStat
   }
 }
 
-export function presentSubmissionStatus(status: DocumentSubmissionStatus): StatusPresentation {
-  switch (status) {
-    case "PENDING_UPLOAD":
-      return { label: "Aguardando envio", tone: "neutral" };
-    case "SCANNING":
-      return { label: "Verificando segurança", tone: "neutral" };
-    case "CLEAN":
-      return { label: "Verificado (segurança) — conteúdo não conferido", tone: "neutral" };
-    case "REJECTED":
-      return { label: "Rejeitado (ameaça detectada)", tone: "danger" };
-    case "UNSUPPORTED":
-      return { label: "Arquivo não suportado", tone: "danger" };
-    case "TIMEOUT":
-      return { label: "Envio expirado", tone: "warning" };
-    case "DELETED":
-      return { label: "Excluído", tone: "neutral" };
-  }
-}
-
 /** A14 (Block 6, D-2xx) — "Ativa"/"Cancelada", BOTH neutral (A14-solicitacoes-recorrencia.md's
  * own explicit instruction: a cancelled series is closed history, not a warning/critical
  * attention state). */
@@ -315,61 +286,11 @@ export function presentDocumentRequestSeriesStatus(status: DocumentRequestSeries
   }
 }
 
-/**
- * A14 (Block 6, D-2xx) — "Link do convidado" cell text. Derived exclusively from
- * `DocumentRequest.status`/`deadline` — never from delivery-attempt state (SENT/SEND_UNCERTAIN),
- * which the tenant-facing side genuinely cannot read (see `SubjectRequests.tsx`'s header
- * comment for the real, confirmed gap this deviates from the spec's "Entrega da credencial"
- * column). Plain text, not a StatusBadge, matching the spec's own "(texto: ...)" phrasing.
- */
-/** A10 (Block 7, D-2xx) - `LegacyDocumentRequest.status` (subject module, distinct from
- * `DocumentRequestSeriesStatus` above - see `LegacyDocumentRequest`'s own doc comment in
- * `types.ts`). Never "Enviada" as a delivery confirmation (same discipline as A14's
- * `presentGuestLinkState` - the system confirms link ISSUANCE, never receipt). */
-export function presentLegacyDocumentRequestStatus(status: LegacyDocumentRequestStatus): StatusPresentation {
-  switch (status) {
-    case "REQUESTED":
-      return { label: "Aguardando abertura", tone: "neutral" };
-    case "OPENED":
-      return { label: "Aberta pelo destinatário", tone: "neutral" };
-    case "SUBMITTED":
-      return { label: "Aguardando revisão", tone: "warning" };
-    case "COMPLETED":
-      return { label: "Concluída", tone: "neutral" };
-    case "CANCELLED":
-      return { label: "Cancelada", tone: "neutral" };
-    case "EXPIRED":
-      return { label: "Expirada", tone: "warning" };
-    case "REVOKED":
-      return { label: "Revogada", tone: "neutral" };
-  }
-}
-
-/** D-288 - A10 timeline's automated-reminder entries. T7/T3 are upcoming (days before the
- * deadline); EXPIRED fires once the deadline itself has passed. */
-export function presentDocumentChasingTier(tier: DocumentChasingTier): string {
-  switch (tier) {
-    case "T7":
-      return "Lembrete (7 dias antes do prazo)";
-    case "T3":
-      return "Lembrete (3 dias antes do prazo)";
-    case "EXPIRED":
-      return "Lembrete (prazo expirado)";
-  }
-}
-
-export function presentDocumentChasingOccurrenceStatus(status: DocumentChasingOccurrenceStatus): StatusPresentation {
-  switch (status) {
-    case "SCHEDULED":
-      return { label: "Agendado", tone: "neutral" };
-    case "CLAIMED":
-      return { label: "Enviando…", tone: "neutral" };
-    case "TRIGGERED":
-      return { label: "Enviado", tone: "neutral" };
-    case "CANCELLED":
-      return { label: "Cancelado", tone: "neutral" };
-  }
-}
+/** ADR-0016 (2026-09-25) retired the subject module's own A10 timeline presenters
+ * (`presentLegacyDocumentRequestStatus`/`presentDocumentChasingTier`/
+ * `presentDocumentChasingOccurrenceStatus`, M9/M10 `LegacyDocumentRequest`/
+ * `DocumentChasingOccurrence`) that used to sit here - `presentGuestLinkState` below is A14's
+ * surviving equivalent for `DocumentRequest`'s own status vocabulary. */
 
 /** #15 (2026-09-21): a display label for a member, preferring the resolved GlobalUser profile
  * over the raw userId - `displayName` first (what a person actually goes by), `email` next
@@ -402,18 +323,16 @@ export function initialsFor(name: string | undefined): string {
   return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
 }
 
-const MEMBERSHIP_ROLE_LABEL: Record<MembershipRole, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  MEMBER: "Member",
-  VIEWER: "Viewer",
-};
-
 /** Same 4 labels `Members.tsx`'s `ROLE_OPTIONS` already shows in its role-change dropdown - a
  * single source for anywhere else (e.g. the sidebar identity card) that needs to display a
  * role, so the two never drift apart. */
 export function presentMembershipRole(role: MembershipRole): string {
-  return MEMBERSHIP_ROLE_LABEL[role];
+  switch (role) {
+    case "OWNER": return "Proprietário";
+    case "ADMIN": return "Administrador";
+    case "MEMBER": return "Membro";
+    case "VIEWER": return "Leitor";
+  }
 }
 
 /** #15 redesign (2026-09-21) - `Members.tsx`'s active-members table previously rendered the raw
@@ -473,6 +392,13 @@ export function presentImportJobStatus(status: ImportJobStatus): StatusPresentat
   }
 }
 
+/**
+ * A14 (Block 6, D-2xx) — "Link do convidado" cell text. Derived exclusively from
+ * `DocumentRequest.status`/`deadline` — never from delivery-attempt state (SENT/SEND_UNCERTAIN),
+ * which the tenant-facing side genuinely cannot read (see `SubjectRequests.tsx`'s header
+ * comment for the real, confirmed gap this deviates from the spec's "Entrega da credencial"
+ * column). Plain text, not a StatusBadge, matching the spec's own "(texto: ...)" phrasing.
+ */
 export function presentGuestLinkState(request: Pick<DocumentRequest, "status" | "deadline">, now: Date): string {
   if (request.status === "SUBMITTED" || request.status === "COMPLETED") return "Resolvido (submissão recebida)";
   if (request.status === "REVOKED") return "Revogado";

@@ -7,14 +7,7 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildDocumentWorkerDeps } from "../composition/document.js";
 import { finalizeUpload } from "../../../workers/upload-finalizer/finalizer.js";
 import { parseQuarantineKey } from "../../../modules/document/domain/quarantine-key.js";
-// M10 (D-037): branch puramente aditivo para o namespace de key de guest upload
-// (`tenant/.../subject/...`) - nunca sobrepõe o formato item-anchored acima
-// (`tenant/.../item/...`), que continua resolvido pelo parser/fluxo originais sem nenhuma
-// mudança de comportamento.
-import { parseSubmissionQuarantineKey } from "../../../modules/subject/domain/submission-quarantine-key.js";
-import { finalizeSubmissionUpload } from "../../../workers/submission-finalizer/finalizer.js";
-import { buildSubjectWorkerDeps } from "../composition/subject.js";
-// D-193 ("Ingestão física", slice 1): terceiro branch aditivo para o namespace `document-
+// D-193 ("Ingestão física", slice 1): segundo branch aditivo para o namespace `document-
 // archive/...` (D-163 §7) - o BUG REAL este slice corrige: nenhum dos dois parsers acima
 // reconhece esse prefixo, então até este slice uma DocumentFile enviada via document-archive
 // caía no "unrecognized key shape" abaixo e ficava presa em PENDING_UPLOAD para sempre.
@@ -44,7 +37,6 @@ if (!appConfigApplicationId) throw new Error("APPCONFIG_APPLICATION_ID env var i
 if (!appConfigEnvironmentId) throw new Error("APPCONFIG_ENVIRONMENT_ID env var is required.");
 if (!appConfigConfigurationProfileId) throw new Error("APPCONFIG_CONFIGURATION_PROFILE_ID env var is required.");
 const deps = buildDocumentWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
-const submissionDeps = buildSubjectWorkerDeps(client, tableName, cleanBucket, parserFunctionName);
 const documentArchiveDeps = buildDocumentArchiveWorkerDeps(client, tableName, cleanBucket, new AppConfigDataClient({}), {
   applicationId: appConfigApplicationId,
   environmentId: appConfigEnvironmentId,
@@ -108,28 +100,10 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
           return;
         }
 
-        // M10: não é uma key item-anchored (M6) - tenta o namespace de guest submission antes
-        // de desistir. Os dois formatos nunca colidem (segmentos "item" vs "subject").
-        const parsedSubmission = parseSubmissionQuarantineKey(detail.object.key);
-        if (!parsedSubmission) {
-          // A key this handler doesn't recognize (never produced by either reserveUpload flow)
-          // is not a retryable failure - it can never resolve on retry. Log and drop, never DLQ-loop.
-          logger.error("upload-finalizer unrecognized key shape", { key: detail.object.key });
-          return;
-        }
-
-        await runWithContext({ correlationId: randomUUID(), tenantId: parsedSubmission.tenantId }, async () => {
-          const outcome = await finalizeSubmissionUpload(submissionDeps, {
-            // Same S3-object-key provenance as the document-archive branch above -
-            // parsed from a key our own upload-reservation code wrote, not client input.
-            tenantId: authorizedTenantIdFromPersistedEntity(parsedSubmission),
-            subjectId: parsedSubmission.subjectId,
-            assignmentId: parsedSubmission.assignmentId,
-            submissionId: parsedSubmission.submissionId,
-            object: { bucket: detail.bucket.name, key: detail.object.key, versionId: detail.object["version-id"]! },
-          });
-          logger.info("upload-finalizer submission outcome", { submissionId: parsedSubmission.submissionId, outcome });
-        });
+        // ADR-0016 Decision A retired the guest-submission namespace (`tenant/.../subject/...`)
+        // this branch used to also try — a key matching neither format above is now simply
+        // unrecognized, never retryable.
+        logger.error("upload-finalizer unrecognized key shape", { key: detail.object.key });
       } catch (err) {
         // Real incident (2026-08-22): a bare `err.message` of "UnknownError" (AWS SDK v3's
         // fallback for a response it couldn't classify) gave zero diagnostic signal for a real

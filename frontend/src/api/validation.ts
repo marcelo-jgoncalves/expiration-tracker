@@ -118,11 +118,17 @@ export function parseTagsInput(raw: string): string[] {
     .filter((tag) => tag.length > 0);
 }
 
+function isCivilDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(value + "T00:00:00.000Z");
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 export function validateCreateItemDraft(draft: CreateItemDraft): FieldErrors {
   const fields: Record<string, string> = {};
 
   if (!draft.name.trim()) {
-    fields["name"] = "Informe um nome.";
+    fields["name"] = "Informe o nome do vencimento.";
   } else if (draft.name.length > MAX_LENGTH.name) {
     fields["name"] = `Use no máximo ${MAX_LENGTH.name} caracteres.`;
   }
@@ -133,8 +139,11 @@ export function validateCreateItemDraft(draft: CreateItemDraft): FieldErrors {
     fields["category"] = `Use no máximo ${MAX_LENGTH.category} caracteres.`;
   }
 
-  if (!draft.dueDate) {
-    fields["dueDate"] = "Informe a data de vencimento.";
+  if (!isCivilDate(draft.dueDate)) {
+    fields["dueDate"] = "Informe uma data válida.";
+  }
+  if (draft.issueDate && !isCivilDate(draft.issueDate)) {
+    fields["issueDate"] = "Informe uma data de emissão válida.";
   }
 
   if (draft.description.length > MAX_LENGTH.description) {

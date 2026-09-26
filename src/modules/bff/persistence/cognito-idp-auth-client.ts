@@ -44,6 +44,21 @@ function secretHash(username: string, clientId: string, clientSecret: string): s
   return createHmac("sha256", clientSecret).update(username + clientId).digest("base64");
 }
 
+/**
+ * Best-effort match on Cognito's own (undocumented-as-contract) exception message text for "this
+ * account is already confirmed" - round-1 Codex finding (`docs/architecture/reviews/
+ * d321-direct-auth-adversarial-review/`): `confirmSignUp`/`resendConfirmationCode` used to treat
+ * ANY `NotAuthorizedException`/`InvalidParameterException` as ALREADY_CONFIRMED, which could
+ * silently report success for an unrelated authorization/parameter failure. Message text is not
+ * part of Cognito's documented API contract (only the exception TYPE is), so this is deliberately
+ * a narrowing, defense-in-depth check, never the only thing standing between a real failure and a
+ * false success - a message that doesn't match falls through to `UNKNOWN_OUTCOME` (mapped to a
+ * 503 by `BffAuthService`), never a silently assumed success.
+ */
+function looksAlreadyConfirmed(message: string | undefined): boolean {
+  return /already confirmed|current status is confirmed/i.test(message ?? "");
+}
+
 function isTransient(err: unknown): boolean {
   // Anything that isn't one of the specific, expected Cognito exceptions below is treated as
   // transient/unknown rather than silently swallowed - a thrown network error, throttling, or
@@ -106,7 +121,7 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
     }
   }
 
-  async signUp(input: { username: string; password: string }): Promise<CognitoSignUpOutcome> {
+  async signUp(input: { username: string; password: string; name: string }): Promise<CognitoSignUpOutcome> {
     try {
       await this.client.send(
         new SignUpCommand({
@@ -114,7 +129,15 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
           Username: input.username,
           Password: input.password,
           SecretHash: this.hash(input.username),
-          UserAttributes: [{ Name: "email", Value: input.username }],
+          // `name` (standard Cognito attribute, no schema/read_attributes change needed - see
+          // infra/modules/cognito/main.tf) rides the ID token's own `name` claim on first login,
+          // which `AwsJwtIdTokenVerifier.verify()` already reads generically for every auth path
+          // (direct password login included, not just OIDC) - `BootstrapIdentityService` then
+          // just works, no other backend change required for `GlobalUser.displayName`.
+          UserAttributes: [
+            { Name: "email", Value: input.username },
+            { Name: "name", Value: input.name },
+          ],
         }),
       );
       return { kind: "CONFIRMATION_REQUIRED" };
@@ -138,7 +161,10 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
       return { kind: "SUCCESS" };
     } catch (err) {
       if (err instanceof CodeMismatchException || err instanceof ExpiredCodeException) return { kind: "INVALID_CODE_OR_EXPIRED" };
-      if (err instanceof NotAuthorizedException) return { kind: "ALREADY_CONFIRMED" }; // Cognito's own message for this case, when ENABLED
+      // Only the documented "already confirmed" message maps to that outcome - ANY other
+      // NotAuthorizedException (app client misconfiguration, unexpected auth failure) used to
+      // be folded into the same false success (round-1 Codex finding).
+      if (err instanceof NotAuthorizedException && looksAlreadyConfirmed(err.message)) return { kind: "ALREADY_CONFIRMED" };
       if (isTransient(err)) return { kind: "TRANSIENT_FAILURE", cause: err };
       return { kind: "UNKNOWN_OUTCOME" };
     }
@@ -149,7 +175,9 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
       await this.client.send(new ResendConfirmationCodeCommand({ ClientId: this.clientId, Username: input.username, SecretHash: this.hash(input.username) }));
       return { kind: "SENT" };
     } catch (err) {
-      if (err instanceof InvalidParameterException) return { kind: "ALREADY_CONFIRMED" }; // Cognito's message when the user is already CONFIRMED
+      // Same narrowing as confirmSignUp above (round-1 Codex finding) - only the documented
+      // "already confirmed" message maps to that outcome, never every InvalidParameterException.
+      if (err instanceof InvalidParameterException && looksAlreadyConfirmed(err.message)) return { kind: "ALREADY_CONFIRMED" };
       // Anti-enumeration (decision 3), same fold as forgotPassword() below - a nonexistent
       // e-mail must resolve identically to a real, unconfirmed one from the caller's point of
       // view. Without this, UserNotFoundException would fall through to UNKNOWN_OUTCOME below
@@ -168,7 +196,11 @@ export class CognitoIdpAuthClient implements CognitoAuthClient {
       // UserNotFoundException is swallowed into SUCCESS on purpose (D-3xx decision 3) - under
       // `prevent_user_existence_errors = "ENABLED"` Cognito itself normally never throws this
       // for ForgotPassword in the first place, but this adapter does not rely on that alone.
-      if (err instanceof UserNotFoundException) return { kind: "SUCCESS" };
+      // InvalidParameterException is folded the same way (round-1 Codex finding, AWS's own docs
+      // on error suppression) - a user with no verified recovery attribute (email/phone) also
+      // throws this, which would otherwise create a 3-way oracle (real send=202, no-such-user=
+      // 202, "exists but nothing to send to"=503) distinguishable without any timing measurement.
+      if (err instanceof UserNotFoundException || err instanceof InvalidParameterException) return { kind: "SUCCESS" };
       if (isTransient(err)) return { kind: "TRANSIENT_FAILURE", cause: err };
       return { kind: "UNKNOWN_OUTCOME" };
     }

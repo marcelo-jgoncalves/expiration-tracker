@@ -48,6 +48,7 @@ beforeEach(() => {
 describe("SignUp", () => {
   it("blocks submission client-side when the passwords don't match, never calling the API", () => {
     renderSignUp();
+    fireEvent.change(screen.getByLabelText(/^Nome completo/), { target: { value: "Ana Exemplo" } });
     fireEvent.change(screen.getByLabelText(/^E-mail/), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText(/^Senha/), { target: { value: "Correct-Horse-1" } });
     fireEvent.change(screen.getByLabelText(/Confirmar senha/), { target: { value: "different" } });
@@ -57,26 +58,41 @@ describe("SignUp", () => {
     expect(signUpMock).not.toHaveBeenCalled();
   });
 
-  it("submits and navigates to /verify-email with the e-mail as a query param on success", async () => {
+  it("submits (with the trimmed name) and navigates to /verify-email with the e-mail as a query param on success", async () => {
     signUpMock.mockResolvedValue({ status: "CONFIRMATION_REQUIRED" });
     renderSignUp();
+    fireEvent.change(screen.getByLabelText(/^Nome completo/), { target: { value: "  Ana Exemplo  " } });
     fireEvent.change(screen.getByLabelText(/^E-mail/), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText(/^Senha/), { target: { value: "Correct-Horse-1" } });
     fireEvent.change(screen.getByLabelText(/Confirmar senha/), { target: { value: "Correct-Horse-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Criar conta" }));
 
-    await waitFor(() => expect(signUpMock).toHaveBeenCalledWith({ email: "new@example.com", password: "Correct-Horse-1" }));
+    await waitFor(() => expect(signUpMock).toHaveBeenCalledWith({ email: "new@example.com", password: "Correct-Horse-1", name: "Ana Exemplo" }));
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/verify-email?email=new%40example.com", { replace: true }));
   });
 
   it("shows a specific message when the e-mail is already registered (CONFLICT)", async () => {
     signUpMock.mockRejectedValue(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "Já existe uma conta com este e-mail.", retryable: false }, 409));
     renderSignUp();
+    fireEvent.change(screen.getByLabelText(/^Nome completo/), { target: { value: "Ana Exemplo" } });
     fireEvent.change(screen.getByLabelText(/^E-mail/), { target: { value: "taken@example.com" } });
     fireEvent.change(screen.getByLabelText(/^Senha/), { target: { value: "Correct-Horse-1" } });
     fireEvent.change(screen.getByLabelText(/Confirmar senha/), { target: { value: "Correct-Horse-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Criar conta" }));
 
     await waitFor(() => expect(screen.getByText("Já existe uma conta com este e-mail.")).toBeInTheDocument());
+  });
+
+  // Required per Marcelo (2026-09-23): a signup with the name left blank must never reach the
+  // API - required HTML5 field, but this app's other forms don't rely on the browser alone
+  // elsewhere, so it's worth its own regression guard.
+  it("does not call the API when name is blank (native required validation)", () => {
+    renderSignUp();
+    fireEvent.change(screen.getByLabelText(/^E-mail/), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^Senha/), { target: { value: "Correct-Horse-1" } });
+    fireEvent.change(screen.getByLabelText(/Confirmar senha/), { target: { value: "Correct-Horse-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Criar conta" }));
+
+    expect(signUpMock).not.toHaveBeenCalled();
   });
 });

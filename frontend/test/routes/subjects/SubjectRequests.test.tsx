@@ -66,6 +66,7 @@ function documentRequest(overrides: Partial<DocumentRequest> = {}): DocumentRequ
     deadline: "2026-09-12T00:00:00.000Z",
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery: "MANUAL",
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
     version: 1,
@@ -179,10 +180,60 @@ describe("SubjectRequests (A14)", () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith(
         "/document-archive/requirements/subject-1/req-1/document-requests",
-        expect.objectContaining({ recipientEmail: "financeiro@atlasschindler.com" }),
+        expect.objectContaining({ recipientEmail: "financeiro@atlasschindler.com", initialInviteDelivery: "DEFAULT" }),
       ),
     );
     await waitFor(() => expect(screen.getByText("Solicitação criada")).toBeInTheDocument());
+  });
+
+  // ADR-0016 Decision B (2026-09-25): the avulso form's own per-call override of A22's tenant
+  // default - submits without a recipientEmail when MANUAL is chosen explicitly.
+  it("'Nova solicitação avulsa' submits with MANUAL delivery and no recipientEmail", async () => {
+    mockRole("MEMBER");
+    mockData({ series: [], requests: [] });
+    postMock.mockResolvedValue({ documentRequest: documentRequest() });
+    renderScreen();
+
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Nova solicitação avulsa" }).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova solicitação avulsa" })[0]!);
+
+    const combobox = await screen.findByRole("combobox", { name: /Requisito/ });
+    fireEvent.change(combobox, { target: { value: "CND" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: "CND Federal" })).toBeInTheDocument());
+    fireEvent.mouseDown(screen.getByRole("option", { name: "CND Federal" }));
+
+    fireEvent.click(screen.getByLabelText("Entrega manual"));
+    fireEvent.click(screen.getByRole("button", { name: "Criar solicitação" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/document-archive/requirements/subject-1/req-1/document-requests",
+        expect.objectContaining({ initialInviteDelivery: "MANUAL" }),
+      ),
+    );
+    expect(postMock.mock.calls[0]?.[1]).not.toHaveProperty("recipientEmail");
+  });
+
+  // ADR-0016 Decision B: mirrors the backend's own EMAIL-without-recipient rejection - never lets
+  // the form submit a request that is guaranteed to fail server-side.
+  it("'Nova solicitação avulsa' rejects EMAIL delivery without a recipientEmail before ever submitting", async () => {
+    mockRole("MEMBER");
+    mockData({ series: [], requests: [] });
+    renderScreen();
+
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Nova solicitação avulsa" }).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova solicitação avulsa" })[0]!);
+
+    const combobox = await screen.findByRole("combobox", { name: /Requisito/ });
+    fireEvent.change(combobox, { target: { value: "CND" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: "CND Federal" })).toBeInTheDocument());
+    fireEvent.mouseDown(screen.getByRole("option", { name: "CND Federal" }));
+
+    fireEvent.click(screen.getByLabelText("E-mail automático"));
+    fireEvent.click(screen.getByRole("button", { name: "Criar solicitação" }));
+
+    await waitFor(() => expect(screen.getByText(/Informe o e-mail do destinatário para entrega por e-mail automático/)).toBeInTheDocument());
+    expect(postMock).not.toHaveBeenCalled();
   });
 
   it("cancel-series confirmation names the resource and never uses the danger variant", async () => {

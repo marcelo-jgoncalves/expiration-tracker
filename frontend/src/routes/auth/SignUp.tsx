@@ -5,6 +5,13 @@
  * this screen is parity, not a new capability). On success, Cognito's
  * `auto_verified_attributes = ["email"]` requires the confirmation-code step (VerifyEmail.tsx)
  * before the account can log in.
+ *
+ * 2026-09-23 (Marcelo): "Nome completo" is required here - `bff-auth-service.ts`'s `signUp()`
+ * sets it as the Cognito `name` attribute, which rides the ID token's own `name` claim on first
+ * login (`AwsJwtIdTokenVerifier` already reads it generically for every auth path) straight into
+ * `GlobalUser.displayName` via `BootstrapIdentityService` - no other backend change needed. Before
+ * this, self-service signup never collected a name at all, so every member without an OIDC
+ * provider's `name` claim showed up as a raw e-mail/userId everywhere (Members, Atividade, ...).
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +31,7 @@ export function SignUp() {
   const navigate = useNavigate();
   const signUp = useSignUp();
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -49,7 +57,7 @@ export function SignUp() {
       return;
     }
     setMismatchError(undefined);
-    signUp.mutate({ email, password });
+    signUp.mutate({ email, password, name: name.trim() });
   }
 
   const errorMessage =
@@ -64,6 +72,7 @@ export function SignUp() {
       <PageHeader title="Criar conta" description="Crie sua conta para começar a controlar seus vencimentos." />
       <Panel padded>
         <form onSubmit={handleSubmit}>
+          <TextField label="Nome completo" value={name} onChange={setName} autoComplete="name" required />
           <TextField label="E-mail" type="email" value={email} onChange={setEmail} autoComplete="username" required />
           <TextField
             label="Senha"

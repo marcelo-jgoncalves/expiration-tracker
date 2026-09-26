@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
-import { RenewItem } from "../../../src/routes/items/RenewItem.js";
+import { RenewItemDialog } from "../../../src/routes/items/RenewItem.js";
 import type { ExpirationItem } from "../../../src/api/types.js";
 
 const { getMock, postMock, navigateMock } = vi.hoisted(() => ({
@@ -45,7 +45,7 @@ beforeEach(() => {
 describe("RenewItem", () => {
   it("shows a persistent notice explaining renew creates a new cycle rather than editing (mission §37)", async () => {
     getMock.mockResolvedValue({ item: item({}) });
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByText(/não é o mesmo que editar a data/)).toBeInTheDocument());
   });
@@ -53,7 +53,7 @@ describe("RenewItem", () => {
   it("submits the renewal with the item's current version as If-Match and navigates to the new cycle", async () => {
     getMock.mockResolvedValue({ item: item({}) });
     postMock.mockResolvedValue({ item: { itemId: "item-2" }, copiedReminderPolicyIds: [] });
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
@@ -71,7 +71,7 @@ describe("RenewItem", () => {
   it("passes copiedReminderPolicyIds through navigation state when the backend reports a copy", async () => {
     getMock.mockResolvedValue({ item: item({}) });
     postMock.mockResolvedValue({ item: { itemId: "item-2" }, copiedReminderPolicyIds: ["policy-1"] });
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
@@ -84,7 +84,7 @@ describe("RenewItem", () => {
     const { ApiError } = await import("../../../src/api/errors.js");
     getMock.mockResolvedValue({ item: item({ version: 3 }) });
     postMock.mockRejectedValue(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "VERSION_CONFLICT", retryable: false }));
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
@@ -99,7 +99,7 @@ describe("RenewItem", () => {
     const { ApiError } = await import("../../../src/api/errors.js");
     getMock.mockResolvedValueOnce({ item: item({ version: 3 }) }).mockResolvedValue({ item: item({ version: 4 }) });
     postMock.mockRejectedValueOnce(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "VERSION_CONFLICT", retryable: false })).mockResolvedValueOnce({ item: { itemId: "item-2" }, copiedReminderPolicyIds: [] });
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });
@@ -120,7 +120,7 @@ describe("RenewItem", () => {
     const { ApiError } = await import("../../../src/api/errors.js");
     getMock.mockResolvedValue({ item: item({}) });
     postMock.mockRejectedValue(ApiError.unknownOutcome(new Error("timeout")));
-    renderAtRoute("/items/:itemId/renew", <RenewItem />, "/items/item-1/renew");
+    renderAtRoute("", <RenewItemDialog itemId="item-1" onClose={() => {}} />, "/");
 
     await waitFor(() => expect(screen.getByLabelText(/Nova data de vencimento/)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/Nova data de vencimento/), { target: { value: "2027-09-01" } });

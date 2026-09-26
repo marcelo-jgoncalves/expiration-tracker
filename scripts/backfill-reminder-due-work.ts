@@ -6,7 +6,9 @@ const mainTable = process.env["TABLE_NAME"];
 const dueTable = process.env["REMINDER_DUE_WORK_TABLE_NAME"];
 if (!mainTable || !dueTable) throw new Error("TABLE_NAME and REMINDER_DUE_WORK_TABLE_NAME are required");
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), { marshallOptions: { removeUndefinedValues: true } });
-type Occurrence = { PK:string; SK:string; entityType:"ReminderOccurrence"|"DocumentChasingOccurrence"; tenantId:string; occurrenceId:string; scheduledAt:string; shardFnVersion:number; shard:string; purgeAfterTtl?:number };
+// ADR-0016 Decision A (2026-09-25) retired DocumentChasingOccurrence (document-chasing feature,
+// fully removed) - this backfill is once again reminder-only.
+type Occurrence = { PK:string; SK:string; entityType:"ReminderOccurrence"; tenantId:string; occurrenceId:string; scheduledAt:string; shardFnVersion:number; shard:string; purgeAfterTtl?:number };
 
 async function pass() {
   let cursor: Record<string, unknown> | undefined;
@@ -14,9 +16,9 @@ async function pass() {
   do {
     const page = await client.send(new ScanCommand({
       TableName: mainTable, ConsistentRead: true,
-      FilterExpression: "#status = :scheduled AND (#type = :reminder OR #type = :chasing)",
+      FilterExpression: "#status = :scheduled AND #type = :reminder",
       ExpressionAttributeNames: { "#status":"status", "#type":"entityType" },
-      ExpressionAttributeValues: { ":scheduled":"SCHEDULED", ":reminder":"ReminderOccurrence", ":chasing":"DocumentChasingOccurrence" },
+      ExpressionAttributeValues: { ":scheduled":"SCHEDULED", ":reminder":"ReminderOccurrence" },
       ExclusiveStartKey: cursor,
     }));
     const occurrences = (page.Items ?? []) as Occurrence[];
@@ -25,7 +27,7 @@ async function pass() {
       await Promise.all(occurrences.slice(offset, offset+25).map(async (occurrence) => {
         const now = new Date().toISOString();
         const item = buildReminderDueWorkItem({
-          entityKind: occurrence.entityType === "ReminderOccurrence" ? "REMINDER" : "CHASING",
+          entityKind: "REMINDER",
           tenantId: occurrence.tenantId, occurrenceId: occurrence.occurrenceId,
           occurrenceKey: { PK:occurrence.PK, SK:occurrence.SK }, scheduledAt: occurrence.scheduledAt,
           shardFnVersion: occurrence.shardFnVersion, shardId: Number(occurrence.shard), now,

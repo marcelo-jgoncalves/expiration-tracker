@@ -18,3 +18,17 @@ export function fetchNotificationPreferences(options?: { signal?: AbortSignal })
 export function updateNotificationPreferences(input: UpdateNotificationPreferencesInput, expectedVersion: number): Promise<{ preferences: NotificationPreferences }> {
   return apiClient.put<{ preferences: NotificationPreferences }>("/notifications/preferences", input, { expectedVersion });
 }
+
+/** `POST /notifications/whatsapp-opt-in/request-confirmation` (item 26) - sends a 6-digit code to
+ * `phoneE164` over WhatsApp. Never returns the code itself. Real send is gated server-side on the
+ * `WHATSAPP` channel flag — off in every environment today (pending E-019), so this currently
+ * rejects with a 503 until that flag flips. */
+export function requestWhatsAppPhoneConfirmation(phoneE164: string): Promise<{ expiresAt: string }> {
+  return apiClient.post<{ expiresAt: string }>("/notifications/whatsapp-opt-in/request-confirmation", { phoneE164 });
+}
+
+/** `POST /notifications/whatsapp-opt-in/confirm` (item 26) - verifies the code sent by
+ * `requestWhatsAppPhoneConfirmation` and, only on success, records the `WhatsAppOptIn` server-side. */
+export function confirmWhatsAppPhoneConfirmation(phoneE164: string, code: string): Promise<{ optIn: { phoneE164: string; optedInAt: string } }> {
+  return apiClient.post<{ optIn: { phoneE164: string; optedInAt: string } }>("/notifications/whatsapp-opt-in/confirm", { phoneE164, code });
+}

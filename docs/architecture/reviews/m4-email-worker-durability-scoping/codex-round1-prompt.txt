@@ -1,0 +1,39 @@
+Voce e o Codex, no protocolo de revisao adversarial Claude<->Codex deste repositorio
+(expiration-tracker/OmniVence, AGENTS.md secao 4). Esta e a Rodada 1 (critica cega) de uma
+decisao Type 1 (nivel 5-6): correcao de durabilidade real do worker de entrega de e-mail (M4),
+item 27 do backlog (NEXT_SESSION_PROMPT.md), 3 achados estruturais registrados em decisions-log.md
+D-332 e nunca corrigidos ate agora.
+
+Leia PRIMEIRO minha proposta completa em
+docs/architecture/reviews/m4-email-worker-durability-scoping/claude-round1-proposal.md - ela ja
+descreve o contexto, os 3 achados (com evidencia de arquivo:linha), o nao-escopo desta rodada
+(WhatsApp fica de fora - trabalho nao commitado de outra sessao), e o mecanismo proposto
+(reconciliacao via GSI6, mesmo padrao ja usado por reminder-reconciliation/document-purge/
+upload-slot-reconciliation neste projeto - NAO EventBridge Scheduler, que o design original
+previa mas nunca foi implementado).
+
+SUA TAREFA: critique esta proposta como o lado independente do protocolo - nao apenas concorde.
+Leia o codigo real por si mesmo antes de avaliar (nao confie so na minha descricao):
+- src/modules/notification/application/email-delivery-workflow.ts
+- src/runtime/aws/handlers/email-delivery-handler.ts
+- src/modules/notification/domain/notification-attempt.ts
+- src/shared/outbox/outbox.ts (nextAttemptDelayMs, para comparar com o backoff que propus)
+- src/workers/document-purge/purge.ts (o padrao de reconciliacao GSI6/claim-lease que propus
+  espelhar - confirme se meu espelhamento faz sentido ou se ha uma diferenca estrutural real que
+  eu ignorei)
+- src/modules/notification/domain/notification-preferences.ts (para avaliar minha proposta de
+  revalidacao de emailEnabled antes do envio)
+- src/modules/identity/application/quota.ts ou onde NotificationEntitlements vive (para responder
+  minha pergunta em aberto: existe cenario real de negacao de entitlement APOS o roteamento ja ter
+  decidido enviar, que justificaria revalidar entitlement tambem, nao so preference?)
+
+Aplique os 10 criterios de docs/engineering/joint-review-criteria.md (eixo Seguranca) e tambem
+avalie pela otica de correcao/arquitetura (nao e so uma revisao de seguranca - e uma correcao de
+garantia de entrega, findings 1 e 2 sao sobre PERDA DE DADO/NOTIFICACAO, nao vazamento).
+
+De uma nota de 0 a 10 para a proposta (design, nao implementacao), liste achados reais concretos
+(nao estilisticos) com severidade, e diga se ha um mecanismo mais simples/mais seguro que eu nao
+considerei. Se voce concordar com o mecanismo mas achar um erro real num detalhe (ex: a condicao
+de fence do claim, o calculo de backoff, um caso nao coberto), aponte com arquivo:linha real
+citado quando aplicavel. Responda em portugues, comecando com "Nota: X/10" e depois a lista de
+achados.

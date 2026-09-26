@@ -1,0 +1,49 @@
+Rodada 2, protocolo Claude-Codex sobre D-315/D-316. Rodada 1 voce deu 7.0/10, "nao aprovo o
+fechamento", com 6 achados (3 Alta, 3 Media). Nota cega: voce ainda nao viu a nota do Claude desta
+rodada.
+
+Leia:
+
+1. docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-2-claude-revision.md
+2. src/modules/organization/application/create-organization.ts
+3. src/modules/organization/application/accept-invitation.ts
+4. src/modules/notification/domain/notification-preferences.ts
+5. src/modules/notification/application/notification-preferences-service.ts
+6. frontend/src/routes/Overview.tsx
+7. frontend/test/routes/Overview.test.tsx (2 testes novos no final do arquivo)
+8. test/unit/organization/create-organization.test.ts (1 teste novo)
+9. test/unit/organization/accept-invitation.test.ts (2 testes novos)
+10. src/runtime/aws/handlers/email-delivery-handler.ts (comentario do DEFERRED corrigido, linha ~82)
+
+NAO leia round-2-claude-selfgrade.md - nota cega, arquivo separado.
+
+Contexto: dos seus 6 achados da Rodada 1, corrigi 3 (achado 1 - NotificationPreferences nunca
+seedado em nenhum onboarding real; achado 4 - approximate nunca lido pelo Overview.tsx; achado 5 -
+agregacao bloqueando a tabela) com codigo real + testes de mutacao. Os outros 3 (achado 2 - DEFERRED
+nunca realmente reagendado, inclusive um comentario de codigo FALSO que eu corrigi mas cujo
+mecanismo em si nao implementei; achado 3 - FAILED_RETRYABLE confirmado como sucesso pelo handler
+SQS; achado 6 - falta de revalidacao de preference/entitlement antes do envio real) eu registrei
+como pendencia para uma rodada de protocolo DEDICADA ao worker de e-mail (M4), por julgamento de
+proporcionalidade - sao bugs estruturais pre-existentes do M4, nao introduzidos nem agravados por
+D-315/D-316 (que sao sobre entitlement/preference/dashboard), e corrigi-los exigiria decisao de
+design (ex: qual mecanismo real de reagendamento) que nao cabe nesta revisao.
+
+Pergunta central desta rodada: essa divisao (corrigir o que esta genuinamente dentro do escopo de
+D-315/D-316, registrar o resto como pendencia formal para uma rodada dedicada) e aceitavel para
+fechar ESTA revisao com nota >=9.0, ou voce insiste que "a trilha completa funciona" exige corrigir
+os achados 2/3/6 tambem antes de aprovar?
+
+Verifique tambem:
+- As correcoes dos achados 1/4/5 estao genuinamente corretas (sem introduzir bug novo)?
+- O uso de if_not_exists() em accept-invitation.ts (preservar NotificationPreferences real numa
+  reativacao de Membership) esta correto? Tem algum caso que ainda quebra?
+- A ConditionExpression tautologica (attribute_exists(PK) OR attribute_not_exists(PK)) e uma
+  solucao aceitavel para o requisito do tipo DynamoUpdateCommandInput, ou ha uma alternativa
+  melhor que eu deveria ter usado?
+- Qualquer achado novo que a mudanca desta rodada tenha introduzido.
+
+De sua nota (0-10, uma casa decimal, nunca arredondada) ANTES de ver a minha nota desta rodada. Se
+atingir 9.0, isso ja seria convergencia formal se a Rodada 3 (minimo do protocolo) confirmar sem
+regressao. Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

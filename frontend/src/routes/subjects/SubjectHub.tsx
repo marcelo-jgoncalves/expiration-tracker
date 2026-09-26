@@ -22,7 +22,6 @@ import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useSubjectCompliance } from "../../hooks/useSubjectCompliance.js";
 import { useRequirementsForSubject } from "../../hooks/useRequirementsForSubject.js";
-import { useRequirementAssignments } from "../../hooks/useRequirementAssignments.js";
 import { useDocumentRequestSeries } from "../../hooks/useDocumentRequestSeries.js";
 import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -34,6 +33,7 @@ import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
+import { SubjectFormDialog } from "./SubjectForm.js";
 import "./SubjectHub.css";
 
 export function SubjectHub() {
@@ -47,11 +47,11 @@ export function SubjectHub() {
   const subjectQuery = useSubject(subjectId ?? "");
   const complianceQuery = useSubjectCompliance(subjectId ?? "");
   const requirementsQuery = useRequirementsForSubject(subjectId ?? "");
-  const assignmentsQuery = useRequirementAssignments(subjectId ?? "");
   const seriesQuery = useDocumentRequestSeries(subjectId ?? "");
   const deleteMutation = useDeleteSubject(subjectId ?? "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | undefined>();
+  const [showEdit, setShowEdit] = useState(false);
 
   if (!subjectId) return null; // unreachable - the route always supplies :subjectId
 
@@ -108,17 +108,6 @@ export function SubjectHub() {
           : { kind: "value", value: requirementsQuery.data.requirements.filter((r) => r.evidenceVersionId).length },
     },
     {
-      id: "legacy-tracking",
-      label: "Rastreamento legado",
-      to: orgPath(`/subjects/${subjectId}/tracking`),
-      srDescription: "Ver vínculos do mecanismo antigo de acompanhamento deste fornecedor",
-      status: assignmentsQuery.isPending
-        ? { kind: "loading" }
-        : assignmentsQuery.isError
-          ? { kind: "error", message: "Indisponível no momento", onRetry: () => void assignmentsQuery.refetch() }
-          : { kind: "value", value: assignmentsQuery.data.assignments.length },
-    },
-    {
       // A14 (Block 6, D-2xx) shipped with real routes (`/subjects/:subjectId/requests`) long
       // before this file was last touched (Blocks 7/10) - this card was stuck as a non-interactive
       // "Em breve" placeholder the whole time (holistic frontend review finding, D-27x), leaving
@@ -143,7 +132,7 @@ export function SubjectHub() {
         description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
         actions={
           <>
-            {canWrite ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/edit`)}>Editar fornecedor</ButtonLink> : null}{" "}
+            {canWrite ? <Button variant="secondary" onClick={() => setShowEdit(true)}>Editar fornecedor</Button> : null}{" "}
             {canAdmin ? <ButtonLink variant="secondary" to={orgPath(`/subjects/${subjectId}/dossier`)}>Exportar dossiê</ButtonLink> : null}{" "}
             {canAdmin ? (
               <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
@@ -156,6 +145,7 @@ export function SubjectHub() {
       {subject.status === "ARCHIVED" ? (
         <InlineNotice tone="neutral">Este fornecedor está arquivado. Novas evidências não são solicitadas automaticamente.</InlineNotice>
       ) : null}
+      {showEdit ? <SubjectFormDialog subjectId={subjectId} onClose={() => setShowEdit(false)} /> : null}
       {confirmingDelete ? (
         <DeleteConfirmDialog
           subjectName={subject.displayName}

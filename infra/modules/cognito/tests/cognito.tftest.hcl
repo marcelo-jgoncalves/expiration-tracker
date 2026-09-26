@@ -42,6 +42,17 @@ run "defaults_to_optional_mfa_with_totp_and_password_policy" {
     ])
     error_message = "Password policy must require lowercase, uppercase, numbers, and symbols"
   }
+
+  # d321-direct-auth-adversarial-review round 2 (Codex, AWS's own DeviceConfigurationType doc:
+  # "When you provide a value for any property of DeviceConfiguration, you activate the device
+  # remembering for the user pool") - device_configuration must stay absent from this module.
+  # Nothing in this codebase ever calls ConfirmDevice/UpdateDeviceStatus or passes a DEVICE_KEY,
+  # so activating it only risks breaking direct-auth (InitiateAuth) session refresh via
+  # /oauth2/token for zero functional benefit (main.tf's own comment on this block's removal).
+  assert {
+    condition     = length(aws_cognito_user_pool.this.device_configuration) == 0
+    error_message = "device_configuration must stay unset - activating device remembering breaks InitiateAuth-issued token refresh via /oauth2/token, and no code path here ever confirms a device"
+  }
 }
 
 run "mfa_policy_off_disables_software_token_mfa" {

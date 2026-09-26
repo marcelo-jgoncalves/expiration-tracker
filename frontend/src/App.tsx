@@ -41,21 +41,13 @@ const ItemsCollection = lazy(() =>
 );
 const ItemDetail = lazy(() => import("./routes/items/ItemDetail.js").then((m) => ({ default: m.ItemDetail })));
 const CreateItem = lazy(() => import("./routes/items/CreateItem.js").then((m) => ({ default: m.CreateItem })));
-const RenewItem = lazy(() => import("./routes/items/RenewItem.js").then((m) => ({ default: m.RenewItem })));
-const ItemDocuments = lazy(() =>
-  import("./routes/items/ItemDocuments.js").then((m) => ({ default: m.ItemDocuments })),
-);
 const ItemReminderPolicy = lazy(() =>
   import("./routes/items/ItemReminderPolicy.js").then((m) => ({ default: m.ItemReminderPolicy })),
 );
 const SubjectsCollection = lazy(() =>
   import("./routes/subjects/SubjectsCollection.js").then((m) => ({ default: m.SubjectsCollection })),
 );
-const SubjectForm = lazy(() => import("./routes/subjects/SubjectForm.js").then((m) => ({ default: m.SubjectForm })));
 const SubjectHub = lazy(() => import("./routes/subjects/SubjectHub.js").then((m) => ({ default: m.SubjectHub })));
-const RequirementDetail = lazy(() =>
-  import("./routes/subjects/RequirementDetail.js").then((m) => ({ default: m.RequirementDetail })),
-);
 const RequirementsCollection = lazy(() =>
   import("./routes/RequirementsCollection.js").then((m) => ({ default: m.RequirementsCollection })),
 );
@@ -87,7 +79,6 @@ const NotFound = lazy(() => import("./routes/NotFound.js").then((m) => ({ defaul
 const SubjectRequests = lazy(() =>
   import("./routes/subjects/SubjectRequests.js").then((m) => ({ default: m.SubjectRequests })),
 );
-const Tracking = lazy(() => import("./routes/subjects/Tracking.js").then((m) => ({ default: m.Tracking })));
 const RequestDeliverySettings = lazy(() =>
   import("./routes/subjects/RequestDeliverySettings.js").then((m) => ({ default: m.RequestDeliverySettings })),
 );
@@ -97,9 +88,6 @@ const DossierExport = lazy(() =>
 const Reports = lazy(() => import("./routes/Reports.js").then((m) => ({ default: m.Reports })));
 const GuestDocumentRequest = lazy(() =>
   import("./routes/guest/GuestDocumentRequest.js").then((m) => ({ default: m.GuestDocumentRequest })),
-);
-const LegacyGuestUpload = lazy(() =>
-  import("./routes/guest/LegacyGuestUpload.js").then((m) => ({ default: m.LegacyGuestUpload })),
 );
 const ImportWizard = lazy(() => import("./routes/imports/ImportWizard.js").then((m) => ({ default: m.ImportWizard })));
 // D-3xx (reversal of D-320) - the app's own login/signup/reset-password screens, replacing the
@@ -188,25 +176,14 @@ export function App() {
                 <Route path="items" element={<ItemsCollection />} />
                 <Route path="items/new" element={<CreateItem />} />
                 <Route path="items/:itemId" element={<ItemDetail />} />
-                <Route path="items/:itemId/renew" element={<RenewItem />} />
-                <Route path="items/:itemId/documents" element={<ItemDocuments />} />
                 <Route path="items/:itemId/reminder-policy" element={<ItemReminderPolicy />} />
                 <Route path="subjects" element={<SubjectsCollection />} />
-                <Route path="subjects/new" element={<SubjectForm />} />
-                <Route path="subjects/:subjectId/edit" element={<SubjectForm />} />
                 <Route path="subjects/:subjectId" element={<SubjectHub />} />
                 {/* A14 (Block 6, D-2xx) - Solicitações e recorrência, `docarchive:series-read`
                     (all roles, incl. VIEWER). Same component for both routes - the seriesId
                     route opens the series detail overlay on top of the same two panels. */}
                 <Route path="subjects/:subjectId/requests" element={<SubjectRequests />} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={<SubjectRequests />} />
-                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - reached from A09's card ("Requisitos
-                    documentais") and A11's table row ("Ver"), no top-level nav entry of its own. */}
-                <Route path="subjects/:subjectId/requirements/:requirementId" element={<RequirementDetail />} />
-                {/* A10 (Block 7, D-267) - Rastreamento legado, reached only from A09's card
-                    ("Rastreamento legado"), no top-level nav entry of its own. */}
-                <Route path="subjects/:subjectId/tracking" element={<Tracking />} />
-                <Route path="subjects/:subjectId/tracking/:assignmentId" element={<Tracking />} />
                 {/* A17 (Block 10, D-2xx) - Exportar dossiê, reached only from A09's card, no
                     top-level nav entry of its own (spec: "Conecta-se com: A09, ambos os sentidos"). */}
                 <Route path="subjects/:subjectId/dossier" element={<DossierExport />} />
@@ -254,6 +231,8 @@ export function App() {
                   renders an <Outlet/>, so an `index` child nested in it would never actually
                   render its own element either - a plain top-level redirect avoids that trap. */}
               <Route path="/" element={<Navigate to="/overview" replace />} />
+              <Route path="dashboard" element={<Navigate to="/overview" replace />} />
+              <Route path="recuperar-senha" element={<ForgotPassword />} />
               {/* Pre-migration bare paths (D-2xx, Block 0) - same gating as the real tree above
                   (organizationId is guaranteed defined by the time LegacyOrgRedirect renders),
                   each one heals forward to the equivalent `/app/:orgId/...` URL rather than
@@ -263,23 +242,12 @@ export function App() {
                 <Route path="items" element={null} />
                 <Route path="items/new" element={null} />
                 <Route path="items/:itemId" element={null} />
-                <Route path="items/:itemId/renew" element={null} />
                 <Route path="subjects" element={null} />
-                <Route path="subjects/new" element={null} />
-                <Route path="subjects/:subjectId/edit" element={null} />
                 <Route path="subjects/:subjectId" element={null} />
                 {/* A14 (Block 6, D-2xx) - added here from the start, same healing-forward
                     discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/requests" element={null} />
                 <Route path="subjects/:subjectId/series/:seriesId" element={null} />
-                {/* Requisito - Detalhe (Marcelo, 2026-09-21) - added here from the start, same
-                    healing-forward discipline as A10/A13/A14/A17/A20/A21/A22, not a repeat of
-                    A11's real gap (D-260). */}
-                <Route path="subjects/:subjectId/requirements/:requirementId" element={null} />
-                {/* A10 (Block 7, D-267) - added here from the start, same healing-forward
-                    discipline as A13/A12/A20/A21, not a repeat of A11's real gap (D-260). */}
-                <Route path="subjects/:subjectId/tracking" element={null} />
-                <Route path="subjects/:subjectId/tracking/:assignmentId" element={null} />
                 {/* A17 (Block 10, D-2xx) - added here from the start, same healing-forward
                     discipline as A10/A13/A20/A21/A22, not a repeat of A11's real gap (D-260). */}
                 <Route path="subjects/:subjectId/dossier" element={null} />
@@ -346,11 +314,6 @@ export function App() {
                   ProtectedRoute/AuthProvider gating (G02's own spec: "esta tela é estruturalmente
                   separada do app autenticado"). No AppShell, no org context, no RBAC. */}
               <Route path="document-archive/guest/document-requests/:token" element={<GuestDocumentRequest />} />
-              {/* G01 (Block 7, D-267) - legacy guest upload (M10, D-037), same public/no-AppShell
-                  posture as G02 above - the bare path is also the API's own info-fetch path,
-                  which is why the CloudFront routing gap this block closed uses a distinct
-                  "/info" alias instead of this page route (see guestLegacyUpload.ts). */}
-              <Route path="guest/document-requests/:token" element={<LegacyGuestUpload />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>

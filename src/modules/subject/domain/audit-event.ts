@@ -11,24 +11,12 @@ import type { EntityKey, TransactWriteEntry } from "../../../shared/dynamodb/occ
 import { deriveSecurityAuditMaintenanceDue, securityAuditGsi8Keys } from "../../../shared/security-audit-gsi8.js";
 import type { AuthorizedTenantId } from "../../identity/domain/authorization.js";
 
-export type SubjectAuditAction =
-  | "CREATE"
-  | "UPDATE"
-  | "ARCHIVE"
-  | "DELETE"
-  | "LINK_ITEM"
-  | "UNLINK_ITEM"
-  | "ASSIGN_REQUIREMENT"
-  | "DELETE_REQUIREMENT"
-  // M10 cluster 4 (D-049): convite inicial automatizado - trilha completa dos 5 desfechos
-  // possíveis (nunca e-mail bruto no diff, `changes` já passa por `defaultRedactor` abaixo).
-  | "INITIAL_INVITE_EMAIL_REQUESTED"
-  | "INITIAL_INVITE_EMAIL_SENT"
-  | "INITIAL_INVITE_EMAIL_FAILED"
-  | "INITIAL_INVITE_EMAIL_RATE_LIMITED"
-  | "INITIAL_INVITE_EMAIL_DISABLED_BY_KILL_SWITCH"
-  | "CONFIGURE_DOCUMENT_REQUEST_DELIVERY";
-export type SubjectAuditResourceType = "TrackedSubject" | "RequirementAssignment" | "DocumentRequest" | "DocumentRequestDeliveryPreference";
+// ADR-0016 Decision A (2026-09-25) retired every action tied to RequirementAssignment/
+// DocumentRequest(subject)/guest upload (ASSIGN_REQUIREMENT, LINK_ITEM/UNLINK_ITEM, the 5
+// INITIAL_INVITE_EMAIL_* outcomes, CONFIGURE_DOCUMENT_REQUEST_DELIVERY) — this module now only
+// audits TrackedSubject's own lifecycle.
+export type SubjectAuditAction = "CREATE" | "UPDATE" | "ARCHIVE" | "DELETE";
+export type SubjectAuditResourceType = "TrackedSubject";
 
 export interface SubjectAuditEvent extends EntityKey {
   entityType: "SubjectAuditEvent";

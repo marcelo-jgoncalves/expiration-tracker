@@ -187,7 +187,15 @@ export class ImportService {
       throw new ValidationError("checksumSha256 must be a 64-character hex SHA-256 digest.");
     }
 
-    const requestHash = `${input.contentLength}|${input.checksumSha256}`;
+    // Includes the effective targetEntityType (round-1 Codex finding,
+    // d319-item-bulk-import-adversarial-review): omitting it let the SAME idempotencyKey+file
+    // reused with a DIFFERENT targetEntityType silently return the FIRST call's job (e.g. a
+    // TrackedSubject job returned for a request that asked for Item) - the closed enum's own
+    // default resolution is repeated here (never a raw `input.targetEntityType` that could be
+    // `undefined` in one call and explicit `"TrackedSubject"` in another, which must hash
+    // identically since they mean the same thing).
+    const effectiveTargetEntityType: ImportTargetEntityType = input.targetEntityType ?? "TrackedSubject";
+    const requestHash = `${input.contentLength}|${input.checksumSha256}|${effectiveTargetEntityType}`;
     const now = this.now();
     const expiresAt = new Date(Date.parse(now) + PRESIGN_TTL_SECONDS * 1000).toISOString();
 
@@ -226,7 +234,7 @@ export class ImportService {
       try {
         jobIdForResponse = this.ids.newImportJobId();
         const jobExpiresAt = new Date(Date.parse(now) + IMPORT_JOB_TTL_SECONDS * 1000).toISOString();
-        const targetEntityType: ImportTargetEntityType = input.targetEntityType ?? "TrackedSubject";
+        const targetEntityType = effectiveTargetEntityType;
         // D-3xx: only TrackedSubject/Item have a fixed v1 mapping seeded at creation (same
         // reasoning as the pre-existing TrackedSubject comment below - both are core entities
         // with universal, tenant-schema-independent fields). Document/Requirement still need

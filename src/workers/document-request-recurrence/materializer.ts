@@ -22,6 +22,9 @@ import { isTransactionCanceled } from "../../shared/dynamodb/occ.js";
 import type { DocumentArchiveStore } from "../../modules/document-archive/ports/document-archive-store.js";
 import type { DocumentArchiveIdGenerator } from "../../modules/document-archive/application/id-generator.js";
 import { buildMaterializeAttemptEntries } from "../../modules/document-archive/application/document-request-recurrence-service.js";
+import { resolveTenantInitialInviteDeliveryDefault } from "../../modules/document-archive/application/document-request-delivery-preference-resolver.js";
+import { resolveInitialInviteDeliveryMode } from "../../modules/document-archive/domain/document-request-delivery-preference.js";
+import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import type { DocumentRequestSeries } from "../../modules/document-archive/domain/document-request-series.js";
 
 export interface DocumentRequestRecurrenceMaterializerDeps {
@@ -66,7 +69,12 @@ export async function runDocumentRequestRecurrenceMaterializer(deps: DocumentReq
         continue;
       }
       const newRequestId = deps.ids.newDocumentRequestId();
-      const { entries } = buildMaterializeAttemptEntries({ tableName: deps.tableName, series, newRequestId, now: nowIso });
+      // ADR-0016 Decision B: resolved here (no override — series never have their own), same
+      // internal resolver DocumentArchiveService.createDocumentRequest/
+      // DocumentRequestRecurrenceService.materializeAttempt both wrap.
+      const tenantDeliveryDefault = await resolveTenantInitialInviteDeliveryDefault(deps.store, authorizedTenantIdFromPersistedEntity(series));
+      const resolvedInitialInviteDelivery = resolveInitialInviteDeliveryMode({ tenantDefault: tenantDeliveryDefault });
+      const { entries } = buildMaterializeAttemptEntries({ tableName: deps.tableName, series, newRequestId, now: nowIso, resolvedInitialInviteDelivery });
       try {
         await deps.store.transactWrite(entries);
         result.materialized += 1;

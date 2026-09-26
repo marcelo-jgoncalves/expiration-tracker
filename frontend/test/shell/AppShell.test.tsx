@@ -38,7 +38,7 @@ function renderShell(initialEntry = "/app/org-1/overview") {
 }
 
 beforeEach(() => {
-  useAuthMock.mockReset().mockReturnValue({ logout: vi.fn() });
+  useAuthMock.mockReset().mockReturnValue({ logout: vi.fn().mockResolvedValue(undefined) });
   useCurrentMembershipRoleMock.mockReset();
   useActiveOrganizationMock.mockReset().mockReturnValue({ displayName: undefined, email: undefined });
 });
@@ -88,12 +88,13 @@ describe("AppShell nav (D-2xx, Block 0 - declarative + RBAC-aware)", () => {
 });
 
 describe("SidebarUserFooter (#15/sidebar identity card, 2026-09-21)", () => {
+  // Mutation: omitting the localized role or profile identity breaks the footer.
   it("shows the resolved displayName and role, and the initials avatar", () => {
     useCurrentMembershipRoleMock.mockReturnValue("ADMIN");
     useActiveOrganizationMock.mockReturnValue({ displayName: "Ana Exemplo", email: "ana@example.com" });
     renderShell();
     expect(screen.getByText("Ana Exemplo")).toBeInTheDocument();
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("Administrador")).toBeInTheDocument();
     expect(screen.getByText("AE")).toBeInTheDocument();
   });
 
@@ -104,15 +105,16 @@ describe("SidebarUserFooter (#15/sidebar identity card, 2026-09-21)", () => {
     expect(screen.getByText("ana@example.com")).toBeInTheDocument();
   });
 
+  // Mutation: duplicating the fallback role would create two matching labels.
   it("falls back to the role alone, never duplicated on both lines, when neither displayName nor email resolved", () => {
     useCurrentMembershipRoleMock.mockReturnValue("MEMBER");
     useActiveOrganizationMock.mockReturnValue({ displayName: undefined, email: undefined });
     renderShell();
-    expect(screen.getAllByText("Member")).toHaveLength(1);
+    expect(screen.getAllByText("Membro")).toHaveLength(1);
   });
 
   it("calls logout when the icon-only Sair button is clicked", () => {
-    const logoutMock = vi.fn();
+    const logoutMock = vi.fn().mockResolvedValue(undefined);
     useAuthMock.mockReturnValue({ logout: logoutMock });
     useCurrentMembershipRoleMock.mockReturnValue("OWNER");
     renderShell();

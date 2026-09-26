@@ -38,21 +38,19 @@ describe("proxy-allowlist", () => {
     expect(matchAllowlistedRoute("GET", "")).toBeUndefined();
   });
 
-  it("matches every nested subjects/requirements/document-requests route exactly", () => {
-    expect(matchAllowlistedRoute("POST", "/subjects/subj-1/requirements/req-1/document-requests")).toBeDefined();
-    expect(matchAllowlistedRoute("GET", "/subjects/subj-1/document-requests/dr-1")).toBeDefined();
-    expect(matchAllowlistedRoute("POST", "/subjects/subj-1/document-requests/dr-1/revoke")).toBeDefined();
-  });
+  // ADR-0016 Decision A (2026-09-25) retired the subject module's own
+  // /subjects/{subjectId}/requirements*/document-requests*/submissions* routes (RequirementAssignment/
+  // DocumentRequest(subject)/DocumentSubmission, fully removed) - A14's equivalent routes live
+  // under /document-archive/requirements/* instead (see the G4/BLOCKER-A tests elsewhere in this
+  // file for those).
 
   // BLOCKER-A (2026-08-25): these backend routes existed but were never allowlisted here -
   // the BFF would have rejected any frontend call to them, same class of gap the
   // document-request routes had before a prior session's fix (infra/modules/api-gateway/
   // main.tf's comment on that incident).
-  it("matches the Document/DocumentSubmission read routes closed for BLOCKER-A", () => {
+  it("matches the Document read routes closed for BLOCKER-A", () => {
     expect(matchAllowlistedRoute("GET", "/items/item-1/documents")).toBeDefined();
     expect(matchAllowlistedRoute("GET", "/items/item-1/documents/doc-1")).toBeDefined();
-    expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions")).toBeDefined();
-    expect(matchAllowlistedRoute("GET", "/subjects/subj-1/requirements/req-1/submissions/sub-1")).toBeDefined();
   });
 
   // D-178: reserveFiles() (D-163/D-167) existed as a resource-Lambda route but was never
@@ -175,6 +173,22 @@ describe("proxy-allowlist", () => {
 
   it("does not match the G4 route with an unallowlisted method (fails without the fix)", () => {
     expect(matchAllowlistedRoute("GET", "/document-archive/requirements/subj-1/req-1/document-requests")).toBeUndefined();
+  });
+
+  // ADR-0016 Decision B (2026-09-25): A22 migrated here from the retired subject module's own
+  // /subjects/document-request-delivery-preference.
+  it("matches the A22 document-request-delivery settings routes", () => {
+    expect(matchAllowlistedRoute("GET", "/document-archive/settings/document-request-delivery")).toBeDefined();
+    expect(matchAllowlistedRoute("PUT", "/document-archive/settings/document-request-delivery")).toBeDefined();
+  });
+
+  // The literal route is gone, but "document-request-delivery-preference" is syntactically a
+  // valid {subjectId} value - same ambiguity "PATCH /items/item-1" documents elsewhere in this
+  // file (mirrors the real API Gateway's own template routing). The literal route's removal is
+  // what matters here, not an impossible "matches nothing at all" claim.
+  it("no longer has a literal document-request-delivery-preference route - GET/PUT now fall through to the {subjectId} template", () => {
+    expect(matchAllowlistedRoute("GET", "/subjects/document-request-delivery-preference")?.pathTemplate).toBe("/subjects/{subjectId}");
+    expect(matchAllowlistedRoute("PUT", "/subjects/document-request-delivery-preference")?.pathTemplate).toBe("/subjects/{subjectId}");
   });
 
   // G3 (D-247/D-24x): the 7 CSV report routes, previously deliberately excluded pending the

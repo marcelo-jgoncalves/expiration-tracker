@@ -1,0 +1,39 @@
+Continuacao da mesma rodada de protocolo Claude<->Codex (AGENTS.md secao 4) sobre a retirada do
+"Rastreamento legado" (A10). Sua critica Rodada 1 esta em
+docs/architecture/reviews/legacy-tracking-retirement/round-1-codex-output.txt - leia primeiro.
+
+Claude escreveu uma treplica corrigida em
+docs/architecture/reviews/legacy-tracking-retirement/round-2-claude-revision.md, reconhecendo os
+dois erros que voce apontou (Pontos 3 e 5: os dois caminhos de DocumentRequest sao servicos/
+entidades distintos; initialInviteDelivery so existe no servico legado). Leia esse arquivo inteiro.
+
+Verifique por leitura direta do codigo (nao confie nas alegacoes sem checar):
+
+1. O achado novo da treplica: src/workers/guest-credential-delivery/deliver.ts nao tem NENHUM
+   conceito de DeliveryMode, so verifica recipientEmail presente/ausente - confirme se e verdade
+   que A22 (RequestDeliverySettings.tsx, preferencia tenant-wide) hoje nao tem NENHUM efeito sobre
+   o fluxo que A14 realmente usa.
+2. O inventario revisado da Decisao A (RequirementService, DocumentRequestService do modulo
+   subject, GuestSubmissionService, familia de chasing, subjects-handler.ts, composition/
+   subject.ts) - falta algo real ainda?
+3. O destino proposto para A22 (migrar a preferencia tenant-wide para o modulo document-archive,
+   junto com o trabalho da Decisao B) - faz sentido arquitetural, ou ha um jeito melhor/mais barato
+   dentro deste codebase?
+4. A decisao de escopo da treplica para B (opcao "b": MANUAL so suprime o envio automatico, NAO
+   tenta devolver um link/token ao operador nesta rodada, deixando isso como pendencia nomeada
+   para uma decisao de seguranca propria por cruzar a fronteira D-146) - e essa a chamada certa
+   para nao expandir o escopo de uma treplica que ja esta corrigindo duas premissas erradas, ou
+   voce acha que a pergunta do link precisa ser resolvida AGORA antes de aprovar?
+5. Reavalie a classificacao de nivel de risco revisada (A continua Nivel 6, B agora Nivel 5) e a
+   declaracao de pesquisa externa (NAO para o escopo revisado de B, reavaliar como SIM PARCIAL se
+   a opcao "a" - devolver link - for adotada no futuro).
+
+De uma nota cega (0-10, sem arredondar) para esta treplica especificamente (nao para a Rodada 1
+que voce ja avaliou). Aplique os eixos de docs/engineering/joint-review-criteria.md que se aplicam.
+Se ainda houver premissa errada ou lacuna real, liste explicitamente. Se a treplica corrigiu os
+problemas centrais da Rodada 1 de forma defensavel, diga isso tambem - a nota nao precisa ficar
+baixa so por habito, mas tambem nao deve subir sem justificativa real.
+
+Escreva sua resposta em
+docs/architecture/reviews/legacy-tracking-retirement/round-2-codex-output.txt (crie o arquivo).
+Nao implemente nada - isto ainda e rodada de critica.

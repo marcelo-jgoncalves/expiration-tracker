@@ -67,7 +67,7 @@ describe("RequestDeliverySettings (A22, Block 7)", () => {
     screen.getByLabelText("E-mail automático").click();
     screen.getByRole("button", { name: "Salvar padrão" }).click();
 
-    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/subjects/document-request-delivery-preference", { initialInviteDeliveryDefault: "EMAIL" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/document-archive/settings/document-request-delivery", { initialInviteDeliveryDefault: "EMAIL" }));
   });
 
   it("shows the OCC-conflict InlineNotice (never the generic error) when the save races a concurrent update", async () => {

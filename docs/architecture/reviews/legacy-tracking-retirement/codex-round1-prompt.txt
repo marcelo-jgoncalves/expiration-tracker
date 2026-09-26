@@ -1,0 +1,48 @@
+Você é o Codex, atuando como o lado adversarial do protocolo de debate Claude<->Codex deste
+repositório (AGENTS.md secao 4, arquivo em ingles/portugues na raiz do repo). Leia primeiro
+AGENTS.md (secoes 1 e 4) e docs/engineering/change-risk-scale.md e docs/engineering/
+research-protocol.md se precisar do contexto do processo.
+
+Contexto da rodada: uma proposta Rodada 1 foi escrita por Claude em
+docs/architecture/reviews/legacy-tracking-retirement/round-1-claude-proposal.md. Leia esse arquivo
+inteiro primeiro - ele contem a proposta completa (Decisao A: retirar por completo a tela de
+"Rastreamento legado" A10, o dominio RequirementAssignment, o vinculo manual de ExpirationItem, e
+o ponto de entrada duplicado de DocumentRequest escopado por assignmentId, incluindo o guest
+upload legado G01; Decisao B: expor no formulario de "Solicitar documento" de A14/
+SubjectRequests.tsx um campo opcional de forma de entrega, usando o parametro
+initialInviteDelivery que o backend ja aceita mas o frontend nunca envia).
+
+Sua tarefa: dar uma critica Rodada 1 (nota cega - voce nao viu nenhuma nota de Claude, so a
+proposta em si) contra os eixos de docs/engineering/joint-review-criteria.md que se aplicam aqui
+(principalmente Arquitetura e Qualidade de Engenharia; considere tambem Governanca de Produto e
+Servico Multi-tenant se relevante). Antes de avaliar, VERIFIQUE por leitura direta do codigo real
+(nao confie nas alegacoes da proposta sem checar) os seguintes pontos, citados na proposta:
+
+1. requirement-service.ts (comentario de cabecalho linhas 1-7) - confirme que M9/RequirementAssignment
+   e mesmo um modelo separado e mais antigo que document-archive/domain/requirement.ts (M10+).
+2. Confirme que RequirementDetail.tsx realmente nao tem nenhuma referencia a ExpirationItem (a
+   proposta afirma 0 ocorrencias).
+3. Confirme que useCreateLegacyDocumentRequest / a rota assignmentId-scoped de
+   document-request-handlers.ts chamam o MESMO DocumentRequestService.createDocumentRequest() que
+   A14 usa (a proposta afirma que e 100% duplicacao funcional, nao uma entidade backend distinta).
+4. Confirme se algum outro consumidor do backend (alem do document-chasing-dispatch worker, ja
+   citado na proposta) depende do status MISSING/SATISFIED de RequirementAssignment ou do vinculo
+   com ExpirationItem - a proposta afirma que nao ha nenhum, verifique com grep real.
+5. Confirme se o dado initialInviteDelivery do backend (document-request-service.ts linha ~102,
+   document-request-delivery-preference.ts) realmente ja aceita um override DEFAULT/MANUAL/EMAIL
+   por solicitacao, como a proposta afirma.
+
+Depois da verificacao, produza um output estruturado em portugues com:
+- Nota cega (0-10) para a proposta como um todo, sem arredondar.
+- Confirmacao ou refutacao de cada um dos 5 pontos verificados acima, citando arquivo:linha real.
+- Achados reais adicionais que a proposta pode ter deixado de fora (riscos de retirar A10 que ela
+  nao considerou; consumidores adicionais de RequirementAssignment/ExpirationItem link que a
+  proposta pode ter perdido; problemas na Decisao B).
+- Resposta as duas perguntas de produto que a proposta deixa para decisao humana (a sua opiniao
+  tecnica sobre qual resposta e mais defensavel, nao a decisao final - isso continua sendo do
+  Marcelo).
+- Classificacao de nivel de risco concordando ou discordando do Nivel 6 proposto para a Decisao A.
+
+Escreva sua resposta em
+docs/architecture/reviews/legacy-tracking-retirement/round-1-codex-output.txt (crie o arquivo).
+Nao implemente nada - isto e so a rodada de critica, nao a implementacao.

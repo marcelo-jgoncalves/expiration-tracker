@@ -6,6 +6,7 @@ import { membershipKey, type Membership } from "../../../src/modules/organizatio
 import { tenantLifecycleKey, type TenantLifecycleRecord } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 import { entitlementKey, type TenantEntitlement } from "../../../src/modules/subject/domain/entitlement.js";
 import { notificationEntitlementsKey, type NotificationEntitlements } from "../../../src/modules/notification/domain/notification-entitlements.js";
+import { notificationPreferencesKey, type NotificationPreferences } from "../../../src/modules/notification/domain/notification-preferences.js";
 import { InMemoryOrganizationStore } from "./in-memory-store.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 
@@ -65,6 +66,27 @@ describe("CreateOrganizationService", () => {
     expect(notificationEntitlements).toBeDefined();
     expect(notificationEntitlements?.email.enabled).toBe(true);
     expect(notificationEntitlements?.whatsapp.enabled).toBe(false);
+  });
+
+  // D-332 (revisão adversarial de D-315/D-316, achado real do Codex): antes desta mudança,
+  // `NotificationPreferences` nunca era seedado na criação da Organization - só
+  // `NotificationEntitlements` (D-315) era. Um OWNER recém-criado que nunca abrisse a tela de
+  // configurações de notificação ficava com `preference.emailEnabled === undefined`, e o router
+  // falha fechado em `RETRY` infinito (`PREFERENCE_UNAVAILABLE`) - o mesmo sintoma que D-315
+  // resolveu para o entitlement, mas reaberto pelo preference. Mutação: remover o 6º entry
+  // (`NotificationPreferences`) da transação faria este registro ficar `undefined`.
+  it("seeds NotificationPreferences atomically for the OWNER - email enabled by default, ONBOARDING provenance", async () => {
+    const store = new InMemoryOrganizationStore();
+    const service = new CreateOrganizationService(store, "MainTable", makeIds(), () => "2026-08-30T00:00:00.000Z");
+
+    const { organization } = await service.createOrganization({ creatorUserId: "user-1", displayName: "Acme Inc", timezone: "UTC" });
+
+    const tenantId = authorizedTenantIdFromPersistedEntity({ tenantId: organization.organizationId });
+    const preferences = await store.get<NotificationPreferences>(notificationPreferencesKey(tenantId, "user-1"));
+    expect(preferences).toBeDefined();
+    expect(preferences?.emailEnabled).toBe(true);
+    expect(preferences?.consentSource).toBe("ONBOARDING");
+    expect(preferences?.locale).toBe("pt-BR");
   });
 
   // Mutação: esquecer de chamar `this.pickReminderLocalTime()` (ou não passar o resultado para

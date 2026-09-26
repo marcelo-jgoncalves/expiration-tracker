@@ -465,22 +465,7 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(true);
   });
 
-  it("accepts a valid reminder.claim-candidate.v1 command for a CHASING entity (D-300, same GSI3-sharing discriminator as producer.ts)", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
-      messageVersion: 1,
-      messageId: "msg_claim_02",
-      commandType: "reminder.claim-candidate.v1",
-      createdAt: "2026-09-14T12:00:05.000Z",
-      correlationId: "cor_claim_02",
-      tenantId: "t_01",
-      deduplicationKey: "t_01|TENANT#t_01#CHASING#occ_02|META|1",
-      data: { PK: "TENANT#t_01#CHASING#occ_02", SK: "META", entityKind: "CHASING", rolloutEpoch: 1 },
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects a reminder.claim-candidate.v1 command with an unrecognized entityKind", () => {
+  it("rejects a reminder.claim-candidate.v1 command with an unrecognized entityKind (ADR-0016 Decision A retired CHASING, only REMINDER is valid now)", () => {
     const { valid } = registry.validate("https://expiration-tracker/schemas/queues/reminder-claim-candidate.v1.json", {
       messageVersion: 1,
       messageId: "msg_claim_03",
@@ -504,53 +489,6 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
       tenantId: "t_01",
       deduplicationKey: "t_01|OCC#occ_01|1",
       data: { SK: "OCC#occ_01", entityKind: "REMINDER", rolloutEpoch: 1 },
-    });
-    expect(valid).toBe(false);
-  });
-
-  it("accepts a valid document-chasing.dispatch.v1 command (M10 cluster 4, D-039/D-046/D-048)", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
-      messageVersion: 1,
-      messageId: "msg_02",
-      commandType: "document-chasing.dispatch.v1",
-      createdAt: "2026-09-03T12:00:05.000Z",
-      correlationId: "cor_02",
-      tenantId: "t_01",
-      deduplicationKey: "t_01|chase_01|2",
-      data: {
-        subjectId: "subject_01",
-        assignmentId: "assignment_01",
-        documentRequestId: "docreq_01",
-        occurrenceId: "chase_01",
-        occurrenceVersion: 2,
-        tier: "T7",
-        scheduledAt: "2026-09-03T12:00:00.000Z",
-        documentRequestVersion: 1,
-      },
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects a document-chasing.dispatch.v1 command with an invalid tier", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/document-chasing-dispatch.v1.json", {
-      messageVersion: 1,
-      messageId: "msg_02",
-      commandType: "document-chasing.dispatch.v1",
-      createdAt: "2026-09-03T12:00:05.000Z",
-      correlationId: "cor_02",
-      tenantId: "t_01",
-      deduplicationKey: "t_01|chase_01|2",
-      data: {
-        subjectId: "subject_01",
-        assignmentId: "assignment_01",
-        documentRequestId: "docreq_01",
-        occurrenceId: "chase_01",
-        occurrenceVersion: 2,
-        tier: "T30", // invalid - only T7/T3/EXPIRED exist
-        scheduledAt: "2026-09-03T12:00:00.000Z",
-        documentRequestVersion: 1,
-      },
     });
     expect(valid).toBe(false);
   });
@@ -964,25 +902,8 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
-  it("accepts a valid update-document-request-delivery-preference-request (PUT /subjects/document-request-delivery-preference, M10 cluster 4, D-049)", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
-      initialInviteDeliveryDefault: "EMAIL",
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects an update-document-request-delivery-preference-request with an invalid mode", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {
-      initialInviteDeliveryDefault: "AUTOMATIC", // only MANUAL/EMAIL exist
-    });
-    expect(valid).toBe(false);
-  });
-
-  it("rejects an update-document-request-delivery-preference-request missing the required field", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-document-request-delivery-preference-request.v1.json", {});
-    expect(valid).toBe(false);
-  });
+  // ADR-0016 Decision B (2026-09-25): A22 migrated to document-archive - see
+  // "docarchive-document-request-delivery-preference-update-request" tests below.
 
   it("accepts a valid import-commit.v1 command (M11, D-042)", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/import-commit.v1.json", {
@@ -1098,48 +1019,10 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
-  it("accepts a valid assign-requirement-request", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
-      requirementName: "Seguro RC",
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects an assign-requirement-request missing requirementName", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/assign-requirement-request.v1.json", {
-      notes: "sem nome",
-    });
-    expect(valid).toBe(false);
-  });
-
-  it("accepts a valid update-requirement-assignment-request", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
-      requirementName: "Seguro RC atualizado",
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects an update-requirement-assignment-request carrying status directly (status is never client-settable)", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/update-requirement-assignment-request.v1.json", {
-      status: "SATISFIED",
-    });
-    expect(valid).toBe(false);
-  });
-
-  it("accepts a valid link-requirement-item-request", () => {
-    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {
-      itemId: "item_01",
-    });
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
-  });
-
-  it("rejects a link-requirement-item-request missing itemId", () => {
-    const { valid } = registry.validate("https://expiration-tracker/schemas/api/link-requirement-item-request.v1.json", {});
-    expect(valid).toBe(false);
-  });
+  // ADR-0016 Decision A (2026-09-25) retired assign-requirement-request/
+  // update-requirement-assignment-request/link-requirement-item-request along with
+  // RequirementAssignment (M9) itself - no replacement schema (Requirement/document-archive,
+  // M10+, has its own docarchive-requirement-*-request schemas, unaffected by this retirement).
 
   // M7 (extração/OCR, D-035) - schema novo da fila de conclusão do Textract (COMPLETE_OCR).
 
@@ -1600,6 +1483,46 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // ADR-0016 Decision B (2026-09-25): per-call override of A22's tenant-wide delivery default.
+  it("accepts a docarchive-request-create-request.v1 with an explicit initialInviteDelivery override", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", {
+      idempotencyKey: "idem-1",
+      initialInviteDelivery: "EMAIL",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-request-create-request.v1 with an invalid initialInviteDelivery value", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-request-create-request.v1.json", {
+      idempotencyKey: "idem-1",
+      initialInviteDelivery: "AUTOMATIC",
+    });
+    expect(valid).toBe(false);
+  });
+
+  // ADR-0016 Decision B (2026-09-25): A22 migrated from the retired subject module to
+  // document-archive - same shape as the old update-document-request-delivery-preference-request.
+  it("accepts a valid docarchive-document-request-delivery-preference-update-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json", {
+      initialInviteDeliveryDefault: "EMAIL",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a docarchive-document-request-delivery-preference-update-request.v1 with an invalid mode", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json", {
+      initialInviteDeliveryDefault: "AUTOMATIC",
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a docarchive-document-request-delivery-preference-update-request.v1 missing the required field", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
   // D-143 Nucleus 2, entity 3/3, recurrence (Decision 8 / D-147).
   it("accepts a valid docarchive-series-create-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/docarchive-series-create-request.v1.json", {
@@ -1672,6 +1595,37 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
 
   it("rejects a docarchive-documenttype-rename-request.v1 with an additional unknown property", () => {
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-documenttype-rename-request.v1.json", { expectedVersion: 1, displayName: "X", bogus: true });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid organization-settings-update-request.v1 with a single field", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "Acme Ltda" });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("accepts a valid organization-settings-update-request.v1 with all fields", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "Acme Ltda", timezone: "America/Sao_Paulo", defaultReminderLocalTime: "10:30" });
+    expect(valid).toBe(true);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with no fields (item 11 review: minProperties guard)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with a non-string defaultReminderLocalTime (item 11 review: was an uncaught TypeError/500 before this schema existed)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { defaultReminderLocalTime: 123 });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with a malformed defaultReminderLocalTime", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { defaultReminderLocalTime: "25:00" });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects an organization-settings-update-request.v1 with an additional unknown property", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/organization-settings-update-request.v1.json", { displayName: "X", bogus: true });
     expect(valid).toBe(false);
   });
 

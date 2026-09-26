@@ -7,6 +7,7 @@ import { organizationKey, type Organization } from "../../../src/modules/organiz
 import { membershipKey, type Membership } from "../../../src/modules/organization/domain/membership.js";
 import type { InvitationTokenPointer } from "../../../src/modules/organization/domain/invitation-token.js";
 import { invitationKey, type Invitation } from "../../../src/modules/organization/domain/invitation.js";
+import { notificationPreferencesKey, type NotificationPreferences } from "../../../src/modules/notification/domain/notification-preferences.js";
 import { ConflictError, InvitationTokenUnavailableError } from "../../../src/shared/errors/app-error.js";
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
@@ -206,6 +207,77 @@ describe("AcceptInvitationService", () => {
     const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
 
     await expect(service.accept({ token: "not-a-real-token", userId: "user-x", callerVerifiedEmail: "x@example.com" })).rejects.toBeInstanceOf(InvitationTokenUnavailableError);
+  });
+
+  // D-332 (revisão adversarial de D-315/D-316, achado real do Codex): antes desta mudança, um
+  // convidado que nunca abrisse a tela de configurações de notificação ficava com
+  // `NotificationPreferences` ausente, e o router falha fechado em `RETRY` infinito
+  // (`PREFERENCE_UNAVAILABLE`). Mutação: remover o entry de `NotificationPreferences` da
+  // transação de aceite faria este registro ficar `undefined`.
+  it("seeds NotificationPreferences for a brand-new member accepting an invitation", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    const { token } = await issueInvite(store, "fresh@example.com", "MEMBER");
+    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+
+    await service.accept({ token, userId: "user-fresh", callerVerifiedEmail: "fresh@example.com" });
+
+    const preferences = await store.get<NotificationPreferences>(notificationPreferencesKey(ORG_1, "user-fresh"));
+    expect(preferences).toBeDefined();
+    expect(preferences?.emailEnabled).toBe(true);
+    expect(preferences?.consentSource).toBe("ONBOARDING");
+  });
+
+  // D-332 achado real: diferente de `CreateOrganizationService` (sempre um item genuinamente
+  // novo), um convite pode reativar um membro REMOVED (mesmo cenário de "clears removedAt"
+  // acima) que já tinha uma `NotificationPreferences` real, configurada por ele mesmo antes da
+  // remoção (ex.: e-mail desabilitado). Um `Put` incondicional apagaria essa escolha real; a
+  // correção usa `if_not_exists()` por atributo. Mutação: trocar o Update por um `Put`
+  // incondicional (ou remover o `if_not_exists()`) faria este teste falhar, sobrescrevendo
+  // `emailEnabled: false` de volta para `true`.
+  it("never overwrites an existing NotificationPreferences record when a REMOVED member rejoins via invitation", async () => {
+    const store = new InMemoryOrganizationStore();
+    await seedOrganization(store);
+    store.forceUpdate({
+      ...membershipKey(ORG_1, "user-returning"),
+      entityType: "Membership",
+      membershipId: "membership-returning",
+      organizationId: "org-1",
+      userId: "user-returning",
+      role: "MEMBER",
+      status: "REMOVED",
+      joinedAt: "2026-01-01T00:00:00.000Z",
+      removedAt: "2026-03-01T00:00:00.000Z",
+      createdBy: "user-owner",
+      version: 3,
+      GSI4PK: "USER#user-returning",
+      GSI4SK: "ORG#org-1#MEMBERSHIP#membership-returning",
+    } satisfies Membership);
+    const preExisting: NotificationPreferences = {
+      ...notificationPreferencesKey(ORG_1, "user-returning"),
+      entityType: "NotificationPreferences",
+      tenantId: ORG_1,
+      userId: "user-returning",
+      emailEnabled: false,
+      // Every field below deliberately differs from `defaultNotificationPreferences()`'s
+      // seed value (locale "pt-BR", quietHours null, version 1) - Codex Rodada 2 achado: a
+      // asserção anterior só cobria emailEnabled/consentSource, deixando os outros campos
+      // preserváveis-em-teoria mas nunca provados por um valor distinguível.
+      locale: "en-US",
+      quietHours: { enabled: true, startLocal: "22:00", endLocal: "07:00", timeZone: "America/Sao_Paulo" },
+      consentSource: "USER_SETTINGS",
+      version: 2,
+      createdAt: "2026-01-05T00:00:00.000Z",
+      updatedAt: "2026-01-06T00:00:00.000Z",
+    };
+    store.forceUpdate(preExisting);
+    const { token } = await issueInvite(store, "returning2@example.com", "MEMBER");
+    const service = new AcceptInvitationService(store, TABLE, ids(), PEPPER);
+
+    await service.accept({ token, userId: "user-returning", callerVerifiedEmail: "returning2@example.com" });
+
+    const preferences = await store.get<NotificationPreferences>(notificationPreferencesKey(ORG_1, "user-returning"));
+    expect(preferences).toEqual(preExisting);
   });
 
   // D-179/D-181 slice 2: ACCEPTED is never a maintenance-due candidate - the PENDING-time GSI8

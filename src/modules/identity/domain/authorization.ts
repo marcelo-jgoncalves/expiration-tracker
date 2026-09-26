@@ -21,22 +21,15 @@ export type Action =
   | "system:ping" // M1 test route action, not in the blueprint's business list but
   // declared explicitly here rather than silently bypassing the matrix (see report).
   // M9 (evolução estratégica do roadmap, D-036/D-039, 03-domain-model-tracked-subject-
-  // requirement.md e 07-domain-model-escalation-watchers-digest.md): TrackedSubject +
-  // RequirementAssignment + ItemWatch. Mesmo padrão resolver-deriva-tenantId de todo módulo
-  // existente — nenhuma dessas actions confia em tenantId fornecido pelo cliente.
+  // requirement.md): TrackedSubject CRUD. Mesmo padrão resolver-deriva-tenantId de todo módulo
+  // existente — nenhuma dessas actions confia em tenantId fornecido pelo cliente. ADR-0016
+  // Decision A (2026-09-25) retired the `requirement:*` actions (RequirementAssignment/guest
+  // upload, M9/M10) that used to live here — A14's document-archive Requirement uses its own
+  // `docarchive:*` action namespace instead.
   | "subject:create"
   | "subject:read"
   | "subject:update"
   | "subject:delete"
-  | "requirement:assign"
-  | "requirement:read"
-  | "requirement:update"
-  | "requirement:delete"
-  | "requirement:review"
-  // M10 (guest upload/magic link, D-037, 04-domain-model-guest-upload.md): apenas o lado
-  // autenticado do tenant tem action própria — o convidado nunca passa por authorize()/
-  // RequestContext, é validado por GuestTokenService (fora da matriz de roles por design).
-  | "requirement:request-document"
   // M10 cluster 4 (D-049): política de tenant para automatizar o convite inicial de guest
   // upload — decisão de comunicação externa/reputação de todo o tenant, não uma ação por
   // request individual (essa é `requirement:request-document` acima). B2B-7 (D-097/D-098):
@@ -112,12 +105,12 @@ export type Action =
   | "docarchive:upload"
   | "docarchive:review"
   // D-143 Nucleus 2, entity 1 (Decision 5, D-145): Requirement — "algo que um Subject precisa
-  // possuir, apresentar ou manter válido". Deliberately NOT reusing `requirement:*` above:
-  // those belong to the older, distinct `subject` module's `RequirementAssignment` concept
-  // (linked ExpirationItem, MISSING<->SATISFIED only). This Requirement is document-archive's
-  // own aggregate (linked DocumentVersion evidence, 5-state derived status) — a real naming
-  // collision resolved deliberately by namespacing under `docarchive:`, same prefix as this
-  // module's other actions, rather than overloading the older name silently.
+  // possuir, apresentar ou manter válido". Namespaced under `docarchive:` (same prefix as this
+  // module's other actions) rather than a bare `requirement:*` — ADR-0016 Decision A (2026-09-25)
+  // retired the older, distinct `subject` module's own `RequirementAssignment` concept (linked
+  // ExpirationItem, MISSING<->SATISFIED only) this was originally namespaced to avoid colliding
+  // with. This Requirement is document-archive's own aggregate (linked DocumentVersion evidence,
+  // 5-state derived status).
   | "docarchive:requirement-create"
   | "docarchive:requirement-read"
   | "docarchive:requirement-update"
@@ -307,12 +300,6 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "subject:read": READ_ONLY_ROLES,
   "subject:update": WRITE_ROLES,
   "subject:delete": ADMIN_ROLES,
-  "requirement:assign": WRITE_ROLES,
-  "requirement:read": READ_ONLY_ROLES,
-  "requirement:update": WRITE_ROLES,
-  "requirement:delete": ADMIN_ROLES,
-  "requirement:review": WRITE_ROLES,
-  "requirement:request-document": WRITE_ROLES,
   "tenant:configure-document-request-delivery": OWNER_ROLES,
   "import:create": WRITE_ROLES,
   "import:read": READ_ONLY_ROLES,

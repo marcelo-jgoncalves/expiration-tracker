@@ -1,11 +1,44 @@
-/* A16 (Block 10, D-2xx) — grid of report cards, per spec's `repeat(auto-fill, minmax(260px,1fr))`.
-   A new pattern (action card, not a metric/link card) — MetricCardGrid does not fit (its cards are
-   counter+link, not title+note+button), so this is its own small, scoped stylesheet rather than a
-   forced reuse. */
+/* 2026-09-23 (Marcelo, protótipo `expiration-tracker-relatorios-exportacoes.html`) — fixed
+   column counts (4 for Vencimentos, 3 for Requisitos) instead of the previous
+   `auto-fill/minmax(260px,1fr)` - the prototype's own grid, applied as-is. A new pattern (action
+   card, not a metric/link card) — MetricCardGrid does not fit (its cards are counter+link, not
+   title+note+button), so this stays its own small, scoped stylesheet rather than a forced reuse. */
 .reports-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-6);
+}
+
+.reports-grid--requirements {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1050px) {
+  .reports-grid,
+  .reports-grid--requirements {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .reports-grid,
+  .reports-grid--requirements {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Título/nota no topo, botão sempre encostado no rodapé do card mesmo quando o card vizinho tem
+   uma nota mais longa (protótipo: `.report-card` + `.card-bottom{margin-top:auto}`) - sem isso
+   os botões da mesma linha ficavam em alturas diferentes. */
+.reports-card {
+  min-height: 145px;
+  height: 100%;
+}
+
+.reports-card > .ui-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .reports-card__title {
@@ -16,22 +49,28 @@
 .reports-card__note {
   color: var(--color-text-secondary);
   font-size: var(--font-size-200);
-  margin: 0 0 var(--space-4);
+  margin: 0;
+}
+
+.reports-card__bottom {
+  margin-top: auto;
+  padding-top: var(--space-4);
 }
 
 /* Header row (Nova assinatura) lives inside the unpadded Panel that also holds the table
    below (Marcelo, 2026-09-21, tela 17/Relatórios: matches the same single-card grouping the
    design-system-v2 pass already uses for every other table+toolbar pairing) - explicit inset
    padding since `.ui-panel` itself carries none by design (DataTable/EmptyState/
-   CollectionSkeleton already supply their own). */
-.reports-subscriptions__header {
+   CollectionSkeleton already supply their own).
+   2026-09-23 (Marcelo): the protótipo drops the "Nova assinatura" button that used to sit here,
+   above the whole seção - kept only as the empty-state's own action, plus (added back, scoped
+   to inside the table's own Panel, never "acima da seção") a small footer action so there's
+   still a way to add another subscription once the list is no longer empty. */
+.reports-subscriptions__table-footer {
   display: flex;
   justify-content: flex-end;
-  padding: var(--space-5) var(--space-6) 0;
-}
-
-.reports-subscriptions__header:last-child {
-  padding-bottom: var(--space-5);
+  padding: var(--space-4) var(--space-6);
+  border-top: var(--border-width-thin) solid var(--color-border-subtle);
 }
 
 /* D-293 — A16 execution history dialog. */

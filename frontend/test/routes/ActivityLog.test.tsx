@@ -6,7 +6,7 @@ import type { ActivityEntry } from "../../src/api/types.js";
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 vi.mock("../../src/api/apiClient.js", () => ({
-  apiClient: { get: getMock, post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: { get: (path: string, options: unknown) => path === "/organizations/members" ? Promise.resolve({ members: [] }) : getMock(path, options), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
 const { fetchOrganizationsMock } = vi.hoisted(() => ({ fetchOrganizationsMock: vi.fn() }));
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 describe("ActivityLog (D-149)", () => {
+  // Mutation: fetching activity as a viewer would fail this case.
   it("blocks a VIEWER with a permission-limited message, never calling GET /activity", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "VIEWER", version: 1 }] });
 
@@ -44,6 +45,7 @@ describe("ActivityLog (D-149)", () => {
     expect(getMock).not.toHaveBeenCalled();
   });
 
+  // Mutation: exposing raw action codes instead of localized actions would fail this case.
   it("renders the feed as a DataTable (action in <code>, never raw JSON) for an ADMIN", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({
@@ -54,24 +56,26 @@ describe("ActivityLog (D-149)", () => {
 
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
-    await waitFor(() => expect(screen.getByText("CREATE").tagName).toBe("CODE"));
+    await waitFor(() => expect(screen.getByText("Criou vencimento")).toBeInTheDocument());
     // Resource renders as two lines (type + id), not one combined string (Marcelo 2026-09-22,
     // protótipo `expiration-tracker-log-atividade(1).html` restructure) - would fail if the
     // resource cell collapsed back to a single "ExpirationItem — item-1" text node.
-    expect(screen.getByText("ExpirationItem")).toBeInTheDocument();
+    expect(screen.getByText("Vencimento", { selector: "div" })).toBeInTheDocument();
     expect(screen.getByText("item-1")).toBeInTheDocument();
     expect(screen.queryByText(/{.*}/)).not.toBeInTheDocument();
   });
 
-  it("shows 'Usuário não identificado' for a USER actor with no userId (never claims a specific unproven cause)", async () => {
+  // Mutation: inventing a missing actor identity would fail this case.
+  it("shows 'Usuário não disponível' for a USER actor with no userId (never claims a specific unproven cause)", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({ entries: [entry({ actor: { type: "USER" } })], cursor: null, hasMore: false });
 
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
-    await waitFor(() => expect(screen.getByText("Usuário não identificado")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Usuário não disponível")).toBeInTheDocument());
   });
 
+  // Mutation: offering another page without a cursor would fail this case.
   it("shows 'Todos os eventos foram carregados.' once hasMore is false and there are entries", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({ entries: [entry({})], cursor: null, hasMore: false });
@@ -86,6 +90,7 @@ describe("ActivityLog (D-149)", () => {
   // `isError` on a `fetchNextPage()` failure too, while still preserving already-loaded `data` -
   // this used to be checked with a plain `query.isError`, blanking the whole table on a
   // next-page failure. Now only a genuine INITIAL-load failure does that.
+  // Mutation: discarding loaded rows on a next-page error would fail this case.
   it("a fetchNextPage() failure keeps every already-loaded row visible and shows an inline retry, never blanking the table", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     let call = 0;
@@ -101,9 +106,10 @@ describe("ActivityLog (D-149)", () => {
     screen.getByRole("button", { name: "Carregar mais" }).click();
 
     await waitFor(() => expect(screen.getByText("Não foi possível carregar mais eventos.")).toBeInTheDocument());
-    expect(screen.getByText("CREATE")).toBeInTheDocument();
+    expect(screen.getByText("Criou vencimento")).toBeInTheDocument();
   });
 
+  // Mutation: ignoring the returned cursor would fail this case.
   it("shows a 'Carregar mais' button when hasMore is true, and fetches the next page via the returned cursor on click", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
     getMock.mockImplementation((path: string) => {
@@ -124,6 +130,7 @@ describe("ActivityLog (D-149)", () => {
   // Marcelo 2026-09-22 (protótipo `expiration-tracker-log-atividade(1).html`): filters used to
   // re-fetch on every keystroke (no debounce) - now deferred to an explicit "Aplicar filtros".
   // Would fail if a filter input still fired GET /activity on every change.
+  // Mutation: applying draft filters before submission would fail this case.
   it("does not re-fetch while typing a filter, only on 'Aplicar filtros'", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({ entries: [entry({})], cursor: null, hasMore: false });
@@ -131,7 +138,7 @@ describe("ActivityLog (D-149)", () => {
     renderAtRoute("/activity", <ActivityLog />, "/activity");
     await waitFor(() => expect(getMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
+    fireEvent.change(await screen.findByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
     expect(getMock).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Aplicar filtros" }));
@@ -141,6 +148,7 @@ describe("ActivityLog (D-149)", () => {
 
   // Would fail if "Limpar" only reset the visible inputs without also re-applying the query
   // (a stale filter would keep silently narrowing the feed after the user asked to clear it).
+  // Mutation: retaining an applied resource filter after clearing would fail this case.
   it("'Limpar' resets both the inputs and the applied filter", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockImplementation((path: string) =>
@@ -154,23 +162,24 @@ describe("ActivityLog (D-149)", () => {
     renderAtRoute("/activity", <ActivityLog />, "/activity");
     await waitFor(() => expect(screen.getByText("item-unfiltered")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
+    fireEvent.change(await screen.findByLabelText(/Tipo de recurso/), { target: { value: "ExpirationItem" } });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar filtros" }));
     await waitFor(() => expect(screen.getByText("item-filtered")).toBeInTheDocument());
 
     // The new query key re-enters `isPending` until it resolves, swapping the whole page for a
     // skeleton (same branch as the initial load) - `findByRole` waits that out before clicking.
-    fireEvent.click(await screen.findByRole("button", { name: "Limpar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Limpar filtros" }));
     expect(screen.getByLabelText(/Tipo de recurso/)).toHaveValue("");
     await waitFor(() => expect(screen.getByText("item-unfiltered")).toBeInTheDocument());
   });
 
+  // Mutation: showing populated content for an empty response would fail this case.
   it("shows an empty state when there are no events", async () => {
     fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
     getMock.mockResolvedValue({ entries: [], cursor: null, hasMore: false });
 
     renderAtRoute("/activity", <ActivityLog />, "/activity");
 
-    await waitFor(() => expect(screen.getByText("Nenhum evento registrado ainda.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Nenhum evento encontrado nesta consulta. Revise os filtros ou carregue a próxima página, se disponível.")).toBeInTheDocument());
   });
 });

@@ -50,11 +50,24 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
-  device_configuration {
-    challenge_required_on_new_device      = true
-    device_only_remembered_on_user_prompt = true
-  }
-
+  # d321-direct-auth-adversarial-review round 2 (Codex, confirmed via AWS's own
+  # DeviceConfigurationType doc: "When you provide a value for any property of
+  # DeviceConfiguration, you activate the device remembering for the user pool") - REMOVED.
+  # `device_configuration` here activated device remembering pool-wide even though NOTHING in
+  # this codebase ever calls ConfirmDevice/UpdateDeviceStatus or passes DEVICE_KEY (grep for those
+  # + NewDeviceMetadata across src/ returns zero matches) - a pool feature enabled with no code
+  # ever using it. Per AWS's own /oauth2/token docs, a token minted via InitiateAuth (the direct-
+  # auth login this app uses, D-3xx) can only be refreshed at that endpoint when remembered
+  # devices is NOT active - with this block present, every direct-auth session's refresh could
+  # fail once its access token expires. **Residual risk, named explicitly (same class of gotcha as
+  # D-323's ManagedLoginVersion, though the provider mechanism differs)**: `device_configuration`
+  # is a plain Optional block in the AWS provider (v6.65.0, verified against the provider's own
+  # schema - not Computed like `managed_login_version` was), so removing it SHOULD send an
+  # explicit clear on the next apply. `terraform apply` against `dev` only ever runs via the CD
+  # pipeline (never locally), so this has not been verified empirically - confirm after the next
+  # real apply (`aws cognito-idp describe-user-pool --profile claude-dev`, check
+  # `DeviceConfiguration` is null) and, separately, exercise a real login -> wait for access-token
+  # expiry -> refresh round trip against `dev` before treating this as fully closed.
   deletion_protection = var.deletion_protection
 
   # D-3xx: D-320's ESSENTIALS bump is reverted here - it existed only to unlock the Managed

@@ -254,10 +254,11 @@ describe("reset-dev-data: assertAllEmpty (final verification, fail-loud)", () =>
 });
 
 describe("reset-dev-data: queueNames", () => {
-  // Mutação: esquecer o sufixo `-dlq` para metade das filas faria este teste (36 = 18*2) falhar.
-  it("returns 36 names (18 base queues + their DLQs)", () => {
+  // Mutação: esquecer o sufixo `-dlq` para metade das filas faria este teste (34 = 17*2) falhar.
+  // ADR-0016 Decision A (2026-09-25) retired document-chasing-dispatch (18 -> 17 base queues).
+  it("returns 34 names (17 base queues + their DLQs)", () => {
     const names = queueNames();
-    expect(names).toHaveLength(36);
+    expect(names).toHaveLength(34);
     expect(names).toContain("exptrk-dev-upload-finalizer-dlq");
     expect(names).toContain("exptrk-dev-reminder-dispatch");
   });

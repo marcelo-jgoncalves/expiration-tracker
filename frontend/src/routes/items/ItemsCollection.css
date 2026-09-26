@@ -1,0 +1,29 @@
+﻿.ov-items .ui-toolbar { margin:25px 0 14px; gap:10px; }
+.ov-items .ui-filter { background:#f0edf7; padding:3px; border:1px solid #e5e0ef; border-radius:10px; }
+.ov-items .ui-filter__option { min-height:38px; font-size:11px; font-weight:700; border:0; border-radius:7px; padding:0 13px; }
+.ov-items .ui-filter__option[aria-pressed=true] { background:white; color:#4c1d95; box-shadow:0 1px 5px #24125118; }
+.ov-items-search { height:44px; min-width:0; padding:0 13px; background:white; border:1px solid #e5e0ef; border-radius:9px; font:500 11px var(--font-family-sans); }
+.ov-items .ui-table { font-size:11px; }
+.ov-items .ui-table thead th { font-size:10px; text-transform:uppercase; background:#fbfafe; padding:15px 19px; }
+.ov-items .ui-table td { padding:12px 19px; height:76px; }
+/* padding:4px 0 (not the design system's default 3px) - at this row's 11px font-size, 3px would
+   put the link's own target box at 22.5px tall, under WCAG 2.2 SC 2.5.8's 24px minimum
+   (accessibility.spec.ts A11Y-focus measures this element directly, not the 76px row). */
+.ov-items .ui-table__cell--primary a { color:#4c1d95; font-weight:800; font-size:11px; text-decoration:none; padding:4px 0; }
+.ov-items .ui-table__cell--primary a:hover { text-decoration:underline; }
+.ov-items .ui-table__group-header th { background:#f8f7fc; font-size:11px; padding:13px 19px; }
+.ov-items .ui-table__group-count { float:right; }
+.ov-items .ui-badge, .ov-items .ui-urgency { font-size:10px; }
+.ov-items .ui-table .ui-button { font-size:10px; padding:8px 10px; }
+.ov-items-partial, .ov-items-footer { padding:14px 19px; font-size:11px; color:#55507a; margin:0; }
+@media(max-width:1220px) { .ov-items .ui-table td, .ov-items .ui-table thead th { padding-left:10px; padding-right:10px; } }
+@media(max-width:850px) {
+ .ov-items .ui-table { min-width:0; }
+ .ov-items .ui-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+ .ov-items .ui-table tbody, .ov-items .ui-table tr { display:block; }
+ .ov-items .ui-table tr:not(.ui-table__group-header) { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:17px; gap:8px; }
+ .ov-items .ui-table td { display:block; padding:0; height:auto; border:0; white-space:normal; overflow-wrap:anywhere; }
+ .ov-items .ui-table td:first-child { grid-column:1/-1; }
+ .ov-items .ui-table__group-header th { display:block; }
+}
+@media(max-width:650px) { .ov-items .ui-filter { width:100%; display:flex; } .ov-items .ui-filter__option { flex:1; padding:0 6px; } .ov-items-search { width:100%; } }

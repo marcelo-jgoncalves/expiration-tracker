@@ -9,6 +9,16 @@ vi.mock("../../../src/api/apiClient.js", () => ({
   apiClient: { get: getMock, post: vi.fn() },
 }));
 
+const { fetchOrganizationsMock } = vi.hoisted(() => ({ fetchOrganizationsMock: vi.fn() }));
+vi.mock("../../../src/api/organizations.js", () => ({
+  fetchOrganizations: fetchOrganizationsMock,
+  selectOrganization: vi.fn(),
+}));
+
+function mockAsRole(role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER") {
+  fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role, version: 1 }] });
+}
+
 function subject(overrides: Partial<TrackedSubject>): TrackedSubject {
   return {
     subjectId: "subject-1",
@@ -26,6 +36,7 @@ function subject(overrides: Partial<TrackedSubject>): TrackedSubject {
 
 beforeEach(() => {
   getMock.mockReset();
+  fetchOrganizationsMock.mockReset();
 });
 
 describe("SubjectsCollection", () => {
@@ -45,18 +56,45 @@ describe("SubjectsCollection", () => {
     await waitFor(() => expect(screen.getByText(/Nenhum fornecedor cadastrado ainda\./)).toBeInTheDocument());
   });
 
+  // Mutation: failing to apply ARCHIVED would leave the active record visible.
   it("switching to the Arquivados tab queries status=ARCHIVED", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("status=ARCHIVED")) return Promise.resolve({ subjects: [] });
       return Promise.resolve({ subjects: [subject({})] });
     });
     renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Arquivados" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Arquivados/ })).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Arquivados" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Arquivados/ }));
 
     await waitFor(() => expect(screen.getByText("Nenhum fornecedor neste status.")).toBeInTheDocument());
     expect(getMock).toHaveBeenCalledWith(expect.stringContaining("status=ARCHIVED"), expect.anything());
+  });
+
+  it("'Novo fornecedor' opens the create modal (SubjectFormDialog) instead of navigating to a route", async () => {
+    mockAsRole("OWNER");
+    getMock.mockResolvedValue({ subjects: [subject({})] });
+    renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Novo fornecedor" })).toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo fornecedor" })[0]!);
+
+    expect(await screen.findByRole("dialog", { name: "Novo fornecedor" })).toBeInTheDocument();
+  });
+
+  it("the row 'Editar' action opens the edit modal pre-filled with the subject's own data", async () => {
+    mockAsRole("OWNER");
+    getMock.mockImplementation((path: string) => {
+      if (path === "/subjects/subject-1") return Promise.resolve({ subject: subject({ displayName: "ACME Ltda", notes: "Nota real" }) });
+      return Promise.resolve({ subjects: [subject({ displayName: "ACME Ltda", notes: "Nota real" })] });
+    });
+    renderAtRoute("/subjects", <SubjectsCollection />, "/subjects");
+
+    await waitFor(() => expect(screen.getByRole("link", { name: "ACME Ltda" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Editar ACME Ltda" }));
+
+    expect(await screen.findByRole("dialog", { name: "Editar fornecedor" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/^Nome/)).toHaveValue("ACME Ltda"));
   });
 
   it("maps an AUTHORIZATION error to the permission-limited empty state", async () => {

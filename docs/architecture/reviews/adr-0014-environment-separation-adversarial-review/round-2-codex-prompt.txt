@@ -1,0 +1,34 @@
+Rodada 2, protocolo Claude-Codex sobre ADR-0014. Rodada 1 voce deu 8.0/10 (nota ponderada por
+criterio). Nota cega: voce ainda nao viu a nota do Claude desta rodada (arquivo separado).
+
+Leia:
+
+1. docs/architecture/reviews/adr-0014-environment-separation-adversarial-review/round-2-claude-revision.md
+2. docs/architecture/adr/ADR-0014-environment-separation.md (ADR completo, ja com Emenda 2
+   corrigida, nova Emenda 3, opcao 5 Control Tower, e Final Decision corrigido - a revisao explica
+   cada mudanca)
+3. .github/workflows/cd.yml (linhas ~284-335, o fix do commitSha - confirme que agora usa a mesma
+   expressao condicional do ref: do checkout, linha 88)
+
+Foco especifico:
+- O fix do bug do commitSha (achado 5 da Rodada 1) esta correto? A expressao condicional aplicada
+  e identica a que ja funcionava na linha 88?
+- A correcao de precisao sobre SCPs (achado 2) fica adequada agora?
+- A decisao de REGISTRAR (Emenda 3) em vez de IMPLEMENTAR os achados 3/4/7/8 (baseline de SCPs,
+  bootstrap, contrato de promocao de artefato, DR/budget por conta) e proporcional dado que a Fase
+  2 nem esta autorizada ainda? Ou algum desses deveria ser resolvido AGORA, antes de considerar o
+  ADR aprovado pelo protocolo?
+- A comparacao com Control Tower (nova opcao 5) e adequada e a rejeicao por desproporcao ao
+  estagio esta bem fundamentada?
+- O achado 6 da Rodada 1 (voce nao conseguiu confirmar a evidencia ao vivo do gh run list por
+  bloqueio de rede no seu sandbox) - tente rodar de novo `gh run list --workflow="Deploy (CD)"
+  --limit 10` agora; se ainda falhar, isso nao deve pesar contra a nota (limitacao do seu ambiente,
+  nao do codigo).
+- Algo na consolidacao textual do ADR (achado 9) ainda esta inconsistente?
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Se atingir 9.0, diga isso
+explicitamente e se isto e um bom ponto de convergencia (minimo 3 rodadas ja atingido - esta seria
+a 2a, entao mesmo com 9.0 aqui, uma 3a rodada de confirmacao ainda seria necessaria pelo minimo do
+protocolo). Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

@@ -5,10 +5,11 @@
  *
  * Escopo v1 (decisão de implementação, não de arquitetura — "Residuais não resolvidos" do
  * design explicitamente deixa isso para a sessão que implementar): CSV apenas (XLSX fica para
- * depois, per design), importação de `TrackedSubject` apenas (`RequirementAssignment`
- * combinado fica para v2 — začit simples, sem side-table de mapeamento subject-por-linha
- * ainda não resolvida no design). `targetEntityType` já existe no schema para essa extensão
- * futura sem migração.
+ * depois, per design), importação de `TrackedSubject` apenas — começar simples, sem side-table
+ * de mapeamento subject-por-linha ainda não resolvida no design. `targetEntityType` já existe
+ * no schema para uma extensão futura sem migração (o `RequirementAssignment` combinado
+ * originalmente cogitado para v2 nunca foi construído; ADR-0016, 2026-09-25, retirou esse
+ * agregado por completo — uma v2 real precisaria mirar `Requirement`/document-archive).
  *
  * Plano linha-a-linha vive em S3 (`planObjectKey`/`planSha256`), nunca em DynamoDB por linha
  * (design: ADR-0001, custo por item) — este item só guarda o que exige condição/transação:
@@ -240,6 +241,15 @@ export const IMPORT_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Limites de v1 (design: "5 MiB / 5.000 linhas por import, ajustável por plano depois"). */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 5000;
+/** full-audit round3/seguranca (R3-04, 2026-09-25): `mapCsvRowsToNamedFields` materializa um
+ * objeto por linha com uma chave por coluna do cabeçalho - MAX_IMPORT_FILE_BYTES/MAX_IMPORT_ROWS
+ * sozinhos não limitam a CONTAGEM de colunas, então um cabeçalho com dezenas de milhares de
+ * colunas (arquivo ainda < 5 MiB) multiplica por MAX_IMPORT_ROWS antes de qualquer validação de
+ * linha - achado experimentalmente reproduzido (29.090 bytes -> 500 mil propriedades -> ~25 MB de
+ * heap extra). O schema real de v1 (TrackedSubject/Document/Requirement/Item) usa no máximo ~10
+ * colunas nomeadas - 50 é uma folga generosa, nunca um limite realista de atingir por um CSV
+ * legítimo. */
+export const MAX_IMPORT_HEADER_COLUMNS = 50;
 
 /**
  * D-192 §3: o claim OCC atômico de entrada/saída de `AWAITING_MAPPING` - "a PRIMEIRA mutação é

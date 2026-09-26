@@ -210,6 +210,15 @@ export class BffAuthService {
   async loginWithPassword(input: { email: string; password: string }): Promise<{ sessionToken: string; csrfToken: string }> {
     const username = input.email.trim().toLowerCase();
     const outcome = await this.deps.cognitoAuthClient.authenticateWithPassword({ username, password: input.password });
+    // Round-1 Codex finding (d321-direct-auth-adversarial-review): TRANSIENT_FAILURE/
+    // UNKNOWN_OUTCOME used to fold into the SAME "invalid credentials" as a real wrong password -
+    // a genuine Cognito outage/throttling would falsely tell the user they mistyped their
+    // password. Mapped to DependencyUnavailableError instead, same posture every other method in
+    // this file already uses - this reveals nothing about account existence, only "the system
+    // could not complete this request right now", which is not an anti-enumeration regression.
+    if (outcome.kind === "TRANSIENT_FAILURE" || outcome.kind === "UNKNOWN_OUTCOME") {
+      throw new DependencyUnavailableError("Não foi possível autenticar agora - tente novamente.");
+    }
     if (outcome.kind !== "SUCCESS") {
       throw new AuthenticationError("E-mail ou senha inválidos.");
     }
@@ -225,9 +234,13 @@ export class BffAuthService {
    * admins, `infra/modules/cognito/main.tf` - self-service signup was already live, this is
    * parity, not a new capability). `auto_verified_attributes = ["email"]` means Cognito always
    * requires the confirmation-code step below before the account can log in. */
-  async signUp(input: { email: string; password: string }): Promise<{ status: "CONFIRMATION_REQUIRED" }> {
+  async signUp(input: { email: string; password: string; name: string }): Promise<{ status: "CONFIRMATION_REQUIRED" }> {
     const username = input.email.trim().toLowerCase();
-    const outcome = await this.deps.cognitoAuthClient.signUp({ username, password: input.password });
+    const name = input.name.trim();
+    if (!name) {
+      throw new ValidationError("O nome é obrigatório.");
+    }
+    const outcome = await this.deps.cognitoAuthClient.signUp({ username, password: input.password, name });
     if (outcome.kind === "EMAIL_ALREADY_REGISTERED") {
       throw new ConflictError("Já existe uma conta com este e-mail.");
     }
@@ -756,8 +769,8 @@ export class BffAuthService {
    * hasCreatedOrganization` is set via a `Update` (`buildAttributeOnceUpdate`, tenantless -
    * `GlobalUser` has no `tenantId` for `buildVersionedUpdate`'s reserved condition to check)
    * inside the SAME `TransactWriteItems` as the `Put`s `CreateOrganizationService.
-   * buildCreateEntries()` builds (5 as of the NotificationEntitlements addition,
-   * PENDING_PROTOCOL_REVIEW - see decisions-log.md) - committed atomically. The cap entry is
+   * buildCreateEntries()` builds (6 as of D-332's NotificationPreferences addition - see
+   * decisions-log.md) - committed atomically. The cap entry is
    * index 0, prepended via spread regardless of how many entries `buildCreateEntries()` returns
    * - only ITS `ConditionalCheckFailed` means "already created an organization"; any other index
    * failing (e.g. an astronomically unlikely organizationId ULID collision) propagates as a

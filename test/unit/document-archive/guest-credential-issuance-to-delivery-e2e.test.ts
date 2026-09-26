@@ -24,6 +24,7 @@ import { guestCredentialDeliveryKey, type GuestCredentialDeliveryRecord } from "
 import type { RequestContext } from "../../../src/modules/identity/domain/request-context.js";
 import type { DocumentArchiveIdGenerator } from "../../../src/modules/document-archive/application/id-generator.js";
 import { requirementKey } from "../../../src/modules/document-archive/domain/requirement.js";
+import { documentRequestDeliveryPreferenceKey, type DocumentRequestDeliveryPreference } from "../../../src/modules/document-archive/domain/document-request-delivery-preference.js";
 
 const TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: "tenant-1" });
 const SUBJECT = "subject-1";
@@ -60,6 +61,23 @@ function makeIds(): DocumentArchiveIdGenerator {
     newDocumentTypeFieldOptionId: () => `doctypefieldopt_${++n}`,
     newShareId: () => `share_${crypto.randomUUID()}`,
   };
+}
+
+// ADR-0016 Decision B (2026-09-25): the tenant-wide A22 default is MANUAL when never
+// configured - these e2e tests exercise the real EMAIL send path, so they seed the preference
+// explicitly rather than relying on the (now-changed) implicit default.
+function seedEmailDeliveryPreference(tenantId: string): Record<string, unknown> & { PK: string; SK: string } {
+  const preference: DocumentRequestDeliveryPreference = {
+    ...documentRequestDeliveryPreferenceKey(authorizedTenantIdFromPersistedEntity({ tenantId })),
+    entityType: "DocumentRequestDeliveryPreference",
+    tenantId,
+    initialInviteDeliveryDefault: "EMAIL",
+    updatedByUserId: "user-1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    version: 1,
+  };
+  return preference as unknown as Record<string, unknown> & { PK: string; SK: string };
 }
 
 function seedRequirement(tenantId: string, subjectId: string, requirementId: string): Record<string, unknown> & { PK: string; SK: string } {
@@ -132,14 +150,18 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
     const ids = makeIds();
     const archiveService = makeArchiveService(store, ids);
 
-    // 1. Producer: creates a DocumentRequest with a real recipientEmail (D-228).
+    // 1. Producer: creates a DocumentRequest with a real recipientEmail (D-228). ADR-0016
+    // Decision B: EMAIL is an explicit per-call override here (A22's tenant-wide default is
+    // MANUAL when never configured) - this test proves the real send path, not the default.
     const request = await archiveService.createDocumentRequest(ctx(), {
       subjectId: SUBJECT,
       requirementId: "req-1",
       idempotencyKey: "idem-e2e-1",
       recipientEmail: "guest@example.com",
+      initialInviteDelivery: "EMAIL",
     });
     expect(request.recipientEmail).toBe("guest@example.com");
+    expect(request.resolvedInitialInviteDelivery).toBe("EMAIL");
 
     // 2. Issuance consumer (D-226/D-227, guest Lambda): mints the RequestAccessCredential and
     // writes the delivery record to the dedicated table — same store instance, different table
@@ -181,6 +203,36 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
     const resolved = await guestAccess.resolveCredential(token!, { ip: "203.0.113.1" });
     expect(resolved.credential.documentRequestId).toBe(request.documentRequestId);
   });
+
+  // ADR-0016 Decision B (2026-09-25): with no override and no A22 preference configured, the
+  // resolved mode is MANUAL — even with a real recipientEmail present, no automated e-mail is
+  // ever attempted. This is the new default, not a regression (see the ADR's own "consequência
+  // funcional aceita" note).
+  it("with no override and no A22 preference configured, an avulso request with a recipientEmail still resolves to MANUAL and never sends", async () => {
+    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const ids = makeIds();
+    const archiveService = makeArchiveService(store, ids);
+
+    const request = await archiveService.createDocumentRequest(ctx(), {
+      subjectId: SUBJECT,
+      requirementId: "req-1",
+      idempotencyKey: "idem-e2e-manual-default",
+      recipientEmail: "guest@example.com",
+    });
+    expect(request.resolvedInitialInviteDelivery).toBe("MANUAL");
+
+    const issuanceService = new DocumentRequestCredentialIssuanceService({ store, tableName: MAIN_TABLE, deliveryTableName: DELIVERY_TABLE, pepper: PEPPER, now: () => "2026-01-01T00:05:00.000Z" });
+    await issuanceService.handle({ tenantId: TENANT, subjectId: SUBJECT, documentRequestId: request.documentRequestId, issuanceGeneration: request.issuanceGeneration });
+    const deliveryRecord = await store.get<GuestCredentialDeliveryRecord>(guestCredentialDeliveryKey(request.documentRequestId, request.issuanceGeneration));
+
+    const emailProvider = new CapturingEmailProvider();
+    const deliveryOutcome = await deliverGuestCredential(
+      { store, markerStore: new FakeMarkerStore(), emailProvider, notifyUncertainDelivery: async () => {}, guestUploadBaseUrl: "https://app.example.invalid/document-archive/guest/document-requests", now: () => "2026-01-01T00:06:00.000Z", newCorrelationId: () => "corr-delivery-manual" },
+      deliveryRecord!,
+    );
+    expect(deliveryOutcome.kind).toBe("SKIPPED_MANUAL_DELIVERY");
+    expect(emailProvider.sent).toHaveLength(0);
+  });
 });
 
 // D-230 (closes D-228's named pendency): the SAME end-to-end chain, but for a DocumentRequest
@@ -190,7 +242,14 @@ describe("D-228 end-to-end: issue -> deliver -> resolve", () => {
 // error). This proves the recurrence path now closes ponta a ponta too.
 describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve", () => {
   it("a series WITH recipientEmail: a materialized cycle delivers a real, usable guest link", async () => {
-    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const store = new InMemoryDocumentArchiveStore([
+      seedActiveTenantLifecycle(TENANT),
+      seedActiveTrackedSubject(TENANT, SUBJECT),
+      seedRequirement(TENANT, SUBJECT, "req-1"),
+      // ADR-0016 Decision B: series never have their own override, only A22's tenant default -
+      // seeded EMAIL here so this test proves the real send path (default would be MANUAL).
+      seedEmailDeliveryPreference(TENANT),
+    ]);
     const ids = makeIds();
     const recurrenceService = new DocumentRequestRecurrenceService({ store, tableName: MAIN_TABLE, ids, now: () => "2026-01-01T00:00:00.000Z" });
 
@@ -200,6 +259,7 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
     const series = await recurrenceService.createSeries(ctx(), { subjectId: SUBJECT, requirementId: "req-1", cadence: { intervalDays: 90 }, recipientEmail: "guest@example.com" });
     const { request } = await recurrenceService.materializeAttempt(ctx(), SUBJECT, series.seriesId, series.version);
     expect(request.recipientEmail).toBe("guest@example.com");
+    expect(request.resolvedInitialInviteDelivery).toBe("EMAIL");
 
     // 2. Issuance consumer (D-226/D-227).
     const issuanceService = new DocumentRequestCredentialIssuanceService({ store, tableName: MAIN_TABLE, deliveryTableName: DELIVERY_TABLE, pepper: PEPPER, now: () => "2026-01-01T00:05:00.000Z" });
@@ -237,7 +297,14 @@ describe("D-230 end-to-end: series (recurrence) -> issue -> deliver -> resolve",
   });
 
   it("a series WITHOUT recipientEmail: the delivery worker keeps skipping (terminal, never an error) — non-regression", async () => {
-    const store = new InMemoryDocumentArchiveStore([seedActiveTenantLifecycle(TENANT), seedActiveTrackedSubject(TENANT, SUBJECT), seedRequirement(TENANT, SUBJECT, "req-1")]);
+    const store = new InMemoryDocumentArchiveStore([
+      seedActiveTenantLifecycle(TENANT),
+      seedActiveTrackedSubject(TENANT, SUBJECT),
+      seedRequirement(TENANT, SUBJECT, "req-1"),
+      // EMAIL preference seeded so this test still isolates the "no recipient" data gap
+      // specifically, rather than masking it behind ADR-0016 Decision B's new MANUAL default.
+      seedEmailDeliveryPreference(TENANT),
+    ]);
     const ids = makeIds();
     const recurrenceService = new DocumentRequestRecurrenceService({ store, tableName: MAIN_TABLE, ids, now: () => "2026-01-01T00:00:00.000Z" });
 

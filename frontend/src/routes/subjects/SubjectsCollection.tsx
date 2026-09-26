@@ -1,19 +1,6 @@
-/**
- * A08 — Fornecedores (Block 3, D-2xx). Full CRUD per the post-audit spec
- * (`docs/frontend/prototype-screen-specs/A08-fornecedores.md`): search, create, edit,
- * archive/reactivate, delete — replacing the deliberately narrow BLOCKER-C read/review-only
- * surface this route used to be (see this file's own prior header comment, now superseded).
- *
- * Search is client-side over the already-fetched status-filtered list (`useSubjectsDashboard`)
- * rather than a second round-trip to `GET /subjects/search` — a real simplification versus the
- * spec's implied server search, acceptable at this tenant's real data volume (GSI7 status list,
- * not paginated) and consistent with "don't build search infra a screen doesn't need yet"
- * (mission's deferred-complexity discipline). Revisit if a tenant's subject count outgrows a
- * single unpaginated list.
- */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Check, FolderArchive, FolderUp, Pencil, Plus, Trash2 } from "lucide-react";
+import { Building2, FolderArchive, Pencil, Plus, Trash2 } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubjectsDashboard } from "../../hooks/useSubjectsDashboard.js";
 import { useArchiveSubject } from "../../hooks/useArchiveSubject.js";
@@ -23,10 +10,13 @@ import { InitialLoading, ErrorState, EmptyState, BackgroundRefreshIndicator } fr
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
-import { Button, ButtonLink } from "../../components/ui/Button.js";
-import { IconButton, IconButtonLink } from "../../components/ui/IconButton.js";
+import { Button } from "../../components/ui/Button.js";
+import { IconButton } from "../../components/ui/IconButton.js";
 import { PageHeader, Panel, StatusFilter, Toolbar } from "../../components/ui/Layout.js";
+import { OmniHero } from "../../components/OmniHero.js";
+import { Dialog } from "../../components/ui/Dialog.js";
 import { TextField } from "../../components/forms/TextField.js";
+import { SubjectFormDialog } from "./SubjectForm.js";
 import type { TrackedSubject, TrackedSubjectStatus } from "../../api/types.js";
 import "./SubjectsCollection.css";
 
@@ -49,16 +39,21 @@ function normalize(text: string): string {
 export function SubjectsCollection() {
   const orgPath = useOrgPath();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [searchTerm, setSearchTerm] = useState("");
+  const searchTerm = searchParams.get("search") ?? "";
+  function setSearchTerm(value: string) { setSearchParams(previous => { const params = new URLSearchParams(previous); params.set("search", value); return params; }, { replace: true }); }
+  useEffect(() => { document.title = "Fornecedores · OmniVence"; }, []);
   const statusParam = searchParams.get("status");
   const status: TrackedSubjectStatus = isKnownStatus(statusParam) ? statusParam : "ACTIVE";
+  const [formTarget, setFormTarget] = useState<"new" | { subjectId: string } | null>(null);
   const query = useSubjectsDashboard(status);
+  const activeQuery = useSubjectsDashboard("ACTIVE");
+  const archivedQuery = useSubjectsDashboard("ARCHIVED");
   const role = useCurrentMembershipRole();
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
   const canDelete = role === "OWNER" || role === "ADMIN";
 
   function selectStatus(next: TrackedSubjectStatus) {
-    setSearchParams(next === "ACTIVE" ? {} : { status: next });
+    setSearchParams(previous => { const params = new URLSearchParams(previous); params.set("status", next); return params; });
   }
 
   const allSubjects = useMemo(() => query.data?.subjects ?? [], [query.data]);
@@ -67,7 +62,7 @@ export function SubjectsCollection() {
     // per-subject pending count is available from this backend yet (TrackedSubject carries no
     // requirement-count denormalization), so this degrades to alphabetical-only until that
     // aggregation exists (recorded as a named gap, D-2xx below).
-    const sorted = [...allSubjects].sort((a, b) => a.displayName.localeCompare(b.displayName, "pt-BR"));
+    const sorted = [...allSubjects].sort((a, b) => a.displayName.localeCompare(b.displayName, "pt-BR") || a.subjectId.localeCompare(b.subjectId));
     if (!searchTerm.trim()) return sorted;
     const needle = normalize(searchTerm.trim());
     return sorted.filter((s) => normalize(s.displayName).includes(needle) || (s.externalId && normalize(s.externalId).includes(needle)));
@@ -89,27 +84,31 @@ export function SubjectsCollection() {
   const isBackgroundRefreshing = query.isFetching && !query.isPending;
 
   return (
-    <div>
+    <div className="ov-subjects">
       <PageHeader
         title="Fornecedores"
-        description="Terceiros que precisam manter documentação em dia com você."
-        actions={canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+        above={<span className="ov-eyebrow">Relacionamentos e conformidade</span>}
+        description="Acompanhe organizações e pessoas que precisam manter a documentação em dia com você."
+        actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget("new")}>Novo fornecedor</Button> : undefined}
       />
+      <OmniHero icon={Building2} eyebrow="Rede de parceiros" title="Todos os relacionamentos, em um só lugar." description="Encontre rapidamente quem precisa da sua atenção e mantenha cada cadastro organizado."
+        summary={<><strong>{activeQuery.data?.subjects.length.toLocaleString("pt-BR") ?? "?"}</strong><span>cadastros ativos carregados</span></>} />
+      <div className="ov-subjects-heading"><div><h2>Seus cadastros</h2><p>Consulte e gerencie os registros da sua organização.</p></div>
       <Toolbar>
-        <StatusFilter options={STATUS_TABS} value={status} onChange={selectStatus} />
+        <StatusFilter options={STATUS_TABS.map(tab => ({ ...tab, label: tab.label + ((tab.value === "ACTIVE" ? activeQuery.data : archivedQuery.data) ? " (" + (tab.value === "ACTIVE" ? activeQuery.data : archivedQuery.data)!.subjects.length + " carregados)" : "") }))} value={status} onChange={selectStatus} />
         <div className="subjects-search">
-          <TextField label="Buscar fornecedores" hideLabel placeholder="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
+          <TextField label="Buscar por nome ou CNPJ/identificador" hideLabel placeholder="Nome ou CNPJ/identificador" value={searchTerm} onChange={setSearchTerm} id="subjects-search" />
         </div>
         {isBackgroundRefreshing ? <BackgroundRefreshIndicator /> : null}
-      </Toolbar>
+      </Toolbar></div>
       {allSubjects.length === 0 ? (
         <EmptyState
           kind={status === "ACTIVE" ? "true-empty" : "filtered-empty"}
           message={status === "ACTIVE" ? "Nenhum fornecedor cadastrado ainda. Cadastre o primeiro fornecedor para começar a acompanhar a documentação dele." : "Nenhum fornecedor neste status."}
-          action={status === "ACTIVE" && canWrite ? <ButtonLink variant="primary" icon={Plus} to={orgPath("/subjects/new")}>Novo fornecedor</ButtonLink> : undefined}
+          action={status === "ACTIVE" && canWrite ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget("new")}>Novo fornecedor</Button> : undefined}
         />
       ) : filtered.length === 0 ? (
-        <EmptyState kind="filtered-empty" message={`Nenhum fornecedor encontrado para "${searchTerm}".`} action={<Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar busca</Button>} />
+        <EmptyState kind="filtered-empty" message="Nenhum resultado encontrado. Tente buscar por outro nome ou identificador." action={<Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar busca</Button>} />
       ) : (
         <Panel>
           <DataTable
@@ -119,7 +118,7 @@ export function SubjectsCollection() {
             columns={[
               {
                 key: "name",
-                header: "Fornecedor",
+                header: "Organização",
                 primary: true,
                 render: (s) => (
                   <>
@@ -132,92 +131,72 @@ export function SubjectsCollection() {
               {
                 key: "tags",
                 header: "Tags",
-                render: (s) => (s.tags.length ? s.tags.slice(0, 2).join(", ") + (s.tags.length > 2 ? ` +${s.tags.length - 2}` : "") : "—"),
+                render: (s) =>
+                  s.tags.length ? (
+                    <span className="ov-subject-tags">
+                      {s.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="u-text-secondary">Sem tags</span>
+                  ),
               },
               {
                 key: "actions",
                 header: "Ações",
                 actions: true,
-                render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} orgPath={orgPath} />,
+                render: (s) => <RowActions subject={s} canWrite={canWrite} canDelete={canDelete} onEdit={() => setFormTarget({ subjectId: s.subjectId })} />,
               },
             ]}
           />
+          <p className="ov-subjects-footer" aria-live="polite">{filtered.length} {filtered.length === 1 ? "cadastro" : "cadastros"} nesta visualização</p>
         </Panel>
       )}
+      {formTarget ? (
+        <SubjectFormDialog
+          subjectId={formTarget === "new" ? undefined : formTarget.subjectId}
+          onClose={() => setFormTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function RowActions({ subject, canWrite, canDelete, orgPath }: { subject: TrackedSubject; canWrite: boolean; canDelete: boolean; orgPath: (p: string) => string }) {
+function RowActions({ subject, canWrite, canDelete, onEdit }: { subject: TrackedSubject; canWrite: boolean; canDelete: boolean; onEdit: () => void }) {
   const archiveMutation = useArchiveSubject(subject.subjectId);
   const deleteMutation = useDeleteSubject(subject.subjectId);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [blockedReason, setBlockedReason] = useState<string | undefined>();
+  const [action, setAction] = useState<"archive" | "delete">();
+  const [confirmation, setConfirmation] = useState("");
+  const [failure, setFailure] = useState("");
+  const pending = archiveMutation.isPending || deleteMutation.isPending;
+  if (!canWrite) return null;
 
-  if (!canWrite) return null; // VIEWER: no row menu at all (hidden, not disabled) per RBAC table.
-
-  async function handleDelete() {
+  async function confirm() {
+    if (pending) return;
+    setFailure("");
     try {
-      await deleteMutation.mutateAsync({ expectedVersion: subject.version });
-      setConfirmingDelete(false);
-    } catch (err) {
-      if (isConflict(err)) return;
-      const message = err instanceof ApiError ? err.message : "Não foi possível excluir este fornecedor.";
-      setBlockedReason(message);
+      if (action === "archive") await archiveMutation.mutateAsync({ expectedVersion: subject.version });
+      else await deleteMutation.mutateAsync({ expectedVersion: subject.version });
+      setAction(undefined);
+    } catch (error) {
+      setFailure(isConflict(error) ? "Este cadastro foi alterado. Atualize a lista antes de tentar novamente." : error instanceof ApiError && error.category === "BUSINESS_RULE" ? error.message : "Não foi possível concluir a ação. Tente novamente.");
     }
   }
 
-  return (
-    <>
-      <IconButtonLink size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} to={orgPath(`/subjects/${subject.subjectId}/edit`)}>
-        <Pencil size={16} strokeWidth={2} aria-hidden="true" />
-      </IconButtonLink>
-      <IconButton
-        size="sm"
-        variant="ghost"
-        label={subject.status === "ARCHIVED" ? `Reativar ${subject.displayName}` : `Arquivar ${subject.displayName}`}
-        disabled={archiveMutation.isPending}
-        onClick={() =>
-          archiveMutation.mutate(
-            { expectedVersion: subject.version },
-            {
-              // A non-conflict archive/reactivate failure (authorization, validation, network)
-              // must not disappear silently - only isConflict had a visible state before (Codex
-              // Block 3 review round 1 finding 12).
-              onError: (err) => {
-                if (isConflict(err)) return;
-                setBlockedReason(err instanceof ApiError ? err.message : "Não foi possível concluir esta ação.");
-              },
-            },
-          )
-        }
-      >
-        {subject.status === "ARCHIVED" ? <FolderUp size={16} strokeWidth={2} aria-hidden="true" /> : <FolderArchive size={16} strokeWidth={2} aria-hidden="true" />}
-      </IconButton>
-      {canDelete ? (
-        confirmingDelete ? (
-          <span role="alertdialog" aria-label={`Excluir ${subject.displayName}`}>
-            {" "}
-            Excluir &quot;{subject.displayName}&quot; permanentemente?{" "}
-            <Button size="sm" variant="danger" icon={Check} pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
-              Confirmar exclusão
-            </Button>{" "}
-            <Button size="sm" variant="secondary" onClick={() => setConfirmingDelete(false)}>
-              Cancelar
-            </Button>
-          </span>
-        ) : (
-          <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => setConfirmingDelete(true)}>
-            <Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-          </IconButton>
-        )
-      ) : null}
-      {archiveMutation.isConflict ? <span role="alert"> Este fornecedor mudou desde que a página carregou — atualize antes de tentar de novo.</span> : null}
-      {/* Holistic frontend review finding: the delete path's `handleDelete` swallowed a conflict
-          silently (mirrors the exact archive/reactivate gap Codex Block 3 round 1 finding 12
-          already fixed above - that fix was never applied to its sibling delete action). */}
-      {deleteMutation.isConflict ? <span role="alert"> Este fornecedor foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</span> : null}
-      {blockedReason ? <span role="alert"> {blockedReason}</span> : null}
-    </>
-  );
+  return <span className="ov-subject-actions">
+    <IconButton size="sm" variant="tertiary" label={`Editar ${subject.displayName}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></IconButton>
+    {subject.status === "ACTIVE" && <IconButton size="sm" variant="ghost" label={`Arquivar ${subject.displayName}`} onClick={() => { setFailure(""); setAction("archive"); }}><FolderArchive size={16} aria-hidden="true" /></IconButton>}
+    {canDelete && <IconButton size="sm" variant="danger" label={`Excluir ${subject.displayName}`} onClick={() => { setFailure(""); setConfirmation(""); setAction("delete"); }}><Trash2 size={16} aria-hidden="true" /></IconButton>}
+    {/* alertdialog, not the default "dialog" - both actions here are irreversible ("O serviço
+        atual não oferece restauração" / no undo in this interface), same destructive-confirmation
+        posture as every other Dialog usage in this codebase (Reports.tsx, ...). */}
+    {action && <Dialog title={action === "archive" ? "Arquivar cadastro?" : "Excluir cadastro?"} variant="alertdialog" onClose={() => { if (!pending) setAction(undefined); }}>
+      <p>{action === "archive" ? `O cadastro de ${subject.displayName} sairá da lista de ativos. O serviço atual não oferece restauração.` : `O cadastro de ${subject.displayName} será marcado como excluído e deixará de aparecer nas listas. Esta ação não apaga os documentos associados e não possui restauração nesta interface.`}</p>
+      <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
+      {action === "delete" && <TextField label="Digite o nome do cadastro para confirmar" value={confirmation} onChange={setConfirmation} />}
+      {failure && <p role="alert">{failure}</p>}
+      <Button variant={action === "delete" ? "danger" : "primary"} pending={pending} disabled={action === "delete" && confirmation !== subject.displayName} onClick={() => void confirm()}>{action === "archive" ? "Arquivar" : "Excluir"}</Button>
+    </Dialog>}
+  </span>;
 }

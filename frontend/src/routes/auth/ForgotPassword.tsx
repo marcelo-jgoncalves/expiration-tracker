@@ -23,7 +23,7 @@ export function ForgotPassword() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    forgotPassword.mutate({ email });
+    if (!forgotPassword.isPending) forgotPassword.mutate({ email: email.trim() });
   }
 
   if (forgotPassword.isSuccess) {
@@ -32,11 +32,12 @@ export function ForgotPassword() {
         <PageHeader title="Verifique seu e-mail" />
         <Panel padded>
           <InlineNotice tone="success" announce="status">
-            Se o e-mail informado estiver cadastrado, enviamos um código para redefinir a senha.
+            Se houver uma conta vinculada a este e-mail, enviaremos instruções para redefinir a senha.
           </InlineNotice>
           <Button variant="primary" onClick={() => navigate(`/reset-password?${new URLSearchParams({ email }).toString()}`)}>
             Já tenho o código
           </Button>
+          <p className="ui-auth-links"><Link to="/login">Voltar para o login</Link></p>
         </Panel>
       </>
     );
@@ -47,6 +48,7 @@ export function ForgotPassword() {
       <PageHeader title="Esqueceu sua senha?" description="Informe seu e-mail para receber um código de redefinição." />
       <Panel padded>
         <form onSubmit={handleSubmit}>
+          {forgotPassword.isError && <InlineNotice tone="critical" announce="alert">Não foi possível conectar. Verifique sua conexão e tente novamente.</InlineNotice>}
           <TextField label="E-mail" type="email" value={email} onChange={setEmail} autoComplete="username" required />
           <Button type="submit" variant="primary" icon={Mail} pending={forgotPassword.isPending}>
             {forgotPassword.isPending ? "Enviando…" : "Enviar código"}

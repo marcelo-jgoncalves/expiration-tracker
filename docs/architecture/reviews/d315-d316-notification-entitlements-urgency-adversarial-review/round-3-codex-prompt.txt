@@ -1,0 +1,30 @@
+Rodada 3 (final de confirmacao), protocolo Claude-Codex sobre D-315/D-316. Rodada 2 voce deu
+9.0/10, ja atingindo o gate, aceitando a divisao de escopo (corrigir achados 1/4/5, registrar 2/3/6
+para uma rodada dedicada ao worker M4). O minimo do protocolo e 3 rodadas. Nota cega: voce ainda
+nao viu a nota do Claude desta rodada.
+
+Leia:
+
+1. docs/architecture/reviews/d315-d316-notification-entitlements-urgency-adversarial-review/round-3-claude-revision.md
+2. frontend/src/routes/Overview.tsx (trecho do InlineNotice, linha ~178-192)
+3. frontend/test/routes/Overview.test.tsx (teste "renders the items table before the summary
+   aggregate resolves", reforcado com a asserção do aviso de erro)
+4. test/unit/organization/accept-invitation.test.ts (teste "never overwrites an existing
+   NotificationPreferences record", reforcado com toEqual completo)
+
+NAO leia round-3-claude-selfgrade.md - nota cega, arquivo separado.
+
+Esta rodada corrigiu APENAS os 2 achados "Baixa" que voce apontou na Rodada 2 (aviso de erro
+disparando com summary so pendente, nao errado; teste de reativacao mais estreito que o nome
+prometia) - nenhuma mudanca arquitetural. Tambem registrei, sem aplicar, a sua sugestao de builder
+dedicado para o padrao if_not_exists() - julgamento consciente (2 usos no arquivo, nao 3 - limiar
+usual deste projeto para abstrair), nao um achado ignorado.
+
+Verifique se os 2 residuos foram genuinamente corrigidos, e se alguma correcao introduziu uma nova
+inconsistencia por acidente. De sua nota final (0-10, uma casa decimal, nunca arredondada). Se
+atingir 9.0 novamente, confirme que isto e convergencia (3 rodadas atingidas, ambos os lados >=9.0
+nesta e na rodada anterior, dentro do escopo restrito ja acordado - achados 2/3/6 continuam
+registrados para uma rodada dedicada ao worker M4, nunca fechados aqui). Termine com uma linha no
+formato exato:
+
+NOTA_CODEX: X.X

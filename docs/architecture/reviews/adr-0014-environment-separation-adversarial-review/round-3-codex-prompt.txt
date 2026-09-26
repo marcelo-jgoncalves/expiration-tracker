@@ -1,0 +1,20 @@
+Rodada 3 (final de confirmação), protocolo Claude-Codex sobre ADR-0014. Rodada 2 voce deu 9.1/10,
+ja atingindo o gate, mas o minimo do protocolo e 3 rodadas. Nota cega: voce ainda nao viu a nota do
+Claude desta rodada.
+
+Leia:
+
+1. docs/architecture/reviews/adr-0014-environment-separation-adversarial-review/round-3-claude-revision.md
+2. docs/architecture/adr/ADR-0014-environment-separation.md (ADR completo com os 8 ajustes
+   textuais da Rodada 2 aplicados - cabecalho, Pendencia explicita, Fase 2/4, Options Considered,
+   Control Tower)
+
+Esta rodada e so consolidacao textual (nenhuma mudanca de codigo). Verifique se os 8 residuos que
+voce apontou na Rodada 2 (item 6) foram genuinamente corrigidos, e se alguma correcao introduziu
+uma nova inconsistencia por acidente.
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Se atingir 9.0 novamente, confirme
+que isto e convergencia (3 rodadas atingidas, ambos os lados >=9.0 nesta e na rodada anterior).
+Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

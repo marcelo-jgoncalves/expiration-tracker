@@ -1,0 +1,101 @@
+RODADA 2 — CRÍTICA CODEX À TRÉPLICA
+Data: 2026-09-25
+Objeto: round-2-claude-revision.md, lido integralmente após round-1-codex-output.txt.
+Nota cega: 8,6/10, sem arredondamento.
+Veredito: correções centrais defensáveis; ainda NEEDS FIXES para fechar a decisão.
+
+Não consultei avaliação/nota de Claude para esta tréplica. A nota acima avalia especificamente a proposta revisada, não herda a reprovação de 5,8 da R1 e não é uma auditoria da aplicação inteira. A melhora é substancial: foram corrigidos serviço, entidade, contrato de destino, ownership de A22 e risco de B. Não há motivo para insistir que a solução de link manual tenha de nascer nesta rodada. Há, porém, lacunas reais de comportamento e de inventário que ainda impedem ≥9,0.
+
+1. A22 NÃO AFETA A14 — CONFIRMADO, COM UMA PRECISÃO
+
+O caminho verificado é:
+- RequestDeliverySettings.tsx:65-66 → hooks de preferência → frontend/src/api/subjects.ts:136-149 → GET/PUT /subjects/document-request-delivery-preference.
+- src/modules/subject/http/document-request-handlers.ts:58-74 → DocumentRequestService.get/setDocumentRequestDeliveryPreference, em application/document-request-service.ts:250-307.
+- A preferência é lida na criação LEGADA (:101-103). Sua chave é TENANT#<tenantId>#SETTINGS / DOCUMENT_REQUEST_DELIVERY (domain/document-request-delivery-preference.ts:31-32).
+- A14 cria pelo outro endpoint: frontend/src/routes/subjects/SubjectRequests.tsx:379 → API documentRequests → src/modules/document-archive/http/document-archive-handlers.ts:505-514 → DocumentArchiveService.createDocumentRequest (:1184).
+- O input (:469-480), schema docarchive-request-create-request.v1.json e montagem da entidade (:1198-1213) não possuem initialInviteDelivery. A emissão assíncrona relê a solicitação em document-request-credential-issuance-service.ts; a entrega relê em src/workers/guest-credential-delivery/deliver.ts:105.
+
+A busca de DeliveryPreference/deliveryPreference/initialInviteDelivery/DeliveryMode em src, frontend/src e schemas não revelou consumidor dessa preferência no pipeline document-archive. deliver.ts inteiro não contém DeliveryMode nem consulta de preferência. Logo, a conclusão central da tréplica é verdadeira.
+
+Precisão: não é literalmente “envia incondicionalmente se há e-mail”. Além da ausência de destinatário (:108), há request inexistente, geração obsoleta e controles de claim/lease/entrega anterior/incerteza (:106-126). O correto é “não há filtro por política de entrega; destinatário presente torna o pedido candidato ao envio, sujeito aos demais controles”. Isso não muda o achado sobre A22.
+
+Também reconfirmei as correções de R1: as chaves são distintas (subject/domain/document-request.ts:40 versus document-archive/domain/document-request.ts:115-116), e o handler novo devolve só documentRequest. O override interno do legado não constitui capacidade HTTP já disponível no novo fluxo.
+
+2. INVENTÁRIO DE A — MELHOROU, MAS NÃO É AINDA A VERTICAL COMPLETA
+
+Os três serviços, suas entidades e o destino separado de A22 estão corretos. “Família de chasing” precisa explicitar as integrações compartilhadas; citar submission-finalizer/submission-malware-result não cobre o worker de chasing propriamente dito. São componentes de processamento de submissão, que também acionam avanço do chasing.
+
+Dependências concretas adicionais a registrar no plano de retirada:
+
+a) Chasing: src/workers/document-chasing-dispatch/dispatch.ts:29-36 importa DocumentRequest/RequirementAssignment/guest-token e o producer legado. Há handler dedicado document-chasing-dispatch-handler.ts, build em scripts/build-lambdas.ts:66 e fila/Lambda em infra/main.tf:2225-2242. Incluir producer/materializer e advance-after-submission-evidence do módulo subject, contratos de fila/evento e wiring associados.
+
+b) Lembretes compartilhados: reminder-producer/producer.ts:178-190 processa chasing; reminder-scan/scan-page.ts:166-168 produz candidatos CHASING; reminder-claim-consumer-handler.ts:67 chama claimChasingOccurrence; reminder-reconciliation/recover-expired-claims.ts:18-19 recupera DocumentChasingOccurrence. Retirar os branches legados, preservando ReminderOccurrence. ExpirationItem pode ficar semanticamente intocado, mas seus componentes compartilhados não ficarão todos sem alteração.
+
+c) Upload/antimalware compartilhados: upload-finalizer-handler.ts:113-128 e malware-result-handler.ts:119-132 invocam os workers legados. Esses mesmos handlers também processam document-archive e itens. Retirar somente branches/imports/deps de DocumentSubmission; não deletar os handlers completos.
+
+d) G01: guest-documents-handler.ts importa os handlers guest de subject (:10); há rotas públicas e integração próprias em infra/modules/api-gateway/main.tf:547-592. A remoção inclui esse backend, guest-token/rate limiter/quarantine-key exclusivos, build e permissões exclusivas, não apenas LegacyGuestUpload.tsx. Composição subject.ts também tem buildGuestSubmissionDeps (:88) e composição de dispatch (:143 em diante), além dos trechos já citados.
+
+e) Rotas/API/BFF/schemas/testes: reconciliar as rotas legadas de infra/modules/api-gateway/main.tf:443-471, allowlist BFF, registro de schemas, contratos e testes. Preservar SubjectService/TrackedSubject e o store/composição ainda usados por eles: “composição subject.ts” é edição parcial, não exclusão integral do arquivo.
+
+Não exijo listar cada fixture na proposta nem migração de contas sintéticas. Exijo reconhecer as fronteiras compartilhadas acima e um critério de saída verificável: zero referências ativas ao domínio retirado, lembretes de ExpirationItem preservados e fluxo novo criação → emissão → G02 → submissão → revisão → status de Requirement funcionando. A matriz manter/abandonar/adiar nomeada na tréplica resolve a omissão informacional de R1, mas suas escolhas continuam pendentes de Marcelo antes da implementação.
+
+3. A22 EM DOCUMENT-ARCHIVE — SIM; MIGRAR OWNERSHIP, SEM NOVA ABSTRAÇÃO GENÉRICA
+
+É o dono mais coeso: esse módulo será o único consumidor da política. Não vejo justificativa para criar um módulo geral de comunicação nem manter DocumentRequestService legado apenas para duas operações de configuração.
+
+O caminho mais barato é mover o tipo/resolver puro e a lógica específica de leitura/escrita para document-archive, preservando a chave tenant-wide já existente. Mudar módulo não exige mudar chave ou tabela. A rota nova proposta é aceitável; preservar temporariamente a URL antiga com delegação também seria possível, mas não há necessidade de compatibilidade de produção que justifique manter esse alias indefinidamente. A escolha do nome da rota não é o bloqueador.
+
+Não manter um import permanente para subject/domain/document-request-delivery-preference.ts após retirar seu domínio. .dependency-cruiser.cjs proíbe domain→application/ports/http/persistence, mas não todo import domain→domain entre módulos. Portanto, um check verde não comprovaria que o ownership está correto. Mover a pequena função junto com a política é mais simples.
+
+Preservar tenant derivado do contexto, OCC e auditoria hoje presentes em document-request-service.ts:250-300, e autorização real OWNER_ROLES (identity/domain/authorization.ts:316). O comentário ADMIN_ROLES no arquivo de domínio está desatualizado. A leitura interna do default durante criação não deve usar a operação pública OWNER-only: quem pode criar uma solicitação não precisa poder administrar a configuração.
+
+4. OPÇÃO (b) — RECORTE CORRETO, MAS NÃO É ENTREGA MANUAL FUNCIONAL
+
+Aceito adiar a obtenção do link para decisão própria. A correção de ownership e a supressão de envio podem ser aprovadas sem abrir acesso tenant-facing ao token. A fronteira está concretamente documentada em document-archive/domain/guest-credential-delivery.ts:2-16 e na composição de emissão: token bruto na tabela dedicada, emissão fora da Lambda tenant-facing. Não há necessidade de resolver a opção (a) AGORA.
+
+Entretanto, há uma premissa residual enganosa: “mesmo gap que já existe hoje, não criado por esta mudança”. A ausência de link para o operador já existe; o bloqueio do único canal funcional do destinatário seria novo para solicitações A14 que hoje informam e-mail. SubjectRequests.tsx:373-379 exige esse e-mail; :394 em diante promete envio. Com DEFAULT → MANUAL sem preferência cadastrada, o pedido passará a ser criado sem e-mail e sem link acessível por interface. É uma mudança funcional deliberada, não só conservação do gap anterior.
+
+Isso não obriga implementar link. Obriga delimitar o produto proposto:
+- MANUAL nesta etapa significa “não enviar automaticamente”, não “copiar/compartilhar link”. A22 hoje promete que o criador compartilha o link por fora (RequestDeliverySettings.tsx:39-42); essa promessa deve sair. A14 deve explicar o resultado e não prometer envio para esse modo.
+- O default MANUAL pode ser mantido pela política de não automatizar sem escolha, mas deve ser explicitamente aceito como criação sem canal de acesso ao convidado nesta etapa. Não o apresentar como substituto funcional da entrega manual de A10.
+- Nomear a pendência de obtenção de link com owner Marcelo e gatilho: antes de oferecer compartilhamento manual ao operador. O registro deve dizer que mudar A22 depois não entrega retroativamente solicitações já suprimidas; não existe mecanismo de reenvio nesta proposta.
+
+Correção de referência, não bloqueante por si: o cabeçalho sobre estado de entrega isolado está em SubjectRequests.tsx:19-25, não RequestDeliverySettings.tsx:19-25 (ali há imports). A referência mais específica à tabela/token é D-226, complementando D-146.
+
+5. CONTRATOS DE B QUE AINDA PRECISAM FECHAR
+
+São decisões pequenas dentro de B, não uma exigência de ampliar para entrega manual:
+
+a) Idempotência: document-archive-service.ts:1188 calcula hash sem modo; :1191-1194 retorna snapshot no replay. A proposta precisa incluir o override normalizado no payload de idempotência: mesma chave com EMAIL versus MANUAL deve conflitar. DEFAULT/ausente deve resolver a preferência apenas na primeira criação bem-sucedida; replay após mudança de A22 devolve o snapshot e modo originais, sem recalcular conforme o default novo. Persistir o modo é boa solução, mas sozinho não define essas duas propriedades.
+
+b) EMAIL sem destinatário: o schema atual permite recipientEmail ausente. Definir rejeição explícita quando o modo efetivo for EMAIL e não houver endereço válido, ou outra semântica conscientemente aprovada. Deixar o worker responder SKIPPED_NO_RECIPIENT_EMAIL silenciosamente não cumpre a escolha “EMAIL”.
+
+c) Reemissão: rejectVersion incrementa issuanceGeneration, preserva a solicitação e emite novo evento (document-archive-service.ts:1075-1114). Um campo persistido consultado pelo worker também afetará essas gerações. Declarar se o modo acompanha toda a vida da solicitação (recomendação mais simples) ou só o convite inicial; initialInviteDelivery sozinho sugere a segunda leitura. Testar a primeira emissão e a reemissão sob MANUAL/EMAIL.
+
+d) Séries: buildMaterializeAttemptEntries em document-request-recurrence-service.ts:97-111 cria o mesmo DocumentRequest e já copia recipientEmail da série (:109). Logo, o worker alterado também alcança solicitações recorrentes com destinatário real. A tréplica não declara claramente avulsas-only nem o comportamento do campo ausente nesse produtor. É defensável limitar B a avulsas, mas registrar como o branch de séries mantém a entrega atual e deixar claro que A22 só governa novas avulsas nessa fase; alternativamente, incluir resolução/persistência na materialização de séries. Não exigir que toda recorrência entre por antecipação, nem permitir supressão acidental por default no worker.
+
+O novo SKIPPED_MANUAL_DELIVERY é apropriado: checar antes do claim e do envio, preservando os controles existentes. O evento pode continuar sendo apenas um aviso com IDs/geração: o worker já relê a entidade, não é necessário duplicar o modo no payload. Os gates devem provar ausência de send no MANUAL, envio no EMAIL, isolamento por tenant, replay estável, reemissão e comportamento escolhido de séries. Não exijo execução desses testes numa rodada sem implementação; exijo que essas propriedades façam parte do contrato aprovado.
+
+6. RISCO, PESQUISA E RUBRICA
+
+A = Nível 6: concordo. Retira um modelo de conformidade e capacidades/integrações, exigindo ADR e decisions-log. B = Nível 5: concordo para (b), por novo contrato HTTP, campo persistido e mudança de ownership/integração. Expor link em (a) exige revisão própria da fronteira de credenciais; Nível 6 é defensável para a exceção proposta, sem presumir de antemão que toda solução futura terá o mesmo desenho.
+
+Pesquisa externa considerada: NÃO é defensável no escopo atual. O resolver/preferência e as fronteiras de credenciais já existem; o problema é encaixe interno e fechamento de contratos. Referências concretas: política D-049 em document-request-delivery-preference.ts e fronteira D-146/D-226 nos arquivos citados. Para nova exposição de bearer token ao operador, SIM PARCIAL deve cobrir a postura de segurança antes da proposta correspondente, com critérios derivados de fontes pertinentes. Não pesquisei comportamento AWS: esta revisão não depende de decisão nova específica de serviço AWS.
+
+Aplicação de joint-review-criteria.md, com pesos canônicos; a nota global é julgamento da tréplica, não média inventada de eixos nem nota do sistema:
+- Arquitetura: Domain Fit & Simplicity (8%) e Modifiability & Evolvability (7%) melhoraram claramente. Data Model & Consistency (13%) e Event & Integration Correctness (11%) ainda perdem por idempotência, reemissão/séries e componentes compartilhados omitidos. Architecture Governance & Traceability (7%) melhora com ADR e pendências explícitas.
+- Engenharia: Code Correctness & Defensive Design (11%) exige a semântica EMAIL sem destinatário; Test Effectiveness & Coverage Discipline (15%) exige os critérios de aceitação nomeados acima, sem confundir proposta com testes executados. Delivery, Release & Recovery Discipline (11%) exige retirar só branches legados dos componentes compartilhados.
+- Contexto: Rastreabilidade de Decisões, Trabalho & Triggers (10%) melhora pelo reconhecimento das capacidades perdidas. Corrigir a referência de arquivo e não descrever o novo default sem canal como mera lacuna preexistente.
+- Segurança/AppSec: Proteção de Dados Sensíveis, Segredos & Criptografia (9%) e Integridade do Pipeline Assíncrono & Fronteiras de Mensagem (14%) favorecem preservar a separação e não improvisar retorno de token. Isolamento Multi-Tenant & Autorização por Objeto (18%) requer preservar a autorização de A22 na mudança de dono.
+- Produto/Multi-tenant: Transparência, Usabilidade & Acessibilidade (10%) ainda não está fechada para MANUAL; Evolução Unificada & Controle de Customização (8%) favorece consolidar. Perda de capacidade precisa de decisão explícita, não paridade presumida.
+- Operações/SRE: Saúde do Pipeline Assíncrono & Recuperação de Backlog (14%) aplica-se à preservação de claims/retries e à distinção supressão/falha. Não reabro controles já existentes nem auditoria operacional geral.
+- Governança de IA: Independência da Revisão & Segregação de Funções (15%) preservada; decisões finais de produto continuam com Marcelo. Privacidade e Jurídico: sem nova avaliação autônoma de controles nesta crítica.
+
+7. CONCLUSÃO DA RODADA
+
+As premissas falsas centrais da R1 foram corrigidas de forma defensável. Sou favorável à direção A + migração de A22 + B(b), e NÃO condiciono sua aprovação a implementar/decidir agora a exposição do link. A nota permanece abaixo de 9 porque faltam contratos de B e fronteiras de retirada concretamente identificados acima, além da correção sobre o efeito funcional de MANUAL. Não são objeções herdadas por hábito.
+
+Para a próxima resposta basta fechar esses pontos: inventário exclusivo/compartilhado; significado e consequência do default MANUAL na UI; idempotência/EMAIL sem endereço; reemissão/séries; matriz de capacidades com escolhas de Marcelo antes da implementação. A revisão não autoriza implementação nem encerra o protocolo.
+
+Encerramento da tarefa: aplicada .claude/skills/task-checklist/SKILL.md e lida a checklist completa. Artefato de crítica por leitura, não decisão normativa aprovada nem mudança funcional; enquadramento proporcional no §0 (inventário/pesquisa). Nenhum teste, deploy ou implementação foi executado. Alterações de outras frentes já existentes no workspace foram preservadas; esta tarefa cria somente este arquivo.
+DoD: item=crítica cega R2 à retirada A10; risco=artefato de revisão sem mudança funcional, propostas A nível 6/B nível 5; evidência=leitura integral de R1/R2, código e contratos citados, buscas rg e rubrica canônica; lacunas=decisão ainda não aprovada, contratos acima e escolhas de produto pendentes; testes de implementação=N/A.

@@ -9,6 +9,10 @@
   "properties": {
     "deadline": { "type": "string", "format": "date-time" },
     "recipientEmail": { "type": "string", "format": "email", "maxLength": 320 },
-    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "initialInviteDelivery": {
+      "enum": ["DEFAULT", "MANUAL", "EMAIL"],
+      "description": "ADR-0016 Decision B: per-call override of A22's tenant-wide delivery default. Absent is equivalent to DEFAULT."
+    }
   }
 }

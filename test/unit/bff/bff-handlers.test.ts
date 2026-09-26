@@ -317,14 +317,64 @@ describe("handleCreateOrganization", () => {
   });
 });
 
+// Round-1 Codex finding (d321-direct-auth-adversarial-review): all 6 D-3xx routes below now
+// require Fetch Metadata (`Sec-Fetch-Site: same-origin` or `none`) before anything else runs -
+// `same-origin` is the real browser value these routes see in production; every other test in
+// this section uses it so it never has to think about the guard while testing its own concern.
+const SAME_ORIGIN_HEADERS = { "sec-fetch-site": "same-origin" };
+
 // D-3xx (reversal of D-320): the app's own login/signup/reset-password screens now call these
 // directly instead of redirecting to the Cognito Hosted UI - handleLogin/handleCallback above
 // stay covered by their own existing tests (dormant fallback, never removed).
 describe("handleLoginPassword", () => {
+  // The guard runs BEFORE body parsing/validation - proven here with a body that is missing
+  // `password` (which would otherwise 400) AND malformed JSON (which would otherwise also 400):
+  // both still come back 403, showing requireSameSiteFetch() short-circuits first, not just that
+  // a well-formed cross-site request happens to also be rejected.
+  it("403s a cross-site request before ever validating or parsing the body (login-CSRF guard)", async () => {
+    const { deps } = buildDeps();
+    const missingPassword = await handleLoginPassword(deps, {
+      method: "POST",
+      path: "/bff/login",
+      headers: { "sec-fetch-site": "cross-site" },
+      body: JSON.stringify({ email: "user@example.com" }),
+    });
+    expect(missingPassword.statusCode).toBe(403);
+
+    const malformedJson = await handleLoginPassword(deps, {
+      method: "POST",
+      path: "/bff/login",
+      headers: { "sec-fetch-site": "cross-site" },
+      body: "not-json",
+    });
+    expect(malformedJson.statusCode).toBe(403);
+  });
+
+  it("403s when Sec-Fetch-Site is absent - never fail-open for an older browser or unlabeled request", async () => {
+    const { deps } = buildDeps();
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "correct-horse" }) });
+    expect(res.statusCode).toBe(403);
+  });
+
   it("400s when email or password is missing", async () => {
     const { deps } = buildDeps();
-    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com" }) });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("400s on a malformed (non-JSON-object) body instead of a raw 500", async () => {
+    const { deps } = buildDeps();
+    const notJson = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: "not-json" });
+    expect(notJson.statusCode).toBe(400);
+    // "null" and "[]" are both VALID JSON that would previously reach `body["email"]` unchecked
+    // (`null["email"]` throws a TypeError -> uncaught 500; `[]["email"]` is merely undefined,
+    // which the existing required-field check alone would already 400 on - "null" is the
+    // discriminating case that proves parseJsonObjectBody() itself rejects non-objects, not just
+    // the pre-existing field validation).
+    const nullBody = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: "null" });
+    expect(nullBody.statusCode).toBe(400);
+    const arrayBody = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: "[]" });
+    expect(arrayBody.statusCode).toBe(400);
   });
 
   it("sets session and CSRF cookies on a successful password login", async () => {
@@ -333,7 +383,7 @@ describe("handleLoginPassword", () => {
       kind: "SUCCESS",
       tokens: { accessToken: "header." + Buffer.from(JSON.stringify({ sub: "s1" })).toString("base64url") + ".sig", idToken: "id-1", refreshToken: "refresh-1", expiresInSeconds: 900 },
     };
-    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "correct-horse" }) });
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", password: "correct-horse" }) });
     expect(res.statusCode).toBe(200);
     expect(extractCookieValue(res.cookies, SESSION_COOKIE_NAME)).toBeTruthy();
     expect(extractCookieValue(res.cookies, CSRF_COOKIE_NAME)).toBeTruthy();
@@ -342,28 +392,59 @@ describe("handleLoginPassword", () => {
   it("returns a generic 401 for invalid credentials - never distinguishes 'no such user' from 'wrong password' (anti-enumeration, D-3xx decision 3)", async () => {
     const { deps, cognitoAuthClient } = buildDeps();
     cognitoAuthClient.nextAuthenticateOutcome = { kind: "INVALID_CREDENTIALS" };
-    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }) });
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }) });
     expect(res.statusCode).toBe(401);
   });
 
   it("returns the same generic 401 for USER_NOT_CONFIRMED as for invalid credentials", async () => {
     const { deps, cognitoAuthClient } = buildDeps();
     cognitoAuthClient.nextAuthenticateOutcome = { kind: "USER_NOT_CONFIRMED" };
-    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: {}, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
+    const res = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
     expect(res.statusCode).toBe(401);
+  });
+
+  // Round-1 Codex finding: TRANSIENT_FAILURE/UNKNOWN_OUTCOME used to fold into the SAME 401
+  // "invalid credentials" as a real wrong password - a genuine Cognito outage/throttling told
+  // the user they mistyped their password. Both now map to 503, never a false claim about the
+  // credential itself.
+  it("returns 503 (never 401) when authentication genuinely could not be completed", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextAuthenticateOutcome = { kind: "TRANSIENT_FAILURE", cause: new Error("boom") };
+    const transient = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
+    expect(transient.statusCode).toBe(503);
+
+    cognitoAuthClient.nextAuthenticateOutcome = { kind: "UNKNOWN_OUTCOME" };
+    const unknown = await handleLoginPassword(deps, { method: "POST", path: "/bff/login", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
+    expect(unknown.statusCode).toBe(503);
   });
 });
 
 describe("handleSignUp", () => {
-  it("400s when email or password is missing", async () => {
+  it("403s a cross-site request", async () => {
     const { deps } = buildDeps();
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    const res = await handleSignUp(deps, {
+      method: "POST",
+      path: "/bff/signup",
+      headers: { "sec-fetch-site": "cross-site" },
+      body: JSON.stringify({ email: "user@example.com", password: "x", name: "Ana" }),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("400s when email, password or name is missing", async () => {
+    const { deps } = buildDeps();
+    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", password: "x" }) });
     expect(res.statusCode).toBe(400);
   });
 
   it("202s with CONFIRMATION_REQUIRED on a fresh signup", async () => {
     const { deps } = buildDeps();
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "new@example.com", password: "correct-horse-battery-1" }) });
+    const res = await handleSignUp(deps, {
+      method: "POST",
+      path: "/bff/signup",
+      headers: SAME_ORIGIN_HEADERS,
+      body: JSON.stringify({ email: "new@example.com", password: "correct-horse-battery-1", name: "Ana Exemplo" }),
+    });
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({ status: "CONFIRMATION_REQUIRED" });
   });
@@ -371,7 +452,12 @@ describe("handleSignUp", () => {
   it("409s when the e-mail is already registered", async () => {
     const { deps, cognitoAuthClient } = buildDeps();
     cognitoAuthClient.nextSignUpOutcome = { kind: "EMAIL_ALREADY_REGISTERED" };
-    const res = await handleSignUp(deps, { method: "POST", path: "/bff/signup", headers: {}, body: JSON.stringify({ email: "taken@example.com", password: "x" }) });
+    const res = await handleSignUp(deps, {
+      method: "POST",
+      path: "/bff/signup",
+      headers: SAME_ORIGIN_HEADERS,
+      body: JSON.stringify({ email: "taken@example.com", password: "x", name: "Ana Exemplo" }),
+    });
     expect(res.statusCode).toBe(409);
   });
 });
@@ -379,28 +465,38 @@ describe("handleSignUp", () => {
 describe("handleConfirmSignUp", () => {
   it("400s when email or confirmationCode is missing", async () => {
     const { deps } = buildDeps();
-    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com" }) });
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com" }) });
     expect(res.statusCode).toBe(400);
   });
 
   it("204s on a valid confirmation code", async () => {
     const { deps } = buildDeps();
-    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456" }) });
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456" }) });
     expect(res.statusCode).toBe(204);
   });
 
   it("400s on an invalid/expired code", async () => {
     const { deps, cognitoAuthClient } = buildDeps();
     cognitoAuthClient.nextConfirmSignUpOutcome = { kind: "INVALID_CODE_OR_EXPIRED" };
-    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: {}, body: JSON.stringify({ email: "user@example.com", confirmationCode: "000000" }) });
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", confirmationCode: "000000" }) });
     expect(res.statusCode).toBe(400);
+  });
+
+  // Round-1 Codex finding: ConfirmSignUp's NotAuthorizedException used to be treated as
+  // ALREADY_CONFIRMED unconditionally - ANY authorization failure (not just "already confirmed")
+  // silently became a 204 success. Only the documented "already confirmed" message now does.
+  it("does not report success for a NotAuthorizedException that isn't the documented 'already confirmed' case", async () => {
+    const { deps, cognitoAuthClient } = buildDeps();
+    cognitoAuthClient.nextConfirmSignUpOutcome = { kind: "UNKNOWN_OUTCOME" };
+    const res = await handleConfirmSignUp(deps, { method: "POST", path: "/bff/signup/confirm", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456" }) });
+    expect(res.statusCode).toBe(503);
   });
 });
 
 describe("handleResendConfirmationCode", () => {
   it("204s regardless of whether the e-mail is registered (anti-enumeration)", async () => {
     const { deps } = buildDeps();
-    const res = await handleResendConfirmationCode(deps, { method: "POST", path: "/bff/signup/resend", headers: {}, body: JSON.stringify({ email: "anyone@example.com" }) });
+    const res = await handleResendConfirmationCode(deps, { method: "POST", path: "/bff/signup/resend", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "anyone@example.com" }) });
     expect(res.statusCode).toBe(204);
   });
 });
@@ -408,13 +504,13 @@ describe("handleResendConfirmationCode", () => {
 describe("handleForgotPassword", () => {
   it("202s regardless of whether the e-mail is registered (anti-enumeration, D-3xx decision 3)", async () => {
     const { deps } = buildDeps();
-    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: {}, body: JSON.stringify({ email: "anyone@example.com" }) });
+    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({ email: "anyone@example.com" }) });
     expect(res.statusCode).toBe(202);
   });
 
   it("400s when email is missing", async () => {
     const { deps } = buildDeps();
-    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: {}, body: JSON.stringify({}) });
+    const res = await handleForgotPassword(deps, { method: "POST", path: "/bff/forgot-password", headers: SAME_ORIGIN_HEADERS, body: JSON.stringify({}) });
     expect(res.statusCode).toBe(400);
   });
 });
@@ -425,7 +521,7 @@ describe("handleConfirmForgotPassword", () => {
     const res = await handleConfirmForgotPassword(deps, {
       method: "POST",
       path: "/bff/forgot-password/confirm",
-      headers: {},
+      headers: SAME_ORIGIN_HEADERS,
       body: JSON.stringify({ email: "user@example.com", confirmationCode: "123456", newPassword: "Correct-Horse-1" }),
     });
     expect(res.statusCode).toBe(204);
@@ -437,7 +533,7 @@ describe("handleConfirmForgotPassword", () => {
     const res = await handleConfirmForgotPassword(deps, {
       method: "POST",
       path: "/bff/forgot-password/confirm",
-      headers: {},
+      headers: SAME_ORIGIN_HEADERS,
       body: JSON.stringify({ email: "user@example.com", confirmationCode: "000000", newPassword: "x" }),
     });
     expect(res.statusCode).toBe(400);

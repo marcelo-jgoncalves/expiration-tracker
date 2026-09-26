@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
 import { SubjectHub } from "../../../src/routes/subjects/SubjectHub.js";
 import type { TrackedSubject } from "../../../src/api/types.js";
@@ -8,6 +8,16 @@ const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 vi.mock("../../../src/api/apiClient.js", () => ({
   apiClient: { get: getMock, post: vi.fn() },
 }));
+
+const { fetchOrganizationsMock } = vi.hoisted(() => ({ fetchOrganizationsMock: vi.fn() }));
+vi.mock("../../../src/api/organizations.js", () => ({
+  fetchOrganizations: fetchOrganizationsMock,
+  selectOrganization: vi.fn(),
+}));
+
+function mockAsRole(role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER") {
+  fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role, version: 1 }] });
+}
 
 function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
   return {
@@ -27,18 +37,13 @@ function subject(overrides: Partial<TrackedSubject> = {}): TrackedSubject {
 
 beforeEach(() => {
   getMock.mockReset();
+  fetchOrganizationsMock.mockReset();
   getMock.mockImplementation((path: string) => {
     if (path.includes("/compliance")) {
       return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
     }
     if (path.startsWith("/document-archive/requirements/")) {
       return Promise.resolve({ requirements: [] });
-    }
-    // A10 (Block 7, D-267) - `RequirementAssignment` list (subject module), distinct from
-    // `/document-archive/requirements/` above - must be matched BEFORE the generic
-    // "/subjects/" fallback below, which would otherwise wrongly answer it with a Subject.
-    if (path.includes("/requirements")) {
-      return Promise.resolve({ assignments: [] });
     }
     // A14 (Block 6) - active-series count for the "Solicitações e recorrência" card (holistic
     // frontend review fix - this card used to be a dead "Em breve" placeholder).
@@ -62,26 +67,10 @@ describe("SubjectHub (A09)", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
-  it("A10 (Block 7): renders 'Rastreamento legado' as a real link with the assignment count, not 'Em breve' text", async () => {
-    getMock.mockImplementation((path: string) => {
-      if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
-      if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [{ assignmentId: "a1" }, { assignmentId: "a2" }] });
-      if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
-      return Promise.resolve({ subject: subject() });
-    });
-    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
-
-    const link = await screen.findByRole("link", { name: /Rastreamento legado/ });
-    expect(link).toHaveAttribute("href", expect.stringContaining("/subjects/subject-1/tracking"));
-    expect(within(link).getByText("2")).toBeInTheDocument();
-  });
-
   it("A14 (Block 6, holistic frontend review fix): renders 'Solicitações e recorrência' as a real link with the active-series count, never 'Em breve' text", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 2, satisfiedCount: 1, expiringSoonCount: 0, missingCount: 1, compliancePercent: 50 } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) {
         return Promise.resolve({ series: [{ status: "ACTIVE" }, { status: "ACTIVE" }, { status: "CANCELLED" }] });
       }
@@ -101,7 +90,6 @@ describe("SubjectHub (A09)", () => {
         return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       }
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject() });
     });
@@ -114,11 +102,21 @@ describe("SubjectHub (A09)", () => {
     expect(section?.querySelector(".ui-compliance__percent")?.textContent).toBe("—");
   });
 
+  it("'Editar fornecedor' opens the SubjectFormDialog modal pre-filled, instead of navigating to a route", async () => {
+    mockAsRole("OWNER");
+    renderAtRoute("/subjects/:subjectId", <SubjectHub />, "/subjects/subject-1");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Editar fornecedor" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Editar fornecedor" }));
+
+    expect(await screen.findByRole("dialog", { name: "Editar fornecedor" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/^Nome/)).toHaveValue("Conservare Facilities ME"));
+  });
+
   it("shows the archived InlineNotice for an ARCHIVED subject", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/compliance")) return Promise.resolve({ compliance: { totalRequirements: 0, satisfiedCount: 0, expiringSoonCount: 0, missingCount: 0, compliancePercent: null } });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [] });
-      if (path.includes("/requirements")) return Promise.resolve({ assignments: [] });
       if (path.startsWith("/document-archive/series/")) return Promise.resolve({ series: [] });
       return Promise.resolve({ subject: subject({ status: "ARCHIVED" }) });
     });

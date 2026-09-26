@@ -830,14 +830,28 @@ describe("BffAuthService.loginWithPassword", () => {
 describe("BffAuthService.signUp", () => {
   it("returns CONFIRMATION_REQUIRED on a fresh signup", async () => {
     const ctx = buildService();
-    const result = await ctx.service.signUp({ email: "new@example.com", password: "correct-horse-battery-1" });
+    const result = await ctx.service.signUp({ email: "new@example.com", password: "correct-horse-battery-1", name: "Ana Exemplo" });
     expect(result).toEqual({ status: "CONFIRMATION_REQUIRED" });
+  });
+
+  // Real point of this feature: the Cognito `name` attribute set here is what lets
+  // `AwsJwtIdTokenVerifier`/`BootstrapIdentityService` populate `GlobalUser.displayName` on first
+  // login, with zero further backend change - never trust the caller blindly, though.
+  it("forwards the trimmed name to the Cognito client", async () => {
+    const ctx = buildService();
+    await ctx.service.signUp({ email: "new@example.com", password: "correct-horse-battery-1", name: "  Ana Exemplo  " });
+    expect(ctx.cognitoAuthClient.signUpCalls).toEqual([{ username: "new@example.com", password: "correct-horse-battery-1", name: "Ana Exemplo" }]);
+  });
+
+  it("throws ValidationError when the name is empty or only whitespace", async () => {
+    const ctx = buildService();
+    await expect(ctx.service.signUp({ email: "new@example.com", password: "x", name: "   " })).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("throws ConflictError when the e-mail is already registered", async () => {
     const ctx = buildService();
     ctx.cognitoAuthClient.nextSignUpOutcome = { kind: "EMAIL_ALREADY_REGISTERED" };
-    await expect(ctx.service.signUp({ email: "taken@example.com", password: "x" })).rejects.toBeInstanceOf(ConflictError);
+    await expect(ctx.service.signUp({ email: "taken@example.com", password: "x", name: "Ana Exemplo" })).rejects.toBeInstanceOf(ConflictError);
   });
 });
 

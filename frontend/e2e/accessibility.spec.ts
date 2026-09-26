@@ -47,7 +47,28 @@ async function setup(page: Page, count = 9) {
     globalThis.Date = FrozenDate;
   }`);
   await page.route("**/bff/session", (route) => route.fulfill({ json: { authenticated: true, activeOrganizationId: "org-1" } }));
-  await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ json: { items: items(count) } }));
+  // OmniVence redesign: Overview and the Collection both moved off `/items/dashboard` onto
+  // `/items/search` (paginated list) + `/dashboard/summary` (the counters/hero row) - see
+  // hooks/useItemSearch.ts and hooks/useItemsDashboard.ts.
+  await page.route("**/bff/api/items/search**", (route) =>
+    route.fulfill({ json: { items: items(count).map((item) => ({ kind: "EXPIRATION_ITEM", item })), cursor: null, scanLimitReached: false } }),
+  );
+  await page.route("**/bff/api/dashboard/summary**", (route) =>
+    route.fulfill({
+      json: {
+        summary: {
+          overdueCount: 0,
+          expiringSoonCount: 0,
+          awaitingReviewCount: 0,
+          missingRequirementsCount: 0,
+          itemsOverdueCount: 0,
+          itemsExpiringSoonCount: 0,
+          activeItemsCount: count,
+          approximate: false,
+        },
+      },
+    }),
+  );
 }
 
 /** WCAG relative-luminance contrast, computed in-page against COMPUTED colours - not against
@@ -262,9 +283,9 @@ test("A11Y-reduced-motion: every animation and transition is neutralised under p
   const page = await context.newPage();
   await setup(page);
   // Hold the response open so the skeleton (the only looping animation) is on screen.
-  await page.route("**/bff/api/items/dashboard**", async (route) => {
+  await page.route("**/bff/api/items/search**", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    await route.fulfill({ json: { items: items(4) } });
+    await route.fulfill({ json: { items: items(4).map((item) => ({ kind: "EXPIRATION_ITEM", item })), cursor: null, scanLimitReached: false } });
   });
   void page.goto("/items");
   await page.waitForSelector(".ui-skeleton__bar");
@@ -349,7 +370,7 @@ test("A11Y-forms: every control has a visible label, and errors are associated, 
   await expect(nameField).toHaveAttribute("aria-invalid", "true");
   const describedBy = await nameField.getAttribute("aria-describedby");
   expect(describedBy).toBeTruthy();
-  await expect(page.locator(`#${describedBy}`)).toHaveText("Informe um nome.");
+  await expect(page.locator(`#${describedBy}`)).toHaveText("Informe o nome do vencimento.");
   // The summary link carries the SAME string and points at the control.
-  await expect(page.getByRole("link", { name: "Nome: Informe um nome." })).toHaveAttribute("href", "#create-item-name");
+  await expect(page.getByRole("link", { name: "Nome: Informe o nome do vencimento." })).toHaveAttribute("href", "#create-item-name");
 });

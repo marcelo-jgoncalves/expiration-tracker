@@ -1,0 +1,38 @@
+Continuacao da mesma rodada de protocolo Claude<->Codex sobre a retirada do "Rastreamento legado"
+(A10). Leia, nesta ordem: round-1-codex-output.txt (sua critica R1), round-2-claude-revision.md
+(treplica de Claude), round-2-codex-output.txt (sua critica R2, nota 8,6/10 NEEDS FIXES, listou 5
+blocos de pendencia: inventario de componentes compartilhados vs exclusivos; ownership de A22;
+consequencia funcional real do default MANUAL; 4 contratos de B - idempotencia/EMAIL sem
+destinatario/reemissao/series; risco e pesquisa ja concordados), e finalmente
+round-3-claude-revision.md (nova treplica de Claude, tentando fechar exatamente esses 5 blocos).
+
+Todos os arquivos estao em docs/architecture/reviews/legacy-tracking-retirement/.
+
+Verifique por leitura direta do codigo (nao aceite as alegacoes da R3 sem checar) se a R3
+realmente fecha cada um dos 5 blocos que voce apontou na R2, em particular:
+
+1. O inventario de compartilhado-vs-exclusivo da R3 cobre de verdade os itens que voce listou em
+   R2 (a-e: chasing, lembretes compartilhados, upload/antimalware compartilhados, G01 completo,
+   composicao subject.ts parcial)? Falta algo real ainda?
+2. A migracao de A22 (mover tipo+resolver para document-archive, preservar chave/OCC/auditoria,
+   corrigir autorizacao OWNER-only só no PUT, leitura interna nao gated) resolve sua objecao?
+3. A R3 aceita e nomeia corretamente a mudanca funcional real do default MANUAL (deixar de
+   enviar e-mail automaticamente para solicitacoes novas), e as correcoes de copy propostas
+   (RequestDeliverySettings.tsx, SubjectRequests.tsx) sao suficientes para nao prometer algo que
+   nao acontece?
+4. Os 4 contratos (idempotencia com modo no hash + snapshot persistido; rejeicao explicita de
+   EMAIL sem destinatario; modo persistido cobrindo reemissao; series tambem resolvendo e
+   persistindo o modo via A22, sem UI de override propria) estao tecnicamente corretos e fecham
+   as lacunas que voce apontou, ou ainda ha buraco?
+5. Reavalie risco/pesquisa (A nivel 6, B nivel 5, pesquisa NAO no escopo atual, SIM PARCIAL so se
+   a pendencia nomeada de exposicao de link for aberta no futuro) - ainda concorda?
+
+De uma nota cega (0-10, sem arredondar) especificamente para esta Rodada 3. Lembre-se do gate do
+protocolo (AGENTS.md secao 4): a decisao so fecha quando AMBOS os lados registrarem nota >= 9,0,
+sem arredondar. Se a R3 fechou as lacunas reais de forma defensavel, diga isso e de a nota que
+corresponde - nao mantenha a nota baixa por habito nem suba sem justificativa real. Se restar
+lacuna real, liste especificamente o que falta para chegar a 9,0.
+
+Escreva sua resposta em
+docs/architecture/reviews/legacy-tracking-retirement/round-3-codex-output.txt (crie o arquivo).
+Nao implemente nada - ainda e rodada de critica, nao implementacao.

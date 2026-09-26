@@ -20,7 +20,6 @@ import { nextAttemptDelayMs } from "../../shared/outbox/outbox.js";
 import type { SqsCommandEnvelope } from "../../shared/contracts/events.js";
 import { gsi3PartitionForShard } from "../../modules/reminder/domain/reminder-occurrence.js";
 import { parseGsi3Sk } from "../../modules/reminder/domain/gsi3-parse.js";
-import { parseChasingGsi3Sk } from "../../modules/subject/domain/document-chasing.js";
 import { serializeCanonicalKey, deserializeCanonicalKey } from "../../shared/dynamodb/canonical-key.js";
 import { InternalError, DependencyUnavailableError } from "../../shared/errors/app-error.js";
 import { buildCheckpointLeaseTransaction, leaseKey, type ReminderScanLease, type ShardMinuteRef } from "./lease.js";
@@ -38,7 +37,9 @@ export interface ScanPageStore {
 export interface ClaimCandidateCommand extends SqsCommandEnvelope<{
   PK: string;
   SK: string;
-  entityKind: "REMINDER" | "CHASING";
+  // ADR-0016 Decision A (2026-09-25) retired the "CHASING" entityKind (document-chasing
+  // feature, fully removed) - this GSI3 scan is once again reminder-only.
+  entityKind: "REMINDER";
   rolloutEpoch: number;
 }> {
   commandType: "reminder.claim-candidate.v1";
@@ -95,7 +96,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-function buildCandidateCommand(deps: ScanPageDeps, row: { PK: string; SK: string }, tenantId: string, entityKind: "REMINDER" | "CHASING"): ClaimCandidateCommand {
+function buildCandidateCommand(deps: ScanPageDeps, row: { PK: string; SK: string }, tenantId: string): ClaimCandidateCommand {
   return {
     messageVersion: 1,
     messageId: deps.newEventId(),
@@ -104,7 +105,7 @@ function buildCandidateCommand(deps: ScanPageDeps, row: { PK: string; SK: string
     correlationId: deps.correlationId(),
     tenantId,
     deduplicationKey: `${tenantId}|${row.PK}|${row.SK}|${deps.rolloutEpoch}`,
-    data: { PK: row.PK, SK: row.SK, entityKind, rolloutEpoch: deps.rolloutEpoch },
+    data: { PK: row.PK, SK: row.SK, entityKind: "REMINDER", rolloutEpoch: deps.rolloutEpoch },
   };
 }
 
@@ -163,14 +164,9 @@ export async function runScanPage(deps: ScanPageDeps, input: ScanPageInput): Pro
 
   const candidates: ClaimCandidateCommand[] = [];
   for (const row of page.items) {
-    const chasing = parseChasingGsi3Sk(row.GSI3SK);
-    if (chasing) {
-      candidates.push(buildCandidateCommand(deps, row, chasing.tenantId, "CHASING"));
-      continue;
-    }
     try {
       const reminder = parseGsi3Sk(row.GSI3SK);
-      candidates.push(buildCandidateCommand(deps, row, reminder.tenantId, "REMINDER"));
+      candidates.push(buildCandidateCommand(deps, row, reminder.tenantId));
     } catch (cause) {
       throw new InternalError("reminder-scan: unrecognized GSI3 row; refusing to checkpoint page.", {
         PK: row.PK,

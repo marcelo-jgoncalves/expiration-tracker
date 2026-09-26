@@ -38,6 +38,7 @@ beforeEach(() => {
 });
 
 describe("ForgotPassword", () => {
+  // Mutation: showing success without the neutral anti-enumeration message would fail.
   it("shows the same generic confirmation whether or not the e-mail is registered (anti-enumeration, decision 3)", async () => {
     forgotPasswordMock.mockResolvedValue(undefined);
     renderForgotPassword();
@@ -45,7 +46,7 @@ describe("ForgotPassword", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar código" }));
 
     await waitFor(() => expect(forgotPasswordMock).toHaveBeenCalledWith({ email: "anyone@example.com" }));
-    await waitFor(() => expect(screen.getByText(/Se o e-mail informado estiver cadastrado/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Se houver uma conta vinculada a este e-mail/)).toBeInTheDocument());
   });
 
   it("links to /reset-password carrying the e-mail forward", async () => {

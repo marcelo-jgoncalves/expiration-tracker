@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/whatsapp-phone-confirmation-confirm-request.v1.json",
+  "title": "WhatsAppPhoneConfirmationConfirmRequest v1",
+  "description": "POST /notifications/whatsapp-opt-in/confirm request body — verifies the code sent by request-confirmation and, on success, records the WhatsAppOptIn (src/modules/notification/application/whatsapp-phone-confirmation-service.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["phoneE164", "code"],
+  "properties": {
+    "phoneE164": { "type": "string", "pattern": "^\\+[1-9]\\d{1,14}$" },
+    "code": { "type": "string", "pattern": "^\\d{6}$" }
+  }
+}

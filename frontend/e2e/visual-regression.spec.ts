@@ -181,7 +181,8 @@ test("VR-08: Renew - OCC conflict recovery", async ({ page }) => {
   await page.route("**/bff/api/items/item-1/renew", (route) =>
     route.fulfill({ status: 409, json: { code: "VERSION_CONFLICT", category: "CONFLICT", message: "conflito de versão", retryable: false } }),
   );
-  await page.goto("/items/item-1/renew");
+  await page.goto("/items/item-1");
+  await page.getByRole("button", { name: "Renovar" }).click();
   await page.getByLabel(/Nova data de vencimento/).fill("2027-09-01");
   await page.getByRole("button", { name: "Confirmar renovação" }).click();
   await expect(page.getByText("Este vencimento mudou desde que você o abriu")).toBeVisible();

@@ -1,6 +1,8 @@
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
-export type ReminderDueWorkKind = "REMINDER" | "CHASING";
+// ADR-0016 Decision A (2026-09-25) retired the "CHASING" kind (document-chasing feature, fully
+// removed) - this due-work queue is once again reminder-only.
+export type ReminderDueWorkKind = "REMINDER";
 
 export interface ReminderDueWorkItem extends EntityKey {
   entityType: "REMINDER_DUE_WORK";

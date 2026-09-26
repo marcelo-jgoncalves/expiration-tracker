@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../../src/auth/AuthContext.js";
 import { SessionProbeError } from "../../src/api/session.js";
+import { sessionQueryKey } from "../../src/api/queryKeys.js";
 
 const { fetchSessionInfoMock, logoutMock, logoutAllMock } = vi.hoisted(() => ({
   fetchSessionInfoMock: vi.fn(),
@@ -130,6 +131,53 @@ describe("AuthProvider", () => {
       screen.getByText("report-401").click();
     });
     expect(screen.getByTestId("state").textContent).toBe("SESSION_MISSING");
+  });
+
+  function ProbeWithReauth() {
+    const { state, reportUnauthorized, clearReauthLatch } = useAuth();
+    return (
+      <div>
+        <div data-testid="state">{state.status}</div>
+        <button onClick={reportUnauthorized}>report-401</button>
+        <button onClick={clearReauthLatch}>clear-latch</button>
+      </div>
+    );
+  }
+
+  // Marcelo, 2026-09-22, real bug: once `reportedUnauthorized` latches SESSION_EXPIRED, `state`
+  // stays pinned there even after the session query genuinely resolves to authenticated - the
+  // latch is what `clearReauthLatch()` (called by `useLogin`'s `onSuccess`) exists to clear.
+  // Would fail (state staying SESSION_EXPIRED) if `clearReauthLatch` were removed, or if `state`'s
+  // `useMemo` stopped checking `reportedUnauthorized` before falling through to session data.
+  it("stays SESSION_EXPIRED even once the session re-resolves to authenticated, until clearReauthLatch() runs", async () => {
+    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
+    const { queryClient } = renderWithClient(
+      <AuthProvider>
+        <ProbeWithReauth />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("state").textContent).toBe("AUTHENTICATED"));
+
+    await act(async () => {
+      screen.getByText("report-401").click();
+    });
+    expect(screen.getByTestId("state").textContent).toBe("SESSION_EXPIRED");
+
+    // Mirrors a real successful re-login: the session probe would now say authenticated again,
+    // and `useLogin`'s `onSuccess` invalidates the session query - but WITHOUT also clearing the
+    // latch, `state` stays pinned at SESSION_EXPIRED regardless (the bug).
+    fetchSessionInfoMock.mockResolvedValue({ authenticated: true, activeOrganizationId: "org-1" });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
+    });
+    expect(screen.getByTestId("state").textContent).toBe("SESSION_EXPIRED");
+
+    // Now the missing piece: clearing the latch (what `clearReauthLatch()` does) lets `state`
+    // fall through to the now-fresh, genuinely authenticated session data.
+    await act(async () => {
+      screen.getByText("clear-latch").click();
+    });
+    await waitFor(() => expect(screen.getByTestId("state").textContent).toBe("AUTHENTICATED"));
   });
 
   it("logout() calls the BFF's logout endpoint and returns to SESSION_MISSING", async () => {

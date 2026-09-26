@@ -112,6 +112,30 @@ describe("parseImportJob (M11, D-042)", () => {
     expect(outcome).toEqual({ kind: "PARSED", totalRows: 1, acceptedRows: 0, rejectedRows: 0, duplicateRows: 1 });
   });
 
+  // Round-2 Codex finding (d319-item-bulk-import-adversarial-review, same fix applied to the
+  // Item branch): an orphaned claim (subjectId still "") must NOT be treated as an existing
+  // duplicate at parse time - only a record with a real subjectId is a genuine prior import.
+  it("does NOT skip a row whose externalId claim exists but has no real subjectId yet (orphaned claim passes through as CREATE_SUBJECT)", async () => {
+    await store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(TENANT, "SUBJECT", "ext-1"),
+      entityType: "ImportDedupRecord",
+      tenantId: TENANT,
+      kind: "SUBJECT",
+      externalId: "ext-1",
+      subjectId: "", // orphaned placeholder, never confirmed
+      createdAt: NOW,
+    });
+    objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, "displayName,type,externalId\nACME,VENDOR,ext-1\n");
+
+    const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
+
+    expect(outcome).toEqual({ kind: "PARSED", totalRows: 1, acceptedRows: 1, rejectedRows: 0, duplicateRows: 0 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    const plan = await objectStore.getObject(PLAN_BUCKET, job!.planObjectKey!);
+    const lines = plan.toString("utf-8").split("\n").filter(Boolean);
+    expect(JSON.parse(lines[0]!).action).toBe("CREATE_SUBJECT");
+  });
+
   it("skips a row with no externalId whose normalized displayName+type already exists among ACTIVE subjects (weak fallback dedup)", async () => {
     await subjectStore.putIfAbsent({
       PK: `TENANT#${TENANT}#SUBJECT#existing-1`,
@@ -152,6 +176,18 @@ describe("parseImportJob (M11, D-042)", () => {
     const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
 
     expect(outcome).toEqual({ kind: "FAILED", reason: "TOO_MANY_ROWS" });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    expect(job?.status).toBe("FAILED");
+  });
+
+  it("fails the job when the header exceeds the column limit, never materializing a row object per column (R3-04)", async () => {
+    const header = Array.from({ length: 51 }, (_, i) => `col${i}`).join(",") + "\n";
+    const row = Array.from({ length: 51 }, () => "x").join(",") + "\n";
+    objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, header + row);
+
+    const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
+
+    expect(outcome).toEqual({ kind: "FAILED", reason: "TOO_MANY_COLUMNS" });
     const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
     expect(job?.status).toBe("FAILED");
   });

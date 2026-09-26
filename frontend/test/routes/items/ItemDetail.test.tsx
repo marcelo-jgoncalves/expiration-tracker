@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderAtRoute } from "../../testUtils.js";
 import { ItemDetail } from "../../../src/routes/items/ItemDetail.js";
 import type { ExpirationItem } from "../../../src/api/types.js";
@@ -30,21 +30,29 @@ beforeEach(() => {
 });
 
 describe("ItemDetail", () => {
-  it("renders the item's fields and a Renovar link when it's ACTIVE", async () => {
-    getMock.mockResolvedValue({ item: item({}) });
+  it("renders the item's fields and a Renovar button that opens the renew modal when it's ACTIVE", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/items/item-1") return Promise.resolve({ item: item({}) });
+      if (path === "/items/item-1/documents") return Promise.resolve({ documents: [] });
+      if (path === "/items/item-1/reminder-policy") return Promise.resolve({ policy: null });
+      if (path === "/activity?resourceId=item-1") return Promise.resolve({ entries: [], cursor: null, hasMore: false });
+      return Promise.reject(new Error("unexpected path " + path));
+    });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
     expect(screen.getByText("Financeiro")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Renovar" })).toHaveAttribute("href", "/app/org-1/items/item-1/renew");
+    const renewButton = screen.getByRole("button", { name: "Renovar" });
+    fireEvent.click(renewButton);
+    expect(await screen.findByRole("dialog", { name: "Renovar vencimento" })).toBeInTheDocument();
   });
 
-  it("never shows a Renovar link for a non-ACTIVE item", async () => {
+  it("never shows a Renovar button for a non-ACTIVE item", async () => {
     getMock.mockResolvedValue({ item: item({ status: "RENEWED" }) });
     renderAtRoute("/items/:itemId", <ItemDetail />, "/items/item-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: "Renovar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Renovar" })).not.toBeInTheDocument();
   });
 
   it("Block 2 (D-258): links to the Lembretes (A06), Arquivos (A07) and Histórico de auditoria entry points, all real routes now that discovery is unblocked", async () => {
@@ -59,10 +67,12 @@ describe("ItemDetail", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Apólice de Seguro" })).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /Lembretes/ })).toHaveAttribute("href", "/app/org-1/items/item-1/reminder-policy");
-    expect(screen.getByRole("link", { name: /Arquivos/ })).toHaveAttribute("href", "/app/org-1/items/item-1/documents");
     expect(screen.getByRole("link", { name: /Histórico de auditoria/ })).toHaveAttribute("href", "/app/org-1/activity?resourceId=item-1");
     await waitFor(() => expect(screen.getByText("Nenhum anexo")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Nenhuma política configurada")).toBeInTheDocument());
+    // Arquivos is a modal entry point now (Dialog, not a route) - a button, not a link.
+    fireEvent.click(screen.getByRole("button", { name: /Arquivos/ }));
+    expect(await screen.findByRole("dialog", { name: /Arquivos/ })).toBeInTheDocument();
   });
 
   // #15 (2026-09-21): "Responsável" shows a resolved name/email instead of the raw

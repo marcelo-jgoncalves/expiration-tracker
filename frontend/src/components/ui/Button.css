@@ -46,9 +46,16 @@
 }
 .ui-button--primary:hover:not(:disabled) {
   background: var(--color-action-primary-hover);
+  /* Real achado de Marcelo, 2026-09-22: `base.css`'s global `a:hover { color: ... }` beats a
+     bare `.ui-button--primary { color }` on specificity (class-column tie broken by that rule
+     also carrying `:hover`), so a `ButtonLink` (a real `<a>`) lost its white text to a dark
+     purple on hover - illegible against the still-purple background. Restating `color` on a
+     selector that already includes `:hover` (as this one does) out-specifies it. */
+  color: var(--color-text-on-accent);
 }
 .ui-button--primary:active:not(:disabled) {
   background: var(--color-action-primary-pressed);
+  color: var(--color-text-on-accent);
 }
 
 .ui-button--secondary {
@@ -59,9 +66,13 @@
 .ui-button--secondary:hover:not(:disabled) {
   background: var(--color-surface-hover);
   border-color: var(--color-border-strong);
+  /* Same `a:hover` specificity fight as `--primary` above - without this, a secondary
+     `ButtonLink` picked up the link-purple hover color instead of staying neutral dark text. */
+  color: var(--color-text-primary);
 }
 .ui-button--secondary:active:not(:disabled) {
   background: var(--color-surface-subtle);
+  color: var(--color-text-primary);
 }
 
 /* Tertiary is a low-emphasis ACTION, still a button — it keeps a hover surface so it is not
@@ -85,6 +96,8 @@
 }
 .ui-button--danger:hover:not(:disabled) {
   background: var(--color-action-danger-hover);
+  /* Same `a:hover` specificity fight as `--primary` above. */
+  color: var(--color-text-on-accent);
 }
 
 .ui-button:disabled {

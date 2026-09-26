@@ -10,6 +10,7 @@
  * action availability. The record's attributes stay a <dl> - a table would imply comparable
  * rows, and there is exactly one record here.
  */
+import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { Activity, Bell, ClipboardList, Paperclip, Plus, RefreshCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
@@ -23,10 +24,12 @@ import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncSt
 import { ApiError } from "../../api/errors.js";
 import type { ExpirationItem } from "../../api/types.js";
 import { PageHeader, Panel, Section, SummaryHero } from "../../components/ui/Layout.js";
-import { ButtonLink } from "../../components/ui/Button.js";
+import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { UrgencyIndicator } from "../../components/ui/UrgencyIndicator.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import { RenewItemDialog } from "./RenewItem.js";
+import { ItemDocumentsDialog } from "./ItemDocuments.js";
 
 interface DetailField {
   label: string;
@@ -103,11 +106,10 @@ function documentsEntryNote(query: ReturnType<typeof useDocuments>): string {
   return count === 0 ? "Nenhum anexo" : `${count} anexo(s)`;
 }
 
-function DocumentsEntryCard({ itemId }: { itemId: string }) {
-  const orgPath = useOrgPath();
+function DocumentsEntryCard({ itemId, onOpen }: { itemId: string; onOpen: () => void }) {
   const query = useDocuments(itemId);
   return (
-    <Link className="ui-attention__link" to={orgPath(`/items/${itemId}/documents`)}>
+    <button type="button" className="ui-attention__link" onClick={onOpen}>
       <span className="ui-attention__icon ui-attention__icon--accent">
         <Paperclip size={21} strokeWidth={2} aria-hidden="true" />
       </span>
@@ -115,7 +117,7 @@ function DocumentsEntryCard({ itemId }: { itemId: string }) {
         <span className="ui-attention__count">Arquivos</span>
         <span className="ui-attention__label">{documentsEntryNote(query)}</span>
       </span>
-    </Link>
+    </button>
   );
 }
 
@@ -167,6 +169,8 @@ function DetailBody({
   // member, stale reference), same "always show something real" rule the rest of this page follows.
   const membersQuery = useMembers();
   const assigneeLabel = resolveAssigneeLabel(item.assigneeUserId, membersQuery.data?.members) ?? item.assigneeUserId;
+  const [showRenew, setShowRenew] = useState(false);
+  const [showDocuments, setShowDocuments] = useState(false);
 
   return (
     <div>
@@ -187,12 +191,14 @@ function DetailBody({
         }
         actions={
           item.status === "ACTIVE" ? (
-            <ButtonLink to={orgPath(`/items/${item.itemId}/renew`)} variant="primary" icon={RefreshCw}>
+            <Button variant="primary" icon={RefreshCw} onClick={() => setShowRenew(true)}>
               Renovar
-            </ButtonLink>
+            </Button>
           ) : null
         }
       />
+      {showRenew ? <RenewItemDialog itemId={item.itemId} onClose={() => setShowRenew(false)} /> : null}
+      {showDocuments ? <ItemDocumentsDialog itemId={item.itemId} onClose={() => setShowDocuments(false)} /> : null}
       {justCreated ? (
         <InlineNotice tone="success" announce="status">
           <p>Vencimento criado com sucesso.</p>
@@ -253,7 +259,7 @@ function DetailBody({
             <ReminderPolicyEntryCard itemId={item.itemId} />
           </li>
           <li className="ui-attention__item">
-            <DocumentsEntryCard itemId={item.itemId} />
+            <DocumentsEntryCard itemId={item.itemId} onOpen={() => setShowDocuments(true)} />
           </li>
           <li className="ui-attention__item">
             <AuditEntryCard itemId={item.itemId} />

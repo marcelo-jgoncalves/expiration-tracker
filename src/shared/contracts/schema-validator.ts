@@ -32,7 +32,6 @@ import reminderMaterializationTriggerV1 from "../../../schemas/queues/reminder-m
 import notificationEmailDeliverV1 from "../../../schemas/queues/notification-email-deliver.v1.json";
 import notificationWhatsAppDeliverV1 from "../../../schemas/queues/notification-whatsapp-deliver.v1.json";
 import reminderDispatchV1 from "../../../schemas/queues/reminder-dispatch.v1.json";
-import documentChasingDispatchV1 from "../../../schemas/queues/document-chasing-dispatch.v1.json";
 // D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §6): the two new queue
 // contracts scan-page.ts/lease.ts produce.
 import reminderScanContinuationV1 from "../../../schemas/queues/reminder-scan-continuation.v1.json";
@@ -47,17 +46,14 @@ import reportSubscriptionCreateRequestV1 from "../../../schemas/api/report-subsc
 import reportSubscriptionDeleteRequestV1 from "../../../schemas/api/report-subscription-delete-request.v1.json";
 import putPolicyRequestV1 from "../../../schemas/api/put-policy-request.v1.json";
 import updateNotificationPreferencesRequestV1 from "../../../schemas/api/update-notification-preferences-request.v1.json";
+import organizationSettingsUpdateRequestV1 from "../../../schemas/api/organization-settings-update-request.v1.json";
 import whatsAppOptInRequestV1 from "../../../schemas/api/whatsapp-opt-in-request.v1.json";
+import whatsAppPhoneConfirmationStartRequestV1 from "../../../schemas/api/whatsapp-phone-confirmation-start-request.v1.json";
+import whatsAppPhoneConfirmationConfirmRequestV1 from "../../../schemas/api/whatsapp-phone-confirmation-confirm-request.v1.json";
 import updateProfileRequestV1 from "../../../schemas/api/update-profile-request.v1.json";
 import reserveDocumentUploadRequestV1 from "../../../schemas/api/reserve-document-upload-request.v1.json";
 import createSubjectRequestV1 from "../../../schemas/api/create-subject-request.v1.json";
 import updateSubjectRequestV1 from "../../../schemas/api/update-subject-request.v1.json";
-import assignRequirementRequestV1 from "../../../schemas/api/assign-requirement-request.v1.json";
-import updateRequirementAssignmentRequestV1 from "../../../schemas/api/update-requirement-assignment-request.v1.json";
-import linkRequirementItemRequestV1 from "../../../schemas/api/link-requirement-item-request.v1.json";
-import createDocumentRequestRequestV1 from "../../../schemas/api/create-document-request-request.v1.json";
-import updateDocumentRequestDeliveryPreferenceRequestV1 from "../../../schemas/api/update-document-request-delivery-preference-request.v1.json";
-import startGuestSubmissionRequestV1 from "../../../schemas/api/start-guest-submission-request.v1.json";
 import reserveImportRequestV1 from "../../../schemas/api/reserve-import-request.v1.json";
 import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
 // D-192 slice 9 (bulk-import-documents-requirements-scoping) — POST /import-jobs/{jobId}/mapping.
@@ -127,6 +123,9 @@ import docarchiveReviewQueueSearchRequestV1 from "../../../schemas/api/docarchiv
 // `defaultSchemaRegistry` - found by the generic "every *_SCHEMA_ID constant must resolve"
 // regression test added alongside the review-queue fix (test/contract/schemas.test.ts).
 import docarchiveRequestCreateRequestV1 from "../../../schemas/api/docarchive-request-create-request.v1.json";
+// ADR-0016 Decision B: A22 migrated here from the retired subject module's own
+// update-document-request-delivery-preference-request.v1.json (same shape, new module/route).
+import docarchiveDocumentRequestDeliveryPreferenceUpdateRequestV1 from "../../../schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json";
 import docarchiveShareLinkCreateRequestV1 from "../../../schemas/api/docarchive-share-link-create-request.v1.json";
 import docarchiveShareLinkRevokeRequestV1 from "../../../schemas/api/docarchive-share-link-revoke-request.v1.json";
 // P2.1 (external audit 2026-09-11) - internal async-boundary runtime validation, never an
@@ -198,7 +197,6 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   notificationEmailDeliverV1,
   notificationWhatsAppDeliverV1,
   reminderDispatchV1,
-  documentChasingDispatchV1,
   reminderScanContinuationV1,
   reminderScanContinuationV2,
   reminderClaimCandidateV1,
@@ -211,17 +209,14 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   reportSubscriptionDeleteRequestV1,
   putPolicyRequestV1,
   updateNotificationPreferencesRequestV1,
+  organizationSettingsUpdateRequestV1,
   whatsAppOptInRequestV1,
+  whatsAppPhoneConfirmationStartRequestV1,
+  whatsAppPhoneConfirmationConfirmRequestV1,
   updateProfileRequestV1,
   reserveDocumentUploadRequestV1,
   createSubjectRequestV1,
   updateSubjectRequestV1,
-  assignRequirementRequestV1,
-  updateRequirementAssignmentRequestV1,
-  linkRequirementItemRequestV1,
-  createDocumentRequestRequestV1,
-  startGuestSubmissionRequestV1,
-  updateDocumentRequestDeliveryPreferenceRequestV1,
   reserveImportRequestV1,
   importCommitV1,
   importMappingRequestV1,
@@ -274,6 +269,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   docarchiveShareLinkRevokeRequestV1,
   docarchiveReviewQueueSearchRequestV1,
   docarchiveRequestCreateRequestV1,
+  docarchiveDocumentRequestDeliveryPreferenceUpdateRequestV1,
   outboxRecordV1,
   reminderReconciliationEventV1,
 ]);

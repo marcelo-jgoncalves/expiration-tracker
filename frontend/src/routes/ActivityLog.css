@@ -1,108 +1,20 @@
-/* Filters grid (protótipo `expiration-tracker-log-atividade(1).html`, Marcelo 2026-09-22):
-   Mês/Tipo de recurso side by side, Recurso (ID) spans the full row - scoped to this screen,
-   same pattern as `CreateItem.css`/`SubjectForm.css`. */
-.activity-filters__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 var(--space-6);
-}
-
-.activity-filters__grid > .ui-field,
-.activity-filters__grid > .activity-filters__grid-full {
-  margin-bottom: var(--space-6);
-}
-
-.activity-filters__grid > .activity-filters__grid-full {
-  grid-column: 1 / -1;
-}
-
-.activity-filters__grid > .activity-filters__grid-full > .ui-field {
-  margin-bottom: 0;
-}
-
-@media (max-width: 700px) {
-  .activity-filters__grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Actor/resource cells: an icon + text, matching the prototype's avatar/resource-icon rows.
-   No fabricated email/role/name here - the real `ActivityEntry.actor` only ever carries a raw
-   `userId` (confirmed against `activity-service.ts`, see this file's own header comment) - only
-   the visual shape (icon + label) is adopted, never invented actor identity data. */
-.activity-actor {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.activity-actor__avatar {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.activity-actor__avatar--user {
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
-}
-
-.activity-actor__avatar--system {
-  background: var(--color-surface-subtle);
-  color: var(--color-text-secondary);
-}
-
-.activity-resource {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.activity-resource__icon {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--color-surface-subtle);
-  color: var(--color-text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Action pill - local to this screen, deliberately not `StatusBadge` (see `actionTone`'s own
-   comment: different claim system, `entry.action` has no closed CREATE/UPDATE/DELETE enum). */
-.activity-action {
-  display: inline-flex;
-  align-items: center;
-  font-size: var(--font-size-100);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  white-space: nowrap;
-}
-
-.activity-action--success {
-  color: var(--color-status-success-fg);
-  background: var(--color-status-success-bg);
-}
-
-.activity-action--info {
-  color: var(--color-status-info-fg);
-  background: var(--color-status-info-bg);
-}
-
-.activity-action--critical {
-  color: var(--color-status-critical-fg);
-  background: var(--color-status-critical-bg);
-}
-
-.activity-action--neutral {
-  color: var(--color-status-neutral-fg);
-  background: var(--color-status-neutral-bg);
-}
+﻿.activity-filters__grid{display:grid;grid-template-columns:minmax(150px,.75fr) minmax(210px,1.25fr) minmax(165px,.85fr) minmax(180px,1fr);gap:14px}
+.activity-filter{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:11px;font-weight:700;color:#55507a}
+.activity-filter>span{height:30px;display:flex;align-items:center}
+.activity-filter input,.activity-filter select{box-sizing:border-box;width:100%;height:41px;min-width:0;border:1px solid #e8e4f1;border-radius:8px;background:white;padding:0 11px;font:inherit;color:#14121f}
+.activity-filter input:focus-visible,.activity-filter select:focus-visible{outline:3px solid #a78bfa;outline-offset:2px}
+.activity-filter input:disabled{background:#f8f7fc;color:#55507a}
+.activity-limitations{font-size:11px;color:#55507a;line-height:1.7}
+.activity-actor,.activity-resource{display:flex;align-items:flex-start;gap:12px;min-width:0;overflow-wrap:anywhere}
+.activity-actor__avatar{display:grid;place-items:center;width:37px;height:37px;flex-shrink:0;background:#f1ebff;color:#4c1d95;border-radius:11px}
+.activity-actor>div,.activity-date{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px}
+.activity-actor span:not(.activity-actor__avatar),.activity-date span{font-size:10px;color:#55507a}
+.activity-actor small{font-size:9px;color:#55507a;overflow-wrap:anywhere}
+/* Not a link (plain <span>, ActivityLog.tsx) - purple here would falsely read as clickable,
+   the same convention every other non-link label in this design system follows. Prototype's
+   `.event-title` carries no color override either, only the resource name (an actual link,
+   `.resource strong`) is purple. */
+.activity-action{font-size:11px;font-weight:800;overflow-wrap:anywhere}
+.activity-resource{font-size:11px}
+@media(max-width:1250px){.activity-filters__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.activity-filters__grid{grid-template-columns:1fr}.activity-filter>span{height:auto}}

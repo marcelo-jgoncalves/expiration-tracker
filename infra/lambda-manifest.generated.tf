@@ -46,8 +46,6 @@ output "lambda_function_names" {
     module.ses_callback.function_name,
     module.parser_sandbox.function_name,
     module.documents_handler.function_name,
-    module.guest_documents_handler.function_name,
-    module.document_chasing_dispatch_handler.function_name,
     module.upload_finalizer_handler.function_name,
     module.malware_result_handler.function_name,
     module.upload_slot_reconciliation_handler.function_name,
@@ -120,8 +118,6 @@ output "lambda_published_versions" {
     (module.ses_callback.function_name)                                 = module.ses_callback.published_version
     (module.parser_sandbox.function_name)                               = module.parser_sandbox.published_version
     (module.documents_handler.function_name)                            = module.documents_handler.published_version
-    (module.guest_documents_handler.function_name)                      = module.guest_documents_handler.published_version
-    (module.document_chasing_dispatch_handler.function_name)            = module.document_chasing_dispatch_handler.published_version
     (module.upload_finalizer_handler.function_name)                     = module.upload_finalizer_handler.published_version
     (module.malware_result_handler.function_name)                       = module.malware_result_handler.published_version
     (module.upload_slot_reconciliation_handler.function_name)           = module.upload_slot_reconciliation_handler.published_version

@@ -29,6 +29,7 @@ function mockState(state: AuthState, reauthenticate = vi.fn()) {
     reauthenticate,
     logout: vi.fn(),
     logoutEverywhere: vi.fn(),
+    clearReauthLatch: vi.fn(),
   });
   return reauthenticate;
 }

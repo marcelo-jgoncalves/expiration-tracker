@@ -65,7 +65,12 @@ async function main() {
 
   const response = await fetch(`${APP_ORIGIN}/bff/login`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // "none" is Fetch Metadata's own value for a request with no initiating browsing context
+    // (typed URL, bookmark) - the correct declaration for a direct, first-party script calling
+    // the API itself, not a browser page (round-1 Codex finding, d321-direct-auth-adversarial-
+    // review: POST /bff/login now rejects any request that can't declare itself same-site/none,
+    // closing a login-CSRF gap a cross-site browser page can never spoof this header to bypass).
+    headers: { "content-type": "application/json", "sec-fetch-site": "none" },
     body: JSON.stringify({ email: creds.email, password: creds.password }),
   });
 

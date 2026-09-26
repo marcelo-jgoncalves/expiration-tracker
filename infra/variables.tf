@@ -43,21 +43,6 @@ variable "enable_reserved_concurrency" {
   default     = true
 }
 
-variable "document_request_initial_invite_email_enabled" {
-  description = <<-EOT
-    Kill switch global do convite inicial automatizado de guest upload (M10 cluster 4, D-049).
-    Default `false` em todos os ambientes, inclusive prod - o mecanismo técnico (SES/templates/
-    rate limit) já é implementado independente deste valor, mas o ENVIO em si nunca acontece
-    com o switch desligado, mesmo que a preferência de tenant ou o override por chamada peçam
-    EMAIL explicitamente. Ligar este switch em produção real exige primeiro o gate operacional
-    registrado em D-049 (validação SES real, alarme de bounce/complaint e runbook de
-    desligamento). Production access no ambiente dev foi concedido em 2026-09-18; os demais
-    gates continuam independentes deste switch.
-  EOT
-  type        = bool
-  default     = false
-}
-
 variable "membership_invite_email_enabled" {
   description = <<-EOT
     Kill switch global do e-mail de convite de organização (Wave B2B-8, D-099/D-100). Default

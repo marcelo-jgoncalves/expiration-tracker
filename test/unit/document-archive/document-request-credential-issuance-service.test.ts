@@ -25,6 +25,7 @@ function seedRequest(overrides: Partial<DocumentRequest> = {}): DocumentRequest 
     status: "REQUESTED",
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery: "MANUAL",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     version: 1,

@@ -96,6 +96,11 @@ export type GuestCredentialDeliveryOutcome =
   | { kind: "SKIPPED_REQUEST_NOT_FOUND" }
   | { kind: "SKIPPED_STALE_GENERATION" }
   | { kind: "SKIPPED_NO_RECIPIENT_EMAIL" }
+  /** ADR-0016 Decision B: `resolvedInitialInviteDelivery === "MANUAL"` — deliberate
+   * automatic-send suppression (A22's tenant preference, or an explicit per-call override),
+   * distinct from `SKIPPED_NO_RECIPIENT_EMAIL` (a data gap, not a choice). Never retried,
+   * never alerted — this is the intended outcome for a MANUAL request. */
+  | { kind: "SKIPPED_MANUAL_DELIVERY" }
   | { kind: "SKIPPED_LEASE_ACTIVE" }
   | { kind: "SEND_FAILED"; error: string }
   | { kind: "SEND_UNCERTAIN_NOT_RETRIED"; failureKind: string }
@@ -105,6 +110,10 @@ export async function deliverGuestCredential(deps: GuestCredentialDeliveryDeps, 
   const request = await deps.store.get<DocumentRequest>(documentRequestKey(authorizedTenantIdFromPersistedEntity(record), record.subjectId, record.documentRequestId));
   if (!request) return { kind: "SKIPPED_REQUEST_NOT_FOUND" };
   if (request.issuanceGeneration !== record.issuanceGeneration) return { kind: "SKIPPED_STALE_GENERATION" };
+  // ADR-0016 Decision B: checked BEFORE the recipient-email gap below — a MANUAL request may or
+  // may not carry a recipientEmail (the avulso path can collect one even under MANUAL), but
+  // either way this worker must never send when the resolved mode says not to.
+  if (request.resolvedInitialInviteDelivery === "MANUAL") return { kind: "SKIPPED_MANUAL_DELIVERY" };
   if (!request.recipientEmail) return { kind: "SKIPPED_NO_RECIPIENT_EMAIL" };
 
   const now = deps.now();

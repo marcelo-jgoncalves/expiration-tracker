@@ -1,0 +1,11 @@
+﻿.ov-hero { background:#4c1d95; border-radius:16px; padding:23px 27px; min-height:130px; color:white; display:flex; align-items:center; gap:18px; overflow:hidden; position:relative; margin-bottom:25px; }
+.ov-hero::after { content:""; position:absolute; right:-70px; top:-220px; width:340px; height:340px; border:1px solid #ffffff24; border-radius:50%; box-shadow:0 0 0 60px #ffffff09,0 0 0 130px #ffffff08; pointer-events:none; }
+.ov-hero-icon { width:46px; height:46px; border-radius:12px; background:#ffffff20; display:grid; place-items:center; flex:none; }
+.ov-hero-copy { flex:1; min-width:0; z-index:1; }
+.ov-hero-eyebrow { font-size:10px; letter-spacing:.14em; font-weight:800; color:#ded3f5; text-transform:uppercase; }
+.ov-hero h2 { font-size:18px; font-weight:700; letter-spacing:-.035em; margin:6px 0 4px; color:white; }
+.ov-hero p { font-size:11px; color:#e9e1f7; line-height:1.6; margin:0; }
+.ov-hero-summary { border-left:1px solid #ffffff38; padding:4px 10px 4px 24px; z-index:1; }
+.ov-hero-summary strong { font-size:28px; display:block; line-height:1.1; }
+.ov-hero-summary span { font-size:10px; color:#e9e1f7; }
+@media(max-width:650px) { .ov-hero { padding:20px; gap:12px; } .ov-hero h2 { font-size:15px; } .ov-hero-icon { width:36px; height:36px; align-self:flex-start; } .ov-hero-summary { display:none; } }

@@ -79,6 +79,7 @@ async function setup() {
     deadline: "2026-12-31T00:00:00.000Z",
     submissionCount: 0,
     issuanceGeneration: 1,
+    resolvedInitialInviteDelivery: "MANUAL",
     createdAt: NOW,
     updatedAt: NOW,
     version: 1,

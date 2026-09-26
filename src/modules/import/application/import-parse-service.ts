@@ -32,8 +32,8 @@ import {
   type ValidatedItemImportRow,
 } from "../domain/import-row.js";
 import { normalizeDisplayName, type TrackedSubjectType } from "../../subject/domain/tracked-subject.js";
-import { importDedupKey } from "../domain/import-dedup.js";
-import { buildImportJobClaim, importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
+import { importDedupKey, type ImportDedupRecord } from "../domain/import-dedup.js";
+import { buildImportJobClaim, importJobKey, MAX_IMPORT_FILE_BYTES, MAX_IMPORT_HEADER_COLUMNS, MAX_IMPORT_ROWS, type ImportJob } from "../domain/import-job.js";
 import { isTransactionCanceled, type ImportStore } from "../ports/import-store.js";
 import type { ImportObjectStore } from "../ports/import-object-store.js";
 import type { SubjectStore } from "../../subject/ports/subject-store.js";
@@ -117,6 +117,9 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
     }
 
     const { header, rows } = parseCsv(bytes.toString("utf-8"));
+    if (header.length > MAX_IMPORT_HEADER_COLUMNS) {
+      return await failJob(deps, tenantId, claimedJob, "TOO_MANY_COLUMNS");
+    }
     if (rows.length > MAX_IMPORT_ROWS) {
       return await failJob(deps, tenantId, claimedJob, "TOO_MANY_ROWS");
     }
@@ -165,8 +168,17 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
           }
           seenExternalIdsInFile.add(row.externalId);
 
-          const existingDedup = await deps.store.get(importDedupKey(tenantId, "SUBJECT", row.externalId));
-          if (existingDedup) {
+          // Round-2 Codex finding (d319-item-bulk-import-adversarial-review): an ImportDedupRecord
+          // with an empty subjectId means a PRIOR commit attempt claimed this externalId but
+          // never confirmed a real TrackedSubject was created (the same orphaned-claim state
+          // commitTrackedSubjectRows()'s resolveExistingClaim() now detects). Treating ANY
+          // existing record as "already imported" here skipped the row at PARSE time, before it
+          // could ever reach that commit-phase protection - a brand new import job re-parsing the
+          // same file would silently, permanently skip a row that was never actually created.
+          // Only a record with a REAL subjectId is a genuine duplicate; an orphaned claim must
+          // still flow through as CREATE_SUBJECT so commit-phase claim resolution can surface it.
+          const existingDedup = await deps.store.get<ImportDedupRecord>(importDedupKey(tenantId, "SUBJECT", row.externalId));
+          if (existingDedup?.subjectId) {
             subjectPlan.push({ rowNumber: row.rowNumber, action: "SKIP_DUPLICATE", reason: "EXTERNAL_ID_ALREADY_EXISTS", externalId: row.externalId, displayName: row.displayName });
             duplicateRows += 1;
             continue;
@@ -320,8 +332,10 @@ export async function parseImportJob(deps: ImportParseDeps, tenantId: string, jo
         }
         seenDedupKeysInFile.add(dedupKey);
 
-        const existingDedup = await deps.store.get(importDedupKey(tenantId, "ITEM", dedupKey));
-        if (existingDedup) {
+        // Round-2 Codex finding - same orphaned-claim gap as the SUBJECT branch above: only a
+        // record with a REAL itemId is a genuine duplicate, never an empty placeholder.
+        const existingDedup = await deps.store.get<ImportDedupRecord>(importDedupKey(tenantId, "ITEM", dedupKey));
+        if (existingDedup?.subjectId) {
           itemPlan.push({ rowNumber: row.rowNumber, action: "SKIP_DUPLICATE", reason: "ITEM_ALREADY_IMPORTED", name: row.name });
           duplicateRows += 1;
           continue;

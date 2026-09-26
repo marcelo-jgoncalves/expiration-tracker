@@ -34,6 +34,8 @@ export const queryKeys = {
      * `dashboardAll` prefix so create/renew's existing invalidation already covers it, no new
      * call site to update. */
     summary: (organizationId: string) => [...queryKeys.items.dashboardAll(organizationId), "summary"] as const,
+    search: (organizationId: string, status: string, search: string, validityState: string) =>
+      [...queryKeys.items.dashboardAll(organizationId), "search", status, search, validityState] as const,
     detail: (organizationId: string, itemId: string) => ["org", organizationId, "items", "detail", itemId] as const,
     all: (organizationId: string) => ["org", organizationId, "items"] as const,
     /** A07 (Block 2 D-2xx) - generic per-item document attachments, `GET
@@ -44,30 +46,13 @@ export const queryKeys = {
     /** A06 (Block 2 D-258) - item->policy discovery, `GET /items/{itemId}/reminder-policy`. */
     reminderPolicy: (organizationId: string, itemId: string) => ["org", organizationId, "items", "reminderPolicy", itemId] as const,
   },
+  // ADR-0016 Decision A (2026-09-25) retired the subject module's own RequirementAssignment
+  // list/detail, DocumentSubmission list, legacy DocumentRequest list, and
+  // DocumentChasingOccurrence keys that used to live here (M9/M10, A10's timeline) - A14's
+  // document-archive Requirement/DocumentRequest equivalents key under `documentArchive` below.
   subjects: {
     dashboard: (organizationId: string, status: string) => ["org", organizationId, "subjects", "dashboard", status] as const,
     detail: (organizationId: string, subjectId: string) => ["org", organizationId, "subjects", "detail", subjectId] as const,
-    requirements: (organizationId: string, subjectId: string) => ["org", organizationId, "subjects", "requirements", subjectId] as const,
-    submissions: (organizationId: string, subjectId: string, assignmentId: string) =>
-      ["org", organizationId, "subjects", "submissions", subjectId, assignmentId] as const,
-    /** A10 (Block 7, D-2xx) - single-assignment detail (Snapshot + timeline), distinct from the
-     * `requirements` list key above - same discipline as `documentArchive.document`/`document`
-     * being independent of its own list key. */
-    assignmentDetail: (organizationId: string, subjectId: string, assignmentId: string) =>
-      ["org", organizationId, "subjects", "assignmentDetail", subjectId, assignmentId] as const,
-    /** A10 (Block 7, D-2xx) - legacy `DocumentRequest`s under one `RequirementAssignment`
-     * (`subject` module, NEVER the same cache entry as `documentArchive.documentRequests` above -
-     * distinct backend entities that happen to share a type name, see `types.ts`'s own doc
-     * comment on `LegacyDocumentRequest`). */
-    legacyDocumentRequests: (organizationId: string, subjectId: string, assignmentId: string) =>
-      ["org", organizationId, "subjects", "legacyDocumentRequests", subjectId, assignmentId] as const,
-    /** D-288 - A10 timeline's automated-reminder entries, keyed per documentRequestId (never
-     * per assignment - occurrences belong to a single DocumentRequest). */
-    documentChasingOccurrences: (organizationId: string, subjectId: string, documentRequestId: string) =>
-      ["org", organizationId, "subjects", "documentChasingOccurrences", subjectId, documentRequestId] as const,
-    /** A22 (Block 7, D-2xx) - tenant-wide, OWNER-only preference, no sub-filters. */
-    documentRequestDeliveryPreference: (organizationId: string) =>
-      ["org", organizationId, "subjects", "documentRequestDeliveryPreference"] as const,
   },
   organizations: {
     members: (organizationId: string) => ["org", organizationId, "members"] as const,
@@ -81,6 +66,11 @@ export const queryKeys = {
       ["org", organizationId, "documentArchive", "requirements", "search", status, namePrefix ?? "", assigneeUserId ?? ""] as const,
     /** A09 (Block 3, D-2xx) - Compliance panel, `GET .../requirements/{subjectId}/compliance`. */
     subjectCompliance: (organizationId: string, subjectId: string) => ["org", organizationId, "documentArchive", "compliance", subjectId] as const,
+    /** A22 (ADR-0016 Decision B, 2026-09-25) - tenant-wide, OWNER-only preference, no
+     * sub-filters. Migrated here from the retired subject module's own
+     * `subjects.documentRequestDeliveryPreference` key. */
+    documentRequestDeliveryPreference: (organizationId: string) =>
+      ["org", organizationId, "documentArchive", "documentRequestDeliveryPreference"] as const,
     /** A20 (Block 4, D-2xx) - DocumentType catalog, one key per (org, status) - same "no
      * unfiltered ALL mode" discipline as `requirementsSearch` above. */
     documentTypes: (organizationId: string, status: string) => ["org", organizationId, "documentArchive", "documentTypes", "list", status] as const,

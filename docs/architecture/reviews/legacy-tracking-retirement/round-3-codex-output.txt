@@ -1,0 +1,97 @@
+RODADA 3 — CRÍTICA CEGA CODEX
+Data: 2026-09-25
+Objeto: round-3-claude-revision.md, após leitura de R1 Codex, R2 Claude e R2 Codex, nessa ordem.
+Nota cega desta rodada: 8,8/10, sem arredondamento.
+Veredito: NEEDS FIXES pontuais; a direção está substancialmente fechada, mas os cinco blocos ainda não estão integralmente resolvidos.
+
+Não consultei nota/parecer independente de Claude para R3. Avalio a proposta, não uma implementação pronta nem a qualidade global da aplicação. O avanço em relação à R2 é real: ownership, consequência de MANUAL, duração do modo e inclusão de séries estão muito mais claros. Não condiciono aprovação à exposição de link nem à recuperação de capacidades que Marcelo ainda decidirá abandonar ou adiar.
+
+1. INVENTÁRIO DE A — FRONTEIRAS ESSENCIAIS FECHADAS; CORRIGIR A LISTA EXECUTÁVEL
+
+Conferi os cinco grupos da R2 diretamente:
+
+a) Chasing: dispatch.ts importa entidades legadas e o producer de subject. A R3 reconhece o worker, handler, fila e Lambda exclusivos. Porém, document-chasing-dispatch/{dispatch,producer,materializer}.ts não é um conjunto real de arquivos: naquele diretório só existe dispatch.ts. Os outros são src/modules/subject/application/document-chasing-producer.ts e document-chasing-materializer.ts. Incluir nominalmente também application/advance-after-submission-evidence.ts, domain/document-chasing.ts e os workers submission-finalizer/submission-malware-result, já abrangidos pela R2 aceita. Não confundir esses arquivos com src/workers/document-request-recurrence/materializer.ts, que permanece.
+
+b) Lembretes: confirmado. reminder-producer/producer.ts:178-190, reminder-scan/scan-page.ts:166-168, reminder-claim-consumer-handler.ts:66-67 e reminder-reconciliation/recover-expired-claims.ts:18-19 realmente misturam chasing e lembretes. A disciplina de remover só o branch legado resolve a objeção; preservar ExpirationItem não significa deixar esses arquivos sem edição.
+
+c) Upload/antimalware: confirmado. upload-finalizer-handler.ts:113-128 e malware-result-handler.ts:119-132 processam DocumentSubmission legado, ao lado dos demais fluxos. Remover branches/imports/deps de subject e preservar os handlers compartilhados está correto.
+
+d) G01: a R3 finalmente inclui backend, rotas públicas e auxiliares exclusivos, não só a tela. Ainda precisa tornar explícitos build/permissões/wiring: scripts/build-lambdas.ts:65-66; infra/main.tf:2202 em diante (guest_documents_handler), :2261-2263 (event source de chasing); infra/modules/api-gateway/main.tf:559-589 (integração/rotas/permissão G01). As linhas :443-471 citadas na R3 são rotas autenticadas de subjects, não as rotas públicas G01. O pepper de infra NÃO é exclusivo por ter “guest” no nome: infra/main.tf também o injeta em outros handlers (:230, :282, :310, :1205). Retirar apenas os grants/envs exclusivos; não apagar indiscriminadamente random_password.guest_token_pepper.
+
+e) Composição/contratos: confirmado que subject.ts deve sobreviver parcialmente. buildSubjectDeps (:41-47) preserva SubjectService/store, perde RequirementService/itemLookup; buildDocumentRequestDeps, buildGuestSubmissionDeps, buildSubjectWorkerDeps e buildDocumentChasingDispatchDeps pertencem à retirada/migração. A R3 não enumera novamente BFF, build, schemas e testes pedidos em R2: proxy-allowlist.ts:80-100, schema-validator.ts:35,60-61 e contratos associados continuam sendo trabalho real. Distinguir schema de preferência A22 preservado/migrado dos schemas exclusivos removidos.
+
+Conclusão deste bloco: a distinção arquitetural exclusivo/compartilhado foi resolvida de maneira defensável. A lista ainda tem caminhos errados e itens de wiring omitidos; não apresentá-la como inventário exaustivo. Incorporar as referências acima e ampliar o critério “zero referência ativa” para todo o domínio retirado, inclusive rotas/BFF/build/infra/schemas/testes. Isso é complemento concreto do inventário já solicitado, não exigência de listar cada fixture ou reabrir A.
+
+2. A22 — OWNERSHIP RESOLVIDO, COM PRECISÃO SOBRE GET
+
+Mover tipo, key builder, resolver e operações específicas para document-archive é coeso. Confirmei a chave TENANT#<tenantId>#SETTINGS / DOCUMENT_REQUEST_DELIVERY no domínio e a leitura default em document-request-service.ts:305-307. A escrita atual (:255-300) usa buildVersionedUpdate/buildVersionedCreate, registra CONFIGURE_DOCUMENT_REQUEST_DELIVERY e traduz conflito. Preservar isso atende à objeção; nenhuma migração de dados ou módulo genérico é necessária.
+
+A leitura interna sem OWNER_ROLES também está correta: a criação já autoriza docarchive:request-create (:1185), e o scheduler nem possui RequestContext. A leitura deve continuar escopada ao tenant autorizado ou derivado da série persistida, nunca a um tenant arbitrário do body.
+
+Precisão: hoje tanto GET (:250-252) quanto PUT (:255-256) chamam tenant:configure-document-request-delivery, OWNER_ROLES em identity/domain/authorization.ts:316. Logo, “só PUT continua OWNER_ROLES” não descreve preservação literal da autorização HTTP atual. Separar explicitamente leitura interna de GET público: pode-se preservar GET administrativo OWNER-only e ler internamente sem esse gate; se o formulário precisar consultar a preferência pela API com WRITE_ROLES, declarar e testar essa permissão de leitura. Não transformar a necessidade interna em endpoint público sem authorize(). Essa precisão não invalida a migração proposta nem exige uma abstração nova.
+
+3. MANUAL — CONSEQUÊNCIA ACEITA; COPY AINDA NÃO COBRE SÉRIES
+
+Sim, a R3 finalmente aceita a consequência correta: DEFAULT sem preferência passa a suprimir o envio em solicitações novas, mesmo com recipientEmail, sem link acessível ao operador/convidado por essa interface. Isso é uma mudança funcional deliberada. Não é necessário remover recipientEmail do registro. A expressão “envia incondicionalmente” ainda é imprecisa: deliver.ts:105-126 mantém controles de existência, geração e claim; o que inexiste hoje é filtro por modo de entrega.
+
+As correções indicadas para o formulário avulso (:392-394) e a promessa de compartilhamento em RequestDeliverySettings.tsx:39-42 são corretas. Entretanto, não bastam para o escopo ampliado em B(d): SubjectRequests.tsx:502 também promete “E-mail que receberá o link de convidado a cada ciclo.” A série agora seguirá A22 e poderá gerar pedidos MANUAL. Essa promessa continua falsa se só forem alterados os trechos avulsos nomeados na R3.
+
+Correção necessária: incluir a copy de séries no contrato de honestidade, sem exigir UI de override própria. Explicar que a geração segue o padrão da organização e pode ocorrer sem envio/link disponível. Na resposta avulsa e em “Gerar agora”, informar o modo efetivamente persistido, não presumir entrega a partir da presença do e-mail ou de preferência carregada antes da criação. O resultado MANUAL não pode ser anunciado como entrega manual funcional.
+
+Na mesma revisão de A22, atualizar o PageHeader (:58, hoje “fluxo de rastreamento legado”), o rótulo “Entrega manual” e a afirmação “no momento da criação” para a semântica de supressão/envio assíncrono. Explicitar que alterar A22 afeta novas solicitações/materializações, não muda o modo de pedidos existentes nem reenvia os que foram suprimidos. A persistência vitalícia proposta já implica isso; a comunicação ao operador deve refletir essa regra. A pendência de link com owner Marcelo e gatilho está adequadamente nomeada; não é bloqueadora deste recorte.
+
+4. CONTRATOS DE B — TRÊS DIREÇÕES CORRETAS; IDEMPOTÊNCIA AINDA PRECISA DE FECHAMENTO
+
+4a) Idempotência — parcialmente fechada, lacuna material.
+
+Persistir resolvedInitialInviteDelivery no DocumentRequest/snapshot é correto. Mas R2 pediu override normalizado no payload; R3 substituiu por modo efetivo no hash e, simultaneamente, prometeu nunca consultar A22 no replay. Isso pode ser implementado corretamente, mas exige explicitar a comparação; acrescentar resolve(DEFAULT) ao hash antes do lookup atual quebra a promessa.
+
+Exemplo concreto: chave K, DEFAULT, A22=EMAIL cria EMAIL; A22 muda para MANUAL; repetir K+DEFAULT deve devolver EMAIL original, não dar conflito nem recalcular para MANUAL. Por outro lado, K+MANUAL explícito deve conflitar com esse registro EMAIL, não retornar sucesso só porque K existe. R3 enuncia os resultados, mas não define como distinguir entrada e resolução no replay.
+
+Há ainda um caminho real ignorado: document-archive-service.ts:1188-1194 compara payloadHash no lookup inicial; :1233-1237, após perder a corrida de criação do registro idempotente, apenas relê e devolve resultSnapshot SEM comparar hash. Duas chamadas concorrentes K+EMAIL e K+MANUAL que lerem “ausente” podem retornar sucesso para a perdedora, contrariando diretamente o contrato novo. É fragilidade preexistente, mas está no caminho exato que B promete tornar correto; não é auditoria lateral.
+
+Fechamento simples recomendado: fingerprint dos campos de entrada com initialInviteDelivery normalizado para DEFAULT quando ausente; lookup e comparação desse fingerprint antes de resolver A22; resolução e validação apenas para criação nova; gravação atômica do modo e snapshot; aplicar a mesma comparação após conflito transacional. Se preferirem equivalência por modo efetivo, também é possível: no replay, DEFAULT deve usar o modo do snapshot vencedor e overrides explícitos devem ser comparados com ele; definir se DEFAULT e EMAIL explícito que resolvem igual são equivalentes. Não é obrigatório adotar minha opção, mas a semântica e os dois caminhos precisam ficar inequívocos.
+
+Critérios de aceitação faltantes: replay DEFAULT após mudança A22 preserva snapshot; EMAIL versus MANUAL na mesma chave conflita tanto sequencialmente quanto sob corrida; replay válido não falha por revalidar o novo default. Não exijo implementar testes nesta rodada.
+
+4b) EMAIL sem destinatário — fechado para avulsas.
+
+O schema atual docarchive-request-create-request.v1.json admite recipientEmail ausente, validando formato quando presente. A validação dependente do modo no serviço resolve a lacuna e deve abranger EMAIL explícito e EMAIL obtido via DEFAULT. A R3 diz “modo efetivo”, portanto interpreto que abrange ambos.
+
+A exceção de série sem destinatário agora está expressamente escolhida: permite materializar e terminar em SKIPPED_NO_RECIPIENT_EMAIL. É diferente da avulsa e deve ser documentada/testada como tal; não repetir “sem tratamento especial” para essa validação. Não exijo remover essa exceção: ela preserva um comportamento existente nomeado, sem override EMAIL na série. MANUAL deve continuar identificado como supressão por política, antes de claim/send, sem cair no diagnóstico de destinatário ausente.
+
+4c) Reemissão — fechado.
+
+rejectVersion lê o pedido (:1075), preserva seus campos via spread (:1080-1086), atualiza status/geração sem remover outros campos (:1094) e publica o evento (:1114). O worker relê a entidade e confere geração (:105-107). Persistir o modo pela vida da solicitação governa corretamente primeira emissão e reemissão, sem copiar o modo no evento nem recalcular A22. O nome initialInvite fica estreito para o efeito vitalício, mas isso é clareza de nomenclatura, não bloqueador técnico; a semântica agora está explícita.
+
+4d) Séries — política fechada; encaixe técnico deve preservar os dois produtores.
+
+Concordo com resolver A22 por nova materialização, sem override de série, e persistir o resultado no pedido. buildMaterializeAttemptEntries:97-114 realmente cria o mesmo DocumentRequest e copia recipientEmail (:109). A mudança passa a alcançar deliberadamente as séries; já não é supressão acidental por campo ausente.
+
+Precisão de implementação necessária: o builder é síncrono/puro e não recebe store (:80-91). A leitura de A22 deve ocorrer nos chamadores e entrar como modo/default no builder: DocumentRequestRecurrenceService.materializeAttempt (:324-331) E runDocumentRequestRecurrenceMaterializer em src/workers/document-request-recurrence/materializer.ts:69. Um método interno somente de DocumentArchiveService não cobre automaticamente esses caminhos. Preservar a mesma transação de OCC da série + pedido + outbox (:117-140). Não é preciso colocar I/O num builder puro nem transportar RequestContext para o worker.
+
+Testar os dois produtores com EMAIL/MANUAL/default ausente, isolamento tenant, série sem destinatário e mudança de A22 entre pedidos novos, preservando o modo do pedido já criado. Isso concretiza a decisão já correta; o bloqueador de produto remanescente aqui é a copy de série descrita no bloco 3.
+
+5. RISCO/PESQUISA — MANTENHO A CONCORDÂNCIA
+
+A = nível 6: retirada de modelo de conformidade/capacidades e integrações; exige ADR e decisions-log ao fechar. B = nível 5 neste recorte: contrato HTTP, estado persistido e ownership/integração. Não é só RadioGroup.
+
+Pesquisa externa considerada: NÃO para o escopo atual. A revisão depende do encaixe de política e fronteiras existentes (D-049; D-146/D-226), demonstráveis pelo código local. Não houve decisão nova dependente de comportamento específico AWS nesta crítica, nem consulta externa necessária para afirmar esses fatos internos. SIM PARCIAL quando/se for aberta a pendência de exposição de link, com pesquisa e critérios de segurança pertinentes antes da proposta; não antecipar que toda solução futura necessariamente terá a mesma classificação de risco.
+
+6. NOTA, PENDÊNCIAS E GATE
+
+A nota 8,8 reconhece o fechamento substancial. Não mantenho 8,6 por hábito, mas também não atribuo >=9,0 enquanto a proposta pode resultar em replay conflitante aceito e promessa falsa de envio nas séries.
+
+Aplicação da rubrica canônica joint-review-criteria.md: Arquitetura/Data Model & Consistency (13%) e Event & Integration Correctness (11%) ainda perdem pela comparação idempotente incompleta; Engenharia/Code Correctness & Defensive Design (11%) e Test Effectiveness & Coverage Discipline (15%) exigem o cenário concorrente explicitado; Produto/Transparência, Usabilidade & Acessibilidade (10%) exige cobrir séries. Ownership e isolamento por tenant melhoram; Contexto/Rastreabilidade de Decisões, Trabalho & Triggers (10%) melhora pela pendência nomeada e pela admissão de perda funcional. A nota global é julgamento desta proposta, não média inventada de eixos nem medição da aplicação inteira.
+
+Para chegar a 9,0, basta uma emenda focada:
+- Fechar o algoritmo/semântica de idempotência e a comparação no replay após corrida, com os critérios de aceitação acima.
+- Estender o contrato de copy às séries e explicitar o efeito de A22 apenas sobre pedidos novos, sem promessa de link/envio em MANUAL.
+- Corrigir caminhos de chasing e incorporar wiring/BFF/build/schemas ao inventário; distinguir GET público de leitura interna de A22 e citar os dois produtores de séries. São precisões pequenas, sem novo escopo de produto.
+
+Continuam com Marcelo as escolhas já nomeadas sobre vínculo com ExpirationItem, retirada completa e matriz manter/abandonar/adiar de capacidades. Não uso a ausência dessas escolhas para exigir solução de link nesta rodada.
+
+O protocolo NÃO está encerrado: mínimo de três rodadas não substitui nota >=9,0 de AMBOS, sem arredondamento. Minha nota desta R3 é inferior ao gate; nenhuma nota independente de Claude foi presumida. Esta crítica não autoriza implementação.
+
+Encerramento: aplicada .claude/skills/task-checklist/SKILL.md e lida a checklist completa. Escopo real é artefato não normativo de revisão por leitura (§0), sem código/infra alterados, sem fechamento de marco/roadmap. Arquitetura, Engenharia, Contexto, Segurança e Produto avaliados acima; SRE limitado à preservação dos controles de entrega; Governança de IA pela independência da nota; Privacidade e Jurídico sem avaliação autônoma de controles nesta rodada. Não executei testes, deploy ou implementação, nem os apresento como evidência. Alterações preexistentes no workspace foram preservadas.
+DoD: item=crítica cega R3 da retirada A10; risco=artefato de revisão sem mudança funcional, proposta A nível 6/B nível 5; evidência=leitura das quatro rodadas na ordem solicitada e conferência direta dos caminhos de código citados; lacunas=idempotência concorrente/replay, copy de séries e precisões listadas; testes de implementação=N/A; protocolo=aberto, Codex 8,8/10.

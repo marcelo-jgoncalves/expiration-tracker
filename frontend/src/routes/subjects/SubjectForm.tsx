@@ -1,14 +1,19 @@
 /**
- * A08 (Block 3, D-2xx) — create/edit form for a Fornecedor (TrackedSubject). Two routes share
- * this component (`/subjects/new`, `/subjects/:subjectId/edit`) rather than folding creation
- * into the Subject Hub (A09) as that screen's spec literally describes — a deliberate,
- * time-boxed simplification for this block: the Hub (SubjectHub.tsx) stays a pure detail/review
- * surface, and this dedicated form covers both create and edit with one RBAC-checked component,
- * same separation CreateItem/ItemDetail already use for A04/A05. Revisit only if a future audit
- * names the merged-hub-as-create-form pattern as load-bearing for a real journey.
+ * A08 (Block 3, D-2xx) — create/edit form for a Fornecedor (TrackedSubject). One component
+ * covers both create and edit (`isEdit = Boolean(subjectId)`), same separation
+ * CreateItem/ItemDetail already use for A04/A05 — the Subject Hub (SubjectHub.tsx) stays a pure
+ * detail/review surface, this covers both create and edit with one RBAC-checked component.
+ *
+ * Modal conversion (2026-09-25): short form, only ever reachable from a parent screen
+ * (SubjectsCollection's "Novo fornecedor"/edit icon, SubjectHub's "Editar fornecedor") — reuses
+ * the existing `Dialog` rather than two dedicated routes. On create, the caller still gets a
+ * real navigation to the new subject's Hub (creating a subject is a genuinely new resource worth
+ * landing on) — the modal closes and `navigate` fires, same pattern as RenewItem. On edit,
+ * there is nothing new to land on: the modal just closes and the parent's own query (already
+ * invalidated by the mutation) reflects the update in place.
  */
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useSubject } from "../../hooks/useSubject.js";
 import { useCreateSubject } from "../../hooks/useCreateSubject.js";
@@ -18,8 +23,9 @@ import { InitialLoading, ErrorState, EmptyState } from "../../components/AsyncSt
 import { TextField } from "../../components/forms/TextField.js";
 import { SelectField } from "../../components/forms/SelectField.js";
 import { FormErrorSummary, type SummaryFieldError } from "../../components/forms/FormErrorSummary.js";
-import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
-import { Button, ButtonLink } from "../../components/ui/Button.js";
+import { Section } from "../../components/ui/Layout.js";
+import { Button } from "../../components/ui/Button.js";
+import { Dialog } from "../../components/ui/Dialog.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import type { TrackedSubjectType } from "../../api/types.js";
@@ -28,8 +34,7 @@ import "./SubjectForm.css";
 
 const TYPE_OPTIONS: TrackedSubjectType[] = ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"];
 
-export function SubjectForm() {
-  const { subjectId } = useParams<{ subjectId: string }>();
+export function SubjectFormDialog({ subjectId, onClose }: { subjectId?: string; onClose: () => void }) {
   const isEdit = Boolean(subjectId);
   const orgPath = useOrgPath();
   const navigate = useNavigate();
@@ -39,7 +44,7 @@ export function SubjectForm() {
   const updateMutation = useUpdateSubject(subjectId ?? "");
   const role = useCurrentMembershipRole();
   // Screen->action->role conformance: the backend is the real enforcement boundary (subject:
-  // create/update are WRITE_ROLES), but this route must not RENDER a functional form to a role
+  // create/update are WRITE_ROLES), but this must not RENDER a functional form to a role
   // that has no path to submit it successfully - hiding the "Editar"/"Novo fornecedor" entry
   // points elsewhere is not sufficient on its own (Codex Block 3 review round 1 finding 10).
   const canWrite = role === undefined || role === "OWNER" || role === "ADMIN" || role === "MEMBER";
@@ -52,20 +57,32 @@ export function SubjectForm() {
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
   // Field-level association (mission §40/VL-G10, same pattern as CreateItem.tsx): a required-
   // field failure must be reachable via aria-invalid/aria-describedby on the control itself,
-  // not only as an unlinked general error (E2E/accessibility gap closure, D-2xx - the prior
-  // version of this form only ever called setGeneralErrors, which TextField never renders as a
-  // per-field error, so "Nome" never got aria-invalid when submitted blank).
+  // not only as an unlinked general error.
   const [nameError, setNameError] = useState<string | undefined>();
 
+  const title = isEdit ? "Editar fornecedor" : "Novo fornecedor";
+
   if (isEdit && subjectQuery.isPending) {
-    return <InitialLoading label="Carregando fornecedor…" />;
+    return (
+      <Dialog title={title} onClose={onClose}>
+        <InitialLoading label="Carregando fornecedor…" />
+      </Dialog>
+    );
   }
   if (isEdit && subjectQuery.isError) {
     const message = subjectQuery.error instanceof ApiError ? subjectQuery.error.message : "Não foi possível carregar este fornecedor.";
-    return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;
+    return (
+      <Dialog title={title} onClose={onClose}>
+        <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />
+      </Dialog>
+    );
   }
   if (role !== undefined && !canWrite) {
-    return <EmptyState kind="permission-limited" />;
+    return (
+      <Dialog title={title} onClose={onClose}>
+        <EmptyState kind="permission-limited" />
+      </Dialog>
+    );
   }
   if (isEdit && subjectQuery.data && !hydrated) {
     setDisplayName(subjectQuery.data.subject.displayName);
@@ -89,7 +106,7 @@ export function SubjectForm() {
           input: { displayName: displayName.trim(), notes: notes.trim() || undefined },
           expectedVersion: subjectQuery.data.subject.version,
         });
-        navigate(orgPath(`/subjects/${subjectId}`));
+        onClose();
       } else {
         const result = await createMutation.mutateAsync({
           type,
@@ -98,6 +115,7 @@ export function SubjectForm() {
           externalId: externalId.trim() || undefined,
         });
         createMutation.newIntent();
+        onClose();
         navigate(orgPath(`/subjects/${result.subject.subjectId}`));
       }
     } catch (err) {
@@ -120,50 +138,45 @@ export function SubjectForm() {
   const fieldErrors: SummaryFieldError[] = nameError ? [{ fieldId: "subject-name", label: "Nome", message: nameError }] : [];
 
   return (
-    <div>
-      <PageHeader above={<ButtonLink variant="secondary" size="sm" to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")}>← Voltar</ButtonLink>} title={isEdit ? "Editar fornecedor" : "Novo fornecedor"} />
+    <Dialog title={title} onClose={onClose}>
       <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={generalErrors} fieldErrors={fieldErrors} />
         {isConflictState ? <p role="alert">Este fornecedor mudou desde que a página carregou — recarregue antes de salvar de novo.</p> : null}
-        <Panel padded>
-          <Section
-            heading="Dados do fornecedor"
-            headingId="subject-form-heading"
-            description="Cadastre uma empresa ou parceiro para acompanhar documentos e vencimentos."
-            icon={Plus}
-          >
-            <div className="subject-form__grid">
-              <div className="subject-form__grid-full">
-                <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
-              </div>
-              {isEdit ? null : (
-                <>
-                  <SelectField
-                    id="subject-type"
-                    label="Tipo"
-                    value={type}
-                    onChange={(v) => setType(v as TrackedSubjectType)}
-                    required
-                    options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
-                  />
-                  <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} hint="Não pode ser alterado depois de criado." />
-                </>
-              )}
-              <div className="subject-form__grid-full">
-                <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
-              </div>
-            </div>
-          </Section>
-        </Panel>
+        <Section
+          heading="Dados do fornecedor"
+          headingId="subject-form-heading"
+          description="Cadastre uma empresa ou parceiro para acompanhar documentos e vencimentos."
+          icon={Plus}
+        >
+          {/* Single stacked column, unlike the old full-page route's 2-column grid (`.subject-form__grid`,
+              built for a wide Panel) — Dialog.tsx's own contract is "short forms/small details", and a
+              ~512px modal panel is too narrow for that grid to breathe, so create and edit share the
+              same simple stacked layout here. */}
+          <TextField id="subject-name" label="Nome" value={displayName} onChange={setDisplayName} error={nameError} required />
+          {!isEdit ? (
+            <>
+              <SelectField
+                id="subject-type"
+                label="Tipo"
+                value={type}
+                onChange={(v) => setType(v as TrackedSubjectType)}
+                required
+                options={TYPE_OPTIONS.map((t) => ({ value: t, label: presentSubjectType(t) }))}
+              />
+              <TextField id="subject-external-id" label="CNPJ/identificador externo" value={externalId} onChange={setExternalId} placeholder="Não pode ser alterado depois de criado." />
+            </>
+          ) : null}
+          <TextField id="subject-notes" label="Observações" value={notes} onChange={setNotes} multiline />
+        </Section>
         <div className="ui-form__actions">
           <Button type="submit" variant="primary" pending={pending}>
             {pending ? "Salvando…" : "Salvar"}
           </Button>
-          <ButtonLink to={orgPath(isEdit && subjectId ? `/subjects/${subjectId}` : "/subjects")} variant="tertiary">
+          <Button type="button" variant="tertiary" onClick={onClose}>
             Cancelar
-          </ButtonLink>
+          </Button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }

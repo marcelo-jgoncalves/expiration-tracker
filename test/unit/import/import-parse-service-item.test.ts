@@ -6,6 +6,7 @@ import { TenantQuotaService } from "../../../src/modules/identity/application/qu
 import { parseImportJob, type ImportParseDeps } from "../../../src/modules/import/application/import-parse-service.js";
 import { importJobKey, DEFAULT_ITEM_COLUMN_MAPPING, type ImportJob } from "../../../src/modules/import/domain/import-job.js";
 import { importDedupKey, type ImportDedupRecord } from "../../../src/modules/import/domain/import-dedup.js";
+import { buildItemDedupKey } from "../../../src/modules/import/domain/import-row.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
 /**
@@ -129,12 +130,13 @@ describe("parseImportJob — Item branch (D-3xx, PENDING_PROTOCOL_REVIEW)", () =
   // Would fail if the cross-job ImportDedupRecord point-lookup were skipped, re-accepting a row
   // already imported by a prior job.
   it("skips a row whose synthetic dedup key already exists from a PRIOR import", async () => {
+    const dedupKey = buildItemDedupKey("Licenca", "Alvara", "2026-12-31T00:00:00.000Z");
     await store.putIfAbsent<ImportDedupRecord>({
-      ...importDedupKey(TENANT, "ITEM", "licenca|alvara|2026-12-31T00:00:00.000Z"),
+      ...importDedupKey(TENANT, "ITEM", dedupKey),
       entityType: "ImportDedupRecord",
       tenantId: TENANT,
       kind: "ITEM",
-      externalId: "licenca|alvara|2026-12-31T00:00:00.000Z",
+      externalId: dedupKey,
       subjectId: "item-existing",
       createdAt: NOW,
     });
@@ -143,5 +145,36 @@ describe("parseImportJob — Item branch (D-3xx, PENDING_PROTOCOL_REVIEW)", () =
     const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
 
     expect(outcome).toEqual({ kind: "PARSED", totalRows: 1, acceptedRows: 0, rejectedRows: 0, duplicateRows: 1 });
+  });
+
+  // Round-2 Codex finding (d319-item-bulk-import-adversarial-review): an ImportDedupRecord with
+  // an empty subjectId (orphaned claim - a prior commit attempt crashed between the claim write
+  // and confirming a real itemId) must NOT be treated as "already imported" at parse time - doing
+  // so silently, permanently skipped the row forever, since the commit-phase protection
+  // (resolveExistingClaim) never even gets a chance to run for a row that was never planned as
+  // CREATE_ITEM in the first place.
+  it("does NOT skip a row whose dedup claim exists but has no real itemId yet (orphaned claim passes through as CREATE_ITEM)", async () => {
+    const dedupKey = buildItemDedupKey("Licenca", "Alvara", "2026-12-31T00:00:00.000Z");
+    await store.putIfAbsent<ImportDedupRecord>({
+      ...importDedupKey(TENANT, "ITEM", dedupKey),
+      entityType: "ImportDedupRecord",
+      tenantId: TENANT,
+      kind: "ITEM",
+      externalId: dedupKey,
+      subjectId: "", // orphaned placeholder, never confirmed
+      createdAt: NOW,
+    });
+    objectStore.seed(RAW_BUCKET, `tenant/${TENANT}/imports/${JOB_ID}/raw.csv`, "name,category,dueDate\n" + "Alvara,Licenca,2026-12-31\n");
+
+    const outcome = await parseImportJob(deps(), TENANT, JOB_ID);
+
+    expect(outcome).toEqual({ kind: "PARSED", totalRows: 1, acceptedRows: 1, rejectedRows: 0, duplicateRows: 0 });
+    const job = await store.get<ImportJob>(importJobKey(TENANT, JOB_ID));
+    const plan = (await objectStore.getObject(PLAN_BUCKET, job!.planObjectKey!))
+      .toString("utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+    expect(plan[0]).toMatchObject({ action: "CREATE_ITEM" });
   });
 });

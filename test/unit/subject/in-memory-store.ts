@@ -1,11 +1,9 @@
 import type { EntityKey, Gsi7Page, Gsi7PageInput, Gsi7QueryInput, SubjectStore, TransactWriteEntry } from "../../../src/modules/subject/ports/subject-store.js";
 import type { SubjectIdGenerator } from "../../../src/modules/subject/application/id-generator.js";
-import type { ExpirationItemLookup } from "../../../src/modules/subject/ports/expiration-item-lookup.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
-/** W3-07 (evidence-mutation worker fencing): submission-finalizer/submission-malware-result now
- * fence through TenantBusinessMutation, which requires a TenantLifecycleRecord to exist. Same
- * synchronous-seed convention as test/unit/document/in-memory-store.ts's activeLifecycleRecord. */
+/** Same synchronous-seed convention as test/unit/document/in-memory-store.ts's
+ * activeLifecycleRecord. */
 export function activeLifecycleRecord(tenantId: string, now = "2026-08-29T00:00:00.000Z"): Record<string, unknown> & EntityKey {
   return {
     ...tenantLifecycleKey(tenantId),
@@ -41,15 +39,6 @@ export class InMemorySubjectStore implements SubjectStore {
     const key = this.k(item);
     if (this.items.has(key)) return false;
     this.items.set(key, item as unknown as Record<string, unknown> & EntityKey);
-    return true;
-  }
-
-  async putOccurrenceWithDueWork<T extends EntityKey>(occurrence: T, dueWork: import("../../../src/modules/reminder/domain/reminder-due-work.js").ReminderDueWorkItem): Promise<boolean> {
-    const occurrenceKey = this.k(occurrence);
-    const dueWorkKey = this.k(dueWork);
-    if (this.items.has(occurrenceKey) || this.items.has(dueWorkKey)) return false;
-    this.items.set(occurrenceKey, occurrence as unknown as Record<string, unknown> & EntityKey);
-    this.items.set(dueWorkKey, dueWork as unknown as Record<string, unknown> & EntityKey);
     return true;
   }
 
@@ -217,14 +206,6 @@ let counter = 0;
 export function makeSubjectIdGenerator(): SubjectIdGenerator {
   return {
     newSubjectId: () => `subject-${++counter}`,
-    newAssignmentId: () => `assignment-${++counter}`,
     newAuditEventId: () => `audit-${++counter}`,
-    newSubmissionId: () => `submission-${++counter}`,
-  };
-}
-
-export function makeItemLookup(existingItemIds: Set<string>): ExpirationItemLookup {
-  return {
-    itemExists: async (_tenantId, itemId) => existingItemIds.has(itemId),
   };
 }

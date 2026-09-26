@@ -3,12 +3,12 @@
  * JWT authorizer runs before them (unlike src/modules/expiration/http/item-handlers.ts),
  * so every handler here is responsible for its own cookie/CSRF verification.
  */
-import { AppError, AuthenticationError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
+import { AppError, AuthenticationError, AuthorizationError, toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { logger } from "../../../shared/observability/logger.js";
 import { emitMetric } from "../../../shared/observability/metrics.js";
 import { BffAuthService } from "../application/bff-auth-service.js";
 import { ProxyService } from "../application/proxy-service.js";
-import { checkCsrf } from "../domain/csrf.js";
+import { checkCsrf, isSameSiteFetch } from "../domain/csrf.js";
 import {
   SESSION_COOKIE_NAME,
   LOGIN_COOKIE_NAME,
@@ -52,6 +52,42 @@ function cookiesOf(req: BffHttpRequest): Record<string, string> {
   return parseCookieHeader(req.headers["cookie"] ?? req.headers["Cookie"]);
 }
 
+/** Login-CSRF guard for the 6 D-3xx unauthenticated auth mutation routes (round-1 Codex finding,
+ * `docs/architecture/reviews/d321-direct-auth-adversarial-review/`) - none of them has a session
+ * yet to run the full `checkCsrf()` triple-layer check against, but Fetch Metadata
+ * (`Sec-Fetch-Site`) needs no session/token to verify and is exactly the same primitive
+ * `checkCsrf()` already uses as its first layer (`isSameSiteFetch`). Without this, a cross-site
+ * page could POST the ATTACKER's own credentials to `handleLoginPassword` from the victim's
+ * browser, establishing the attacker's session there (login-CSRF) - "no session cookie exists yet
+ * to protect" was the wrong framing; a cross-site form submission to a JSON endpoint can still
+ * succeed (`enctype="text/plain"` shaped to parse as valid JSON is a known bypass), so this must
+ * be checked BEFORE the request is ever treated as legitimate, not skipped because there is "no
+ * CSRF token" to compare against. */
+function requireSameSiteFetch(req: BffHttpRequest): void {
+  if (!isSameSiteFetch(req.headers["sec-fetch-site"])) {
+    throw new AuthorizationError("Cross-site request rejected.", { reason: "CROSS_SITE_FETCH_REJECTED" });
+  }
+}
+
+/** Shared safe JSON body parser for the 6 D-3xx handlers below (round-1 Codex finding) - a
+ * malformed body (invalid JSON, or valid JSON that isn't an object - e.g. `null`, an array, a
+ * bare string) used to reach `JSON.parse(...) as Record<string, unknown>` unchecked, then fail
+ * with an uncaught TypeError on property access, surfacing as a 500 for what is really a 400
+ * client error. */
+function parseJsonObjectBody(body: string | undefined): Record<string, unknown> {
+  if (!body) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new ValidationError("Request body is not valid JSON.");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ValidationError("Request body must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export interface BffHttpDeps {
   auth: BffAuthService;
   proxy: ProxyService;
@@ -75,14 +111,16 @@ export async function handleLogin(deps: BffHttpDeps, req: BffHttpRequest): Promi
 
 /** D-3xx: `POST /bff/login` - direct-auth entry point replacing the Hosted UI redirect
  * (`handleLogin`/`handleCallback` above stay in place, dormant fallback - see decisions-log.md
- * D-3xx). No CSRF check: there is no session cookie yet to protect at this point, the exact
- * same trust boundary `handleLogin` above already had (an unauthenticated GET redirect also
- * carries no CSRF token) - login-CSRF (an attacker silently logging a victim into the
- * attacker's OWN account) is a known, low-severity residual risk accepted here, never a gap
- * introduced by this endpoint that the redirect-based flow didn't already have. */
+ * D-3xx). `requireSameSiteFetch()` (round-1 Codex finding, `docs/architecture/reviews/
+ * d321-direct-auth-adversarial-review/`) replaces this handler's earlier "no CSRF check needed,
+ * no session exists yet" reasoning - that reasoning was correct for the double-submit-token half
+ * of CSRF protection (there is genuinely no session/token to compare against yet), but wrong for
+ * login-CSRF specifically (an attacker's OWN credentials, submitted from the VICTIM's browser,
+ * establishing the ATTACKER's session there) - Fetch Metadata needs no session to check. */
 export async function handleLoginPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const password = typeof body["password"] === "string" ? body["password"] : undefined;
     if (!email || !password) throw new ValidationError("email and password are required.");
@@ -102,15 +140,19 @@ export async function handleLoginPassword(deps: BffHttpDeps, req: BffHttpRequest
 }
 
 /** D-3xx: `POST /bff/signup` - self-service registration (parity with the Hosted UI's own
- * "Sign up" link, which was live by default - see BffAuthService.signUp's doc comment). */
+ * "Sign up" link, which was live by default - see BffAuthService.signUp's doc comment).
+ * `requireSameSiteFetch()` applied for defense-in-depth consistency across all 6 D-3xx routes
+ * (round-1 Codex finding) even though this route sets no session cookie itself. */
 export async function handleSignUp(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const password = typeof body["password"] === "string" ? body["password"] : undefined;
-    if (!email || !password) throw new ValidationError("email and password are required.");
+    const name = typeof body["name"] === "string" ? body["name"] : undefined;
+    if (!email || !password || !name) throw new ValidationError("email, password and name are required.");
 
-    const result = await deps.auth.signUp({ email, password });
+    const result = await deps.auth.signUp({ email, password, name });
     return { statusCode: 202, body: result };
   } catch (err) {
     return toErrorResponse(err);
@@ -120,7 +162,8 @@ export async function handleSignUp(deps: BffHttpDeps, req: BffHttpRequest): Prom
 /** D-3xx: `POST /bff/signup/confirm` - the e-mail verification step. */
 export async function handleConfirmSignUp(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const confirmationCode = typeof body["confirmationCode"] === "string" ? body["confirmationCode"] : undefined;
     if (!email || !confirmationCode) throw new ValidationError("email and confirmationCode are required.");
@@ -135,7 +178,8 @@ export async function handleConfirmSignUp(deps: BffHttpDeps, req: BffHttpRequest
 /** D-3xx: `POST /bff/signup/resend` - reissues the confirmation code. */
 export async function handleResendConfirmationCode(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     if (!email) throw new ValidationError("email is required.");
 
@@ -150,7 +194,8 @@ export async function handleResendConfirmationCode(deps: BffHttpDeps, req: BffHt
  * can never tell from this response alone whether the e-mail is actually registered. */
 export async function handleForgotPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     if (!email) throw new ValidationError("email is required.");
 
@@ -164,7 +209,8 @@ export async function handleForgotPassword(deps: BffHttpDeps, req: BffHttpReques
 /** D-3xx: `POST /bff/forgot-password/confirm` - code + new password. */
 export async function handleConfirmForgotPassword(deps: BffHttpDeps, req: BffHttpRequest): Promise<BffHttpResponse> {
   try {
-    const body = (req.body ? JSON.parse(req.body) : {}) as Record<string, unknown>;
+    requireSameSiteFetch(req);
+    const body = parseJsonObjectBody(req.body);
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const confirmationCode = typeof body["confirmationCode"] === "string" ? body["confirmationCode"] : undefined;
     const newPassword = typeof body["newPassword"] === "string" ? body["newPassword"] : undefined;

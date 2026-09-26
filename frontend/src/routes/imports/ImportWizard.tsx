@@ -41,9 +41,17 @@
  *     `AWAITING_MAPPING` (unreachable via this screen's only creation path today, but the correct
  *     state to eventually wire a `Document`/`Requirement` creation entry point onto) —
  *     `UPLOADED` renders the same safe "please wait" view as `PARSING`.
+ *
+ * Upload step (protótipo `expiration-tracker-importacao-massa.html`, Marcelo 2026-09-22): file
+ * preview card, footer note, and 2 explanatory info cards adopted from the prototype's visual
+ * structure — copy rewritten to match real behavior (never "mapear colunas depois" or "revisar
+ * duplicatas", see gaps §2/§4 above). "Últimas importações" (a static history list in the
+ * prototype) is deliberately NOT built — `queryKeys.ts`'s own comment confirms there is no
+ * "list my import jobs" endpoint anywhere in the real backend, only `GET /imports/{jobId}` for a
+ * job whose id you already have; a fabricated history list would show data that cannot exist.
  */
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { Upload } from "lucide-react";
+import { Upload, FileText, X, HelpCircle } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
@@ -360,9 +368,31 @@ function UploadStep({ headingRef }: { headingRef: React.RefObject<HTMLHeadingEle
           onChange={(event) => validateAndSet(event.target.files?.[0])}
         />
         <p className="u-text-secondary">Até 5 MB · até {MAX_IMPORT_ROWS.toLocaleString("pt-BR")} linhas</p>
-        {file ? <p>Selecionado: {file.name}</p> : null}
       </div>
-      <div className="import-wizard__actions">
+      {file ? (
+        <div className="import-wizard__file-preview">
+          <span className="import-wizard__file-icon" aria-hidden="true">
+            <FileText size={18} strokeWidth={2} />
+          </span>
+          <div className="import-wizard__file-info">
+            <p className="import-wizard__file-name">{file.name}</p>
+            <p className="import-wizard__file-meta">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+          </div>
+          <button
+            type="button"
+            className="import-wizard__file-remove"
+            aria-label={`Remover ${file.name}`}
+            onClick={() => {
+              setFile(undefined);
+              if (inputRef.current) inputRef.current.value = "";
+            }}
+          >
+            <X size={16} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+      <div className="import-wizard__footer">
+        <p className="import-wizard__footer-note">Na próxima etapa o arquivo é processado automaticamente — nenhuma ação extra é necessária.</p>
         <Button variant="primary" pending={reserve.isPending} disabled={!file} onClick={() => void handleSubmit()}>
           {reserve.isPending ? "Enviando…" : "Enviar e continuar"}
         </Button>
@@ -872,15 +902,46 @@ function CommitStep({
 // Shared shell + top-level component
 // ---------------------------------------------------------------------------------------------
 
-function ImportWizardShell({ step, children }: { step: StepId; children: ReactNode }) {
+function ImportWizardShell({ step, children, headerActions, footer }: { step: StepId; children: ReactNode; headerActions?: ReactNode; footer?: ReactNode }) {
   return (
     <div>
-      <PageHeader title="Importação em massa" description="Envie um CSV para criar Fornecedores." />
+      <PageHeader title="Importação em massa" description="Envie um CSV para criar Fornecedores." actions={headerActions} />
       <StepBadges current={step} />
       <span className="u-visually-hidden" role="status" aria-live="polite">
         Etapa atual: {BADGES[badgeIndex(step)]?.label}
       </span>
       <Panel padded>{children}</Panel>
+      {footer}
+    </div>
+  );
+}
+
+/** protótipo `expiration-tracker-importacao-massa.html`, Marcelo 2026-09-22 - copy real, não a
+ * do protótipo literal: "mapear colunas" nunca é uma etapa que o usuário realmente vê nesta tela
+ * (todo job criado aqui já nasce com `columnMapping` populado, ver o comentário de cabeçalho do
+ * arquivo §4 - o mapeamento é automático, a etapa interativa é inalcançável por este fluxo).
+ * Duplicatas são puladas automaticamente (gap §2 do mesmo comentário), nunca "destacadas para
+ * revisão" como o protótipo bruto sugeria - isso seria prometer um fluxo de revisão por linha
+ * que o backend não tem. */
+function UploadHelpNotice() {
+  return (
+    <InlineNotice tone="info" announce="none">
+      <p>O arquivo deve ter uma linha por fornecedor, com cabeçalho na primeira linha. As colunas são mapeadas automaticamente para os campos do fornecedor (nome, tipo, ID externo, notas, tags) - não há uma etapa extra para revisar isso.</p>
+    </InlineNotice>
+  );
+}
+
+function UploadInfoCards() {
+  return (
+    <div className="import-wizard__info-grid">
+      <Panel padded>
+        <p className="import-wizard__info-title">O que acontece depois?</p>
+        <p className="import-wizard__info-copy">O arquivo é processado automaticamente e você confere o resultado linha a linha antes de confirmar a criação dos fornecedores.</p>
+      </Panel>
+      <Panel padded>
+        <p className="import-wizard__info-title">Importação segura</p>
+        <p className="import-wizard__info-copy">Linhas inválidas são rejeitadas e listadas individualmente. Duplicatas (mesmo ID externo ou nome) são identificadas e puladas automaticamente - nenhum fornecedor existente é sobrescrito.</p>
+      </Panel>
     </div>
   );
 }
@@ -888,6 +949,7 @@ function ImportWizardShell({ step, children }: { step: StepId; children: ReactNo
 function NewImportScreen() {
   const role = useCurrentMembershipRole();
   const headingRef = useStepFocus("upload");
+  const [showHelp, setShowHelp] = useState(false);
 
   if (role === undefined) {
     return (
@@ -905,7 +967,16 @@ function NewImportScreen() {
   }
 
   return (
-    <ImportWizardShell step="upload">
+    <ImportWizardShell
+      step="upload"
+      headerActions={
+        <Button variant="secondary" icon={HelpCircle} onClick={() => setShowHelp((v) => !v)}>
+          Como funciona?
+        </Button>
+      }
+      footer={<UploadInfoCards />}
+    >
+      {showHelp ? <UploadHelpNotice /> : null}
       <UploadStep headingRef={headingRef} />
     </ImportWizardShell>
   );

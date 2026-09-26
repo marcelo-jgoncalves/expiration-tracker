@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/docarchive-document-request-delivery-preference-update-request.v1.json",
+  "title": "DocArchiveDocumentRequestDeliveryPreferenceUpdateRequest v1",
+  "description": "PUT /document-archive/settings/document-request-delivery request body (ADR-0016 Decision B — A22 migrated from the retired subject module). Tenant-wide policy for the default initial-invite delivery mode.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["initialInviteDeliveryDefault"],
+  "properties": {
+    "initialInviteDeliveryDefault": { "enum": ["MANUAL", "EMAIL"] }
+  }
+}

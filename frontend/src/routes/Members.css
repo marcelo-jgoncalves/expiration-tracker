@@ -1,0 +1,64 @@
+/* 2026-09-23 (Marcelo): mesmo achado real de `NotificationPreferences.css` - coluna única
+   deixava a tela espremida contra um vazio à direita. "Convidar novo membro" é um formulário
+   compacto (não precisa da largura da tela); o roster/convites pendentes são tabelas que se
+   beneficiam do espaço - por isso convite à esquerda (coluna estreita), conteúdo principal à
+   direita (coluna que sobra), em vez de duas colunas iguais como em Notificações. Só existe
+   quando `manage` é true - sem o formulário de convite, não há nada para pôr ao lado da tabela. */
+.members__grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.members__main > * + * {
+  margin-top: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .members__grid {
+    grid-template-columns: 1fr;
+  }
+}
+.ov-members { max-width:1600px; }
+.ov-members .members__grid { display:grid; grid-template-columns:minmax(265px,.78fr) minmax(0,1.5fr); gap:20px; align-items:stretch; }
+.ov-members .members__main { display:flex; flex-direction:column; gap:28px; min-width:0; }
+.ov-members .members__main > * + * { margin-top:0; }
+.ov-invite-card { background:white; border:1px solid #e8e4f1; border-radius:15px; padding:25px; min-width:0; }
+.ov-members-icon { display:grid; place-items:center; width:35px; height:35px; border-radius:9px; background:#f1ebff; color:#4c1d95; margin-bottom:14px; }
+.ov-invite-card h2 { font-size:16px; font-weight:700; margin-bottom:7px; }
+.ov-invite-card > p { font-size:11px; color:#55507a; margin-bottom:23px; line-height:1.6; }
+.ov-invite-card .ui-field__label { font-size:11px; font-weight:800; }
+.ov-invite-card .ui-field__control { min-height:47px; font-size:12px; border:1px solid #d7d2e3; border-radius:9px; background:white; }
+.ov-invite-card .ui-field { margin-bottom:18px; }
+.ov-members-help { font-size:10px; color:#55507a; margin:-8px 0 20px; }
+.ov-invite-card .ui-button { width:100%; font-size:11px; }
+.ov-members-section-heading { margin-bottom:13px; }
+.ov-members-section-heading h2 { font-size:16px; font-weight:700; }
+.ov-members-section-heading h2 > span { display:inline-block; color:#4c1d95; background:#f1ebff; font-size:10px; padding:4px 7px; border-radius:7px; margin-left:5px; }
+.ov-members-section-heading p { font-size:11px; margin:5px 0 0; color:#55507a; }
+.ov-members-list-card { border:1px solid #e8e4f1; background:white; border-radius:15px; overflow:hidden; }
+.ov-pending-invitations { display:flex; flex-direction:column; flex:1; }
+.ov-pending-invitations .ov-members-list-card { flex:1; }
+.ov-member-list { margin:0; padding:0; list-style:none; }
+.ov-member-list li { display:grid; grid-template-columns:39px minmax(0,1fr) minmax(100px,.55fr) auto; gap:12px; align-items:center; padding:19px; border-bottom:1px solid #f0edf6; }
+.ov-member-list li:last-child { border:0; }
+.ov-member-avatar { display:grid; place-items:center; width:39px; height:39px; background:#4c1d95; color:white; border-radius:11px; font-weight:800; font-size:13px; }
+.ov-member-avatar.pending { color:#6d28d9; background:#f1ebff; }
+.ov-member-identity { min-width:0; }
+.ov-member-identity strong { display:block; font-size:12px; overflow-wrap:anywhere; }
+.ov-member-identity span { font-size:10px; color:#55507a; margin-top:4px; display:block; }
+.ov-member-role strong { font-size:11px; }
+.ov-member-role select { width:100%; min-height:44px; font:600 11px var(--font-family-sans); border:1px solid #e8e4f1; border-radius:8px; color:#4c1d95; background:white; padding:6px; }
+.ov-member-status { display:inline-block; color:#047857; background:#ecfdf5; font-size:10px; font-weight:800; padding:7px 9px; border-radius:7px; white-space:nowrap; }
+.ov-member-status.pending { color:#a94a05; background:#fff7e8; }
+.ov-member-list .ui-button { font-size:10px; color:#b91c1c; padding:8px; white-space:normal; }
+/* `.ui-button--tertiary:hover` (Button.css) turns this purple on hover - these are destructive
+   actions (Remover/Cancelar convite) styled red like the prototype's `.small-btn.danger`, which
+   keeps the red text and only tints the background on hover. */
+.ov-member-list .ui-button:hover:not(:disabled) { background:#fff2f1; color:#b91c1c; }
+.ov-members-empty { padding:29px 20px; text-align:center; min-height:145px; display:flex; flex-direction:column; justify-content:center; }
+.ov-members-empty strong { font-size:12px; }
+.ov-members-empty p { font-size:11px; color:#55507a; margin:8px 0 0; }
+@media(max-width:1150px) { .ov-members .members__grid { grid-template-columns:1fr; } .ov-pending-invitations { flex:none; } }
+@media(max-width:650px) { .ov-invite-card { padding:21px 18px; } .ov-member-list li { grid-template-columns:39px minmax(0,1fr); padding:18px; } .ov-member-role, .ov-member-list li > .ui-button, .ov-member-list li > .ov-member-status { grid-column:2; } }

@@ -1,0 +1,33 @@
+Rodada 3, protocolo Claude-Codex sobre D-319. Rodada 2 voce deu 7.8/10. Nota cega: voce ainda nao
+viu a nota do Claude desta rodada (arquivo separado).
+
+Leia:
+
+1. docs/architecture/reviews/d319-item-bulk-import-adversarial-review/round-3-claude-revision.md
+
+Depois verifique contra o codigo real:
+
+2. src/modules/import/application/import-parse-service.ts - as duas correcoes (branch SUBJECT
+   perto da linha 168, branch ITEM perto da linha 323) - confirme que "existingDedup?.subjectId"
+   e a checagem correta e que uma claim orfa agora realmente vira CREATE_SUBJECT/CREATE_ITEM em
+   vez de SKIP_DUPLICATE
+3. src/modules/import/domain/import-row.ts - isValidClockTime() e o novo grupo de captura de
+   hora/minuto/segundo no DATE_TIME_PATTERN
+4. test/unit/import/import-parse-service.test.ts e import-parse-service-item.test.ts - os 2 testes
+   novos sobre claim orfa na fase de parse
+5. test/unit/import/import-row.test.ts - o teste novo de hora=24
+
+Foco especifico:
+- A correcao da fase de parse realmente fecha o buraco que voce apontou (job novo reimportando o
+  mesmo CSV nao mascara mais a claim orfa)?
+- A decisao de REGISTRAR o achado de OCC/concorrencia em vez de corrigi-lo nesta rodada e
+  proporcional? Voce concorda que e uma lacuna estrutural PRE-EXISTENTE a D-319 inteiro (confirmada
+  por grep - failJob() usada por MISSING_PLAN_REFERENCE ja antes de qualquer codigo deste PR
+  existir), nao uma introduzida pela correcao da claim orfa?
+- Alguma regressao nova nas mudancas desta rodada?
+
+De sua nota final (0-10, uma casa decimal, nunca arredondada). Se atingir 9.0, diga isso
+explicitamente e se isto e um bom ponto de convergencia (minimo 3 rodadas ja atingido - esta e a
+3a). Termine com uma linha no formato exato:
+
+NOTA_CODEX: X.X

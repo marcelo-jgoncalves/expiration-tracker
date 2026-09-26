@@ -4,11 +4,14 @@
  *
  * Consent default (decision of Marcelo, round1-decisions-resolved.md §1): expiration
  * reminder e-mail is treated as transactional/essential to the product, not marketing - the
- * record is created automatically at onboarding (M1 user creation) with `emailEnabled: true`,
- * `consentSource: "ONBOARDING"`. A missing record is NOT treated as "no consent" by the
- * router (that would silently stop every reminder for any user whose onboarding didn't run
- * this step) - see notification-router.ts's fail-closed matrix for the distinct, narrower
- * failure mode of a genuinely missing/corrupt record.
+ * record is created automatically at onboarding with `emailEnabled: true`,
+ * `consentSource: "ONBOARDING"` (D-332: `CreateOrganizationService`/`AcceptInvitationService`,
+ * both real onboarding entry points - this was only a documented intention until D-332, see
+ * `notification-preferences-service.ts`'s header for the gap this closed). A missing record is
+ * NOT treated as "no consent" by the router (that would silently stop every reminder for any
+ * tenant/user created BEFORE D-332, no-backfill posture, decisions-log.md) - see
+ * notification-router.ts's fail-closed matrix for the distinct, narrower failure mode of a
+ * genuinely missing/corrupt record.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
@@ -37,7 +40,9 @@ export function notificationPreferencesKey(tenantId: string, userId: string): { 
   return { PK: `TENANT#${tenantId}#USER#${userId}`, SK: "NOTIFICATION_PREFERENCES" };
 }
 
-/** Onboarding default (M1 user creation should call this, not leave the record absent). */
+/** Onboarding default - called at real onboarding since D-332 (`CreateOrganizationService`,
+ * `AcceptInvitationService`) and, for pre-D-332 tenants/users, lazily via
+ * `NotificationPreferencesService.getOrCreatePreferences()`. */
 export function defaultNotificationPreferences(input: {
   tenantId: string;
   userId: string;

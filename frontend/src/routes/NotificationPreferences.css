@@ -1,8 +1,26 @@
-/* Codex review round 1 (D-2xx) MÉDIO finding, corrected: the spec's "coluna única, max-width
-   var(--layout-reading-max)" requirement was never actually applied - `Panel` itself carries no
-   max-width by default (only `.ui-page-header__description`/`.ui-section__description` do). */
+/* 2026-09-23 (Marcelo): a coluna única (`max-width: var(--layout-reading-max)`, 42rem) deixava a
+   tela inteira espremida contra um vazio enorme à direita do Panel - mesmo achado real já
+   corrigido em `CreateItem.css`/`SubjectForm.css` para os respectivos formulários de 2 colunas.
+   Sem largura própria aqui: `.notif-prefs__grid` é quem agora define a largura útil da tela. */
 .notif-prefs {
-  max-width: var(--layout-reading-max);
+  max-width: none;
+}
+
+/* Canais (Email/WhatsApp) à esquerda, Horário silencioso à direita - as duas únicas seções desta
+   tela, lado a lado numa única linha em telas largas. `minmax(0, 1fr)` cada (não `auto`), mesmo
+   padrão de `subject-form__grid`, para as duas colunas dividirem o espaço igualmente em vez de
+   uma esticar mais que a outra por conteúdo. */
+.notif-prefs__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .notif-prefs__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .notif-prefs__row {
@@ -37,6 +55,20 @@
   gap: 0.25rem;
 }
 
+/* Sem isso o campo encolhe pro tamanho mínimo de conteúdo dentro do flex-column de
+   `.notif-prefs__row-control` (mesmo achado real já corrigido em SubjectsCollection.css). */
+.notif-prefs__whatsapp-phone {
+  width: 15rem;
+  max-width: 100%;
+}
+
+/* Achado real (Marcelo, 2026-09-22, screenshot): sem largura máxima, a mensagem de confirmação
+   (uma linha longa) força `.notif-prefs__row-control` (flex: 0 0 auto) a crescer até estourar
+   sobre a coluna do rótulo à esquerda, espremendo o texto em uma palavra por linha. */
+.notif-prefs__whatsapp-confirmed {
+  max-width: 20rem;
+}
+
 .notif-prefs__quiet-hours-fields {
   display: flex;
   gap: var(--space-3, 0.75rem);
@@ -69,3 +101,39 @@
     align-items: stretch;
   }
 }
+.ov-notifications { max-width:1600px; }
+.ov-notification-notice { display:flex; align-items:center; gap:13px; background:#f1ebff; border:1px solid #ddd6fe; border-radius:12px; padding:15px 18px; margin-bottom:23px; color:#4c1d95; font-size:11px; }
+.ov-notification-notice strong { display:block; margin-bottom:4px; } .ov-notification-notice p { margin:0; color:#55507a; }
+.ov-notifications .notif-prefs__grid { gap:17px; align-items:stretch; }
+.ov-notification-card { background:white; border:1px solid #e8e4f1; border-radius:16px; padding:26px 27px; box-shadow:0 3px 18px #291c5105; min-width:0; }
+.ov-notification-card header { display:flex; gap:12px; align-items:center; margin-bottom:26px; }
+.ov-notification-card header > span { width:37px; height:37px; border-radius:10px; background:#f1ebff; color:#4c1d95; display:grid; place-items:center; flex:none; }
+.ov-notification-card h2 { font-size:17px; font-weight:700; }
+.ov-notification-card header p { font-size:11px; margin:5px 0 0; color:#55507a; }
+.ov-notification-card h3 { font-size:12px; font-weight:800; }
+.ov-email-row, .ov-whatsapp { display:flex; align-items:flex-start; gap:10px; }
+.ov-email-row > svg, .ov-whatsapp > svg { flex:none; color:#4c1d95; }
+.ov-email-row > div { flex:1; }
+.ov-email-row p, .ov-whatsapp p { font-size:11px; color:#55507a; line-height:1.65; margin:5px 0; }
+.ov-email-row div > span { font-size:10px; font-weight:700; color:#4c1d95; }
+.ov-email-switch { position:relative; width:44px; height:44px; flex:none; display:flex; align-items:center; }
+.ov-email-switch input { position:absolute; inset:0; width:44px; height:44px; margin:0; opacity:0; cursor:pointer; }
+.ov-email-switch > span { width:42px; height:24px; border-radius:20px; background:#aaa3b8; pointer-events:none; }
+.ov-email-switch > span::before { content:""; display:block; width:18px; height:18px; border-radius:50%; background:white; margin:3px; }
+.ov-email-switch input:checked + span { background:#4c1d95; } .ov-email-switch input:checked + span::before { transform:translateX(18px); }
+.ov-email-switch input:focus-visible + span { outline:3px solid #a78bfa; outline-offset:3px; }
+.ov-email-switch input:disabled + span { opacity:.6; }
+.ov-whatsapp { border-top:1px solid #e8e4f1; padding-top:24px; margin-top:24px; }
+.ov-quiet-illustration { padding:23px; border-radius:12px; background:#f8f7fc; margin-bottom:23px; text-align:center; }
+.ov-quiet-illustration svg { color:#7c3aed; margin-bottom:13px; } .ov-quiet-illustration strong { display:block; font-size:12px; }
+.ov-quiet-illustration p { font-size:11px; color:#55507a; margin:7px 0 0; }
+.ov-notifications .notif-prefs__quiet-hours-fields { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:12px; align-items:center; }
+.ov-notifications .ui-field { min-width:0; margin:0; }
+.ov-notifications .ui-field__label { font-size:11px; font-weight:700; }
+.ov-notifications .ui-field__control { min-height:45px; border:1px solid #d7d2e3; border-radius:9px; font-size:12px; width:100%; }
+.ov-notification-help { font-size:10px; line-height:1.65; color:#55507a; margin:12px 0 0; }
+.ov-notifications .notif-prefs__footer { position:static; display:flex; justify-content:space-between; align-items:center; gap:18px; padding:15px 19px; margin-top:18px; border:1px solid #e8e4f1; border-radius:13px; background:white; }
+.notif-prefs__footer strong { font-size:11px; } .notif-prefs__footer p { font-size:10px; margin:4px 0 0; color:#55507a; }
+@media(max-width:1100px) { .ov-notifications .notif-prefs__grid { grid-template-columns:1fr; } }
+@media(max-width:650px) { .ov-notification-card { padding:22px 18px; } .ov-notifications .notif-prefs__footer { flex-direction:column; align-items:stretch; } }
+@media(max-width:360px) { .ov-notifications .notif-prefs__quiet-hours-fields { grid-template-columns:1fr; } .notif-prefs__quiet-hours-fields > span { display:none; } }

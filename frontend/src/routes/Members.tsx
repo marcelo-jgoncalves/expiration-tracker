@@ -1,12 +1,5 @@
-/**
- * Members (Wave B2B-10 "members"/"invitation"/"permission UX" scope items) - lists active
- * members and (ADMIN/OWNER only, matching the backend's `membership:list-invitations` tier)
- * pending invitations, with invite/role-change/remove actions gated by the current user's own
- * role. Frontend gating is convenience only - every mutation is independently re-checked by
- * the backend's `authorize()` (see `useCurrentMembershipRole.ts`'s doc comment).
- */
-import { useState, type FormEvent } from "react";
-import { UserPlus, UserX, X } from "lucide-react";
+﻿import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Users, UserPlus } from "lucide-react";
 import { useMembers } from "../hooks/useMembers.js";
 import { useInvitations } from "../hooks/useInvitations.js";
 import { useInviteMember } from "../hooks/useInviteMember.js";
@@ -14,235 +7,134 @@ import { useRevokeInvitation } from "../hooks/useRevokeInvitation.js";
 import { useChangeMemberRole } from "../hooks/useChangeMemberRole.js";
 import { useRemoveMember } from "../hooks/useRemoveMember.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
-import { ApiError } from "../api/errors.js";
-import { isValidationError } from "../api/validation.js";
-import type { Member, MembershipRole } from "../api/types.js";
-import { presentMemberLabel, presentMembershipRole, presentMembershipStatus, presentInvitationStatus } from "../api/presentation.js";
-import { CollectionSkeleton, ErrorState, EmptyState } from "../components/AsyncStates.js";
+import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
+import { ApiError, isConflict, isResponsibilityReassignmentRequiredError } from "../api/errors.js";
+import type { Member, MembershipRole, Invitation } from "../api/types.js";
+import { presentMembershipRole } from "../api/presentation.js";
+import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
+import { PageHeader } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
-import { DataTable, type DataTableColumn } from "../components/ui/DataTable.js";
-import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
+import { Dialog } from "../components/ui/Dialog.js";
+import { OmniHero } from "../components/OmniHero.js";
+import "./Members.css";
 
-const ROLE_OPTIONS: { value: MembershipRole; label: string }[] = [
-  { value: "VIEWER", label: "Viewer" },
-  { value: "MEMBER", label: "Member" },
-  { value: "ADMIN", label: "Admin" },
-  { value: "OWNER", label: "Owner" },
-];
-
-/** ADMIN/OWNER manage members - mirrors the backend's ADMIN_ROLES tier for
- * membership:invite/role-change/remove (Wave B2B-8). */
-function canManageMembers(role: MembershipRole | undefined): boolean {
-  return role === "ADMIN" || role === "OWNER";
-}
+const ROLE_OPTIONS = (["MEMBER", "ADMIN", "VIEWER"] as MembershipRole[]).map(value => ({ value, label: presentMembershipRole(value) }));
+function memberLabel(member: Member) { return member.displayName || member.email || "Membro sem nome disponível"; }
 
 function InviteForm() {
+  const invite = useInviteMember();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<MembershipRole>("MEMBER");
-  const invite = useInviteMember();
-
-  function handleSubmit(event: FormEvent) {
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  function submit(event: FormEvent) {
     event.preventDefault();
-    invite.mutate({ email, role }, { onSuccess: () => setEmail("") });
+    if (invite.isPending) return;
+    const input = formRef.current?.querySelector<HTMLInputElement>('input[type="email"]');
+    if (input) input.value = email.trim();
+    if (!email.trim() || !input?.validity.valid) { setError("Informe um e-mail válido."); input?.focus(); return; }
+    setError(""); setSuccess("");
+    const submittedEmail = email.trim();
+    invite.mutate({ email: submittedEmail, role }, {
+      onSuccess: () => { setSuccess("Convite criado para " + submittedEmail + "."); setEmail(""); },
+      onError: failure => setError(failure instanceof ApiError && failure.category === "NETWORK" ? "Não foi possível conectar. Verifique sua conexão e tente novamente." : failure instanceof ApiError ? failure.message : "Não foi possível criar o convite. Tente novamente."),
+    });
   }
-
-  const errorMessage = invite.isError
-    ? invite.error instanceof ApiError && isValidationError(invite.error)
-      ? "Verifique o e-mail informado."
-      : invite.error instanceof ApiError
-        ? invite.error.message
-        : "Não foi possível enviar o convite."
-    : undefined;
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <TextField label="E-mail" value={email} onChange={setEmail} required type="text" autoComplete="email" error={errorMessage} />
-      <SelectField label="Papel" value={role} onChange={(value) => setRole(value as MembershipRole)} options={ROLE_OPTIONS} required />
-      <Button type="submit" variant="primary" icon={UserPlus} pending={invite.isPending}>
-        {invite.isPending ? "Enviando…" : "Convidar"}
-      </Button>
+  return <section className="ov-invite-card" aria-labelledby="invite-member">
+    <span className="ov-members-icon"><UserPlus size={19} aria-hidden="true" /></span><h2 id="invite-member">Convidar novo membro</h2><p>Envie um convite para alguém colaborar nesta organização.</p>
+    <form ref={formRef} onSubmit={submit} noValidate>
+      <TextField label="E-mail" type="email" autoComplete="email" placeholder="nome@empresa.com.br" value={email} onChange={setEmail} error={error || undefined} required />
+      <SelectField label="Papel" value={role} onChange={value => setRole(value as MembershipRole)} options={ROLE_OPTIONS} required />
+      <p className="ov-members-help">O papel define o que a pessoa poderá fazer na organização.</p>
+      <Button type="submit" variant="primary" pending={invite.isPending}>{invite.isPending ? "Enviando…" : "Enviar convite"}</Button>
+      {success && <InlineNotice tone="success" announce="status">{success}</InlineNotice>}
     </form>
-  );
+  </section>;
 }
 
-function MembersTable({ members, canManage, actorRole }: { members: Member[]; canManage: boolean; actorRole: MembershipRole | undefined }) {
+type MemberAction = { kind: "remove"; member: Member } | { kind: "role"; member: Member; next: MembershipRole };
+function Roster({ members, canManage }: { members: Member[]; canManage: boolean }) {
+  const { email } = useActiveOrganization();
   const changeRole = useChangeMemberRole();
-  const removeMember = useRemoveMember();
-  // Backend tier (authorization.ts comment on `membership:role-change`, OwnerTierChangeRequiresOwnerError):
-  // ADMIN_ROLES may change roles in general, but ONLY an OWNER actor may promote a member TO OWNER or
-  // demote a member FROM OWNER - the "OWNER, exceto quando o alvo/novo role é OWNER" carve-out that
-  // isn't expressible in the generic authorize() matrix. An ADMIN actor gets the OWNER option filtered
-  // out of the dropdown entirely (never a control they can even click, matching the read-only tab
-  // treatment elsewhere) rather than a submit that predictably 409/403s against the backend check.
-  const isOwnerActor = actorRole === "OWNER";
-  function optionsFor(member: Member): typeof ROLE_OPTIONS {
-    if (isOwnerActor) return ROLE_OPTIONS;
-    if (member.role === "OWNER") return ROLE_OPTIONS.filter((option) => option.value === "OWNER");
-    return ROLE_OPTIONS.filter((option) => option.value !== "OWNER");
+  const remove = useRemoveMember();
+  const [action, setAction] = useState<MemberAction>();
+  const [failure, setFailure] = useState("");
+  const pending = changeRole.isPending || remove.isPending;
+  async function confirm() {
+    if (!action || pending) return;
+    setFailure("");
+    try {
+      if (action.kind === "role") await changeRole.mutateAsync({ userId: action.member.userId, role: action.next, expectedVersion: action.member.version });
+      else await remove.mutateAsync({ userId: action.member.userId, expectedVersion: action.member.version });
+      setAction(undefined);
+      document.getElementById("active-members")?.focus();
+    } catch (error) {
+      setFailure(isResponsibilityReassignmentRequiredError(error) ? "Reatribua os vencimentos sob responsabilidade desta pessoa antes de removê-la." : isConflict(error) ? "Este membro foi alterado em outra sessão. Recarregue para revisar o papel atual." : "Não foi possível concluir a alteração. Tente novamente.");
+    }
   }
+  return <><ul className="ov-member-list">{members.map(member => {
+    const current = Boolean(email && member.email?.toLowerCase() === email.toLowerCase());
+    const editable = canManage && member.role !== "OWNER" && !current;
+    const label = memberLabel(member);
+    return <li key={member.userId}><span className="ov-member-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
+      <div className="ov-member-identity"><strong>{member.email || label}</strong><span>{current ? "Você · acesso atual" : member.displayName || "Ativo"}</span></div>
+      <div className="ov-member-role">{editable ? <select aria-label={"Papel de " + label} value={member.role} onChange={e => { setFailure(""); setAction({ kind: "role", member, next: e.target.value as MembershipRole }); }}>{ROLE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <strong>{presentMembershipRole(member.role)}</strong>}<span className="ov-member-status">Ativo</span></div>
+      {editable && <Button variant="tertiary" size="sm" aria-label={"Remover " + label} onClick={() => { setFailure(""); setAction({ kind: "remove", member }); }}>Remover</Button>}
+    </li>;
+  })}</ul>
+    {action && <Dialog title={action.kind === "role" ? "Alterar papel?" : "Remover membro?"} onClose={() => { if (!pending) setAction(undefined); }}>
+      <Button disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
+      <p>{action.kind === "remove" ? `“${memberLabel(action.member)}” perderá acesso a esta organização. Os dados da organização permanecerão nela.` : `O papel de “${memberLabel(action.member)}” mudará de ${presentMembershipRole(action.member.role)} para ${presentMembershipRole(action.next)}. As permissões de acesso serão atualizadas.`}</p>
+      {failure && <InlineNotice tone="critical" announce="alert">{failure}</InlineNotice>}
+      <Button variant={action.kind === "remove" ? "danger" : "primary"} pending={pending} onClick={() => void confirm()}>{action.kind === "remove" ? "Remover membro" : "Alterar papel"}</Button>
+    </Dialog>}
+  </>;
+}
 
-  const columns: DataTableColumn<Member>[] = [
-    {
-      key: "userId",
-      header: "Usuário",
-      primary: true,
-      // #15 (2026-09-21): displayName/email when resolved, raw userId as the last-resort
-      // fallback and always as the title (still the ground truth for support/debugging).
-      render: (m) => <span title={m.userId}>{presentMemberLabel(m)}</span>,
-    },
-    {
-      key: "role",
-      header: "Papel",
-      render: (m) =>
-        canManage && (isOwnerActor || m.role !== "OWNER") ? (
-          <SelectField
-            label={`Papel de ${m.userId}`}
-            value={m.role}
-            options={optionsFor(m)}
-            onChange={(value) => changeRole.mutate({ userId: m.userId, role: value as MembershipRole, expectedVersion: m.version })}
-          />
-        ) : (
-          presentMembershipRole(m.role)
-        ),
-    },
-    { key: "status", header: "Status", render: (m) => <StatusBadge presentation={presentMembershipStatus(m.status)} /> },
-    {
-      key: "actions",
-      header: "Ações",
-      actions: true,
-      render: (m) =>
-        canManage ? (
-          <Button variant="danger" size="sm" icon={UserX} onClick={() => removeMember.mutate({ userId: m.userId, expectedVersion: m.version })} pending={removeMember.isPending}>
-            Remover
-          </Button>
-        ) : null,
-    },
-  ];
+function PendingInvitations() {
+  const query = useInvitations();
+  const revoke = useRevokeInvitation();
+  const [target, setTarget] = useState<Invitation>();
+  const invitations = query.data?.invitations.filter(item => item.status === "PENDING") ?? [];
+  return <section className="ov-pending-invitations" aria-labelledby="pending-invitations">
+    <header className="ov-members-section-heading"><h2 id="pending-invitations" tabIndex={-1}>Convites pendentes {query.data && <span>{invitations.length}</span>}</h2><p>Acompanhe os convites que ainda não foram aceitos.</p></header>
+    <div className="ov-members-list-card">
+      {query.isPending ? <CollectionSkeleton label="Carregando convites…" /> : query.isError ? <ErrorState message="Não foi possível carregar os convites pendentes." onRetry={() => void query.refetch()} /> : !invitations.length ? <div className="ov-members-empty"><strong>Nenhum convite pendente</strong><p>Os próximos convites aparecerão aqui até serem aceitos.</p></div> :
+        <ul className="ov-member-list">{invitations.map(invitation => <li key={invitation.invitationId}><span className="ov-member-avatar pending" aria-hidden="true">{invitation.emailNormalized.slice(0, 1).toUpperCase()}</span><div className="ov-member-identity"><strong>{invitation.emailNormalized}</strong><span>{presentMembershipRole(invitation.role)}</span></div><span className="ov-member-status pending">Pendente</span><Button size="sm" variant="tertiary" aria-label={"Cancelar convite para " + invitation.emailNormalized} onClick={() => { revoke.reset(); setTarget(invitation); }}>Cancelar convite</Button></li>)}</ul>}
+    </div>
+    {target && <Dialog title="Cancelar convite?" onClose={() => { if (!revoke.isPending) setTarget(undefined); }}>
+      <Button disabled={revoke.isPending} onClick={() => setTarget(undefined)}>Cancelar</Button><p>O convite para “{target.emailNormalized}” deixará de poder ser aceito.</p>
+      {revoke.isError && <InlineNotice tone="critical" announce="alert">Não foi possível cancelar o convite. Seu estado pode ter mudado; atualize a lista.</InlineNotice>}
+      <Button variant="danger" pending={revoke.isPending} onClick={() => { if (!revoke.isPending) revoke.mutate(target.invitationId, { onSuccess: () => { setTarget(undefined); document.getElementById("pending-invitations")?.focus(); } }); }}>Cancelar convite</Button>
+    </Dialog>}
+  </section>;
+}
 
-  // Holistic frontend review finding: role-change/removal mutations had no error rendering at
-  // all - a failed request (network, OCC conflict, backend authorization) previously disappeared
-  // silently, with no distinct feedback that the action didn't take effect.
-  const changeRoleError = changeRole.isError ? (changeRole.error instanceof ApiError ? changeRole.error.message : "Não foi possível alterar o papel deste membro.") : undefined;
-  const removeMemberError = removeMember.isError ? (removeMember.error instanceof ApiError ? removeMember.error.message : "Não foi possível remover este membro.") : undefined;
-
-  return (
-    <>
-      <DataTable caption="Membros ativos" columns={columns} rows={members} rowKey={(m) => m.userId} />
-      {changeRoleError ? (
-        <InlineNotice tone="critical" announce="alert">
-          {changeRoleError}
-        </InlineNotice>
-      ) : null}
-      {removeMemberError ? (
-        <InlineNotice tone="critical" announce="alert">
-          {removeMemberError}
-        </InlineNotice>
-      ) : null}
-    </>
-  );
+function MembersContent() {
+  const query = useMembers();
+  const role = useCurrentMembershipRole();
+  const manage = role === "OWNER" || role === "ADMIN";
+  const members = [...(query.data?.members ?? [])].filter(member => member.status === "ACTIVE").sort((a, b) => memberLabel(a).localeCompare(memberLabel(b), "pt-BR") || a.userId.localeCompare(b.userId));
+  return <>
+    <OmniHero icon={Users} eyebrow="Seu espaço de trabalho" title="Acesso claro para cada pessoa da equipe." description="Convide membros, acompanhe pendências e revise permissões em um só lugar." summary={<><strong>{query.data ? members.length : "—"}</strong><span>{members.length === 1 ? "membro ativo" : "membros ativos"}</span></>} />
+    <div className={manage ? "members__grid" : "ov-members-readonly"}>
+      {manage && <InviteForm />}
+      <div className="members__main">
+        <section aria-labelledby="active-members"><header className="ov-members-section-heading"><h2 id="active-members" tabIndex={-1}>Membros ativos {query.data && <span>{members.length}</span>}</h2><p>Gerencie o acesso de quem já faz parte da organização.</p></header>
+          <div className="ov-members-list-card">{query.isPending ? <CollectionSkeleton label="Carregando membros…" /> : query.isError ? <ErrorState message="Não foi possível carregar os membros." onRetry={() => void query.refetch()} /> : <Roster members={members} canManage={manage} />}</div>
+        </section>
+        {manage && <PendingInvitations />}
+      </div>
+    </div>
+  </>;
 }
 
 export function Members() {
-  const membersQuery = useMembers();
-  const invitationsQuery = useInvitations();
-  const role = useCurrentMembershipRole();
-  const manage = canManageMembers(role);
-  const revokeInvitation = useRevokeInvitation();
-
-  const header = <PageHeader title="Membros" description="Pessoas com acesso a esta organização." />;
-
-  if (membersQuery.isPending) {
-    return (
-      <>
-        {header}
-        <Panel>
-          <CollectionSkeleton label="Carregando membros…" />
-        </Panel>
-      </>
-    );
-  }
-
-  if (membersQuery.isError) {
-    const message = membersQuery.error instanceof ApiError ? membersQuery.error.message : "Não foi possível carregar os membros.";
-    return (
-      <>
-        {header}
-        <ErrorState message={message} onRetry={() => void membersQuery.refetch()} />
-      </>
-    );
-  }
-
-  const members = membersQuery.data.members;
-
-  return (
-    <>
-      {header}
-      {manage ? (
-        <Section heading="Convidar novo membro" headingId="invite-member">
-          <Panel>
-            <InviteForm />
-          </Panel>
-        </Section>
-      ) : null}
-      <Panel>
-        {members.length === 0 ? <EmptyState kind="true-empty" message="Nenhum membro ainda." /> : <MembersTable members={members} canManage={manage} actorRole={role} />}
-      </Panel>
-      {manage ? (
-        <Section heading="Convites pendentes" headingId="pending-invitations">
-          {/* Holistic frontend review finding: loading, error, and genuine-empty were all
-              collapsed into "render nothing" (`invitationsQuery.data && ...length > 0`) - an
-              admin who hit a load failure had no way to distinguish it from "no invitations". */}
-          {invitationsQuery.isPending ? (
-            <Panel>
-              <CollectionSkeleton label="Carregando convites…" />
-            </Panel>
-          ) : invitationsQuery.isError ? (
-            <Panel>
-              <ErrorState
-                message={invitationsQuery.error instanceof ApiError ? invitationsQuery.error.message : "Não foi possível carregar os convites pendentes."}
-                onRetry={() => void invitationsQuery.refetch()}
-              />
-            </Panel>
-          ) : invitationsQuery.data.invitations.length === 0 ? (
-            <Panel>
-              <EmptyState kind="true-empty" message="Nenhum convite pendente." />
-            </Panel>
-          ) : (
-            <Panel>
-              <DataTable
-                caption="Convites pendentes"
-                columns={[
-                  { key: "email", header: "E-mail", primary: true, render: (i) => i.emailNormalized },
-                  { key: "role", header: "Papel", render: (i) => presentMembershipRole(i.role) },
-                  { key: "status", header: "Status", render: (i) => <StatusBadge presentation={presentInvitationStatus(i.status)} /> },
-                  {
-                    key: "actions",
-                    header: "Ações",
-                    actions: true,
-                    render: (i) => (
-                      <Button variant="tertiary" size="sm" icon={X} onClick={() => revokeInvitation.mutate(i.invitationId)} pending={revokeInvitation.isPending}>
-                        Revogar
-                      </Button>
-                    ),
-                  },
-                ]}
-                rows={invitationsQuery.data.invitations}
-                rowKey={(i) => i.invitationId}
-              />
-              {/* Holistic frontend review finding: revocation had no error rendering at all. */}
-              {revokeInvitation.isError ? (
-                <InlineNotice tone="critical" announce="alert">
-                  {revokeInvitation.error instanceof ApiError ? revokeInvitation.error.message : "Não foi possível revogar este convite."}
-                </InlineNotice>
-              ) : null}
-            </Panel>
-          )}
-        </Section>
-      ) : null}
-    </>
-  );
+  const { organizationId } = useActiveOrganization();
+  useEffect(() => { document.title = "Membros · OmniVence"; }, []);
+  return <div className="ov-members"><PageHeader title="Membros" above={<span className="ov-eyebrow">Equipe e acessos</span>} description="Pessoas com acesso à sua organização e convites aguardando resposta." /><MembersContent key={organizationId} /></div>;
 }

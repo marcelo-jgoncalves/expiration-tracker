@@ -55,7 +55,7 @@ interface ReportCatalogEntry {
 
 const CATALOG: ReportCatalogEntry[] = [
   { key: "expired-items", reportType: "EXPIRED_ITEMS", title: "Vencimentos expirados", note: "ExpirationItem · status expirado", category: "Vencimentos" },
-  { key: "expiring-soon-items", reportType: "EXPIRING_SOON_ITEMS", title: "Vencimentos a vencer", note: "Janela de 7 dias", category: "Vencimentos" },
+  { key: "expiring-soon-items", reportType: "EXPIRING_SOON_ITEMS", title: "Vencimentos próximos", note: "Janela de 7 dias", category: "Vencimentos" },
   { key: "renewed-items", reportType: "RENEWED_ITEMS", title: "Vencimentos renovados", note: "Histórico de renovações", category: "Vencimentos" },
   { key: "expiration-items-by-assignee", reportType: "EXPIRATION_ITEMS_BY_ASSIGNEE", title: "Vencimentos por responsável", note: "Agrupado por assignee", category: "Vencimentos" },
   { key: "missing-requirements", reportType: "MISSING_REQUIREMENTS", title: "Requisitos em falta", note: "Requirement · MISSING", category: "Requisitos" },
@@ -112,7 +112,7 @@ export function Reports() {
         </div>
       </Section>
       <Section heading="Requisitos" headingId="reports-requirements">
-        <div className="reports-grid">
+        <div className="reports-grid reports-grid--requirements">
           {CATALOG.filter((e) => e.category === "Requisitos").map((entry) => (
             <ReportCard key={entry.key} entry={entry} />
           ))}
@@ -143,23 +143,29 @@ function ReportCard({ entry }: { entry: ReportCatalogEntry }) {
   }
 
   return (
-    <Panel>
-      <p className="reports-card__title">{entry.title}</p>
-      <p className="reports-card__note">{entry.note}</p>
-      <Button variant="secondary" size="sm" icon={Download} pending={state.kind === "pending"} onClick={() => void handleDownload()}>
-        Baixar CSV
-      </Button>
-      {state.kind === "truncated" ? (
-        <InlineNotice tone="warning" announce="status">
-          Este relatório foi truncado pelo tamanho do arquivo.
-        </InlineNotice>
-      ) : null}
-      {state.kind === "error" ? (
-        <InlineNotice tone="critical" announce="alert">
-          {state.message}
-        </InlineNotice>
-      ) : null}
-    </Panel>
+    <div className="reports-card">
+      <Panel padded>
+        <div>
+          <p className="reports-card__title">{entry.title}</p>
+          <p className="reports-card__note">{entry.note}</p>
+        </div>
+        <div className="reports-card__bottom">
+          <Button variant="secondary" size="sm" icon={Download} pending={state.kind === "pending"} onClick={() => void handleDownload()}>
+            Baixar CSV
+          </Button>
+          {state.kind === "truncated" ? (
+            <InlineNotice tone="warning" announce="status">
+              Este relatório foi truncado pelo tamanho do arquivo.
+            </InlineNotice>
+          ) : null}
+          {state.kind === "error" ? (
+            <InlineNotice tone="critical" announce="alert">
+              {state.message}
+            </InlineNotice>
+          ) : null}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -178,11 +184,6 @@ function SubscriptionsPanel({
   return (
     <Section heading="Assinaturas" headingId="reports-subscriptions" annotation={query.data ? `(${query.data.subscriptions.length})` : undefined}>
       <Panel>
-        <div className="reports-subscriptions__header">
-          <Button variant="secondary" size="sm" icon={Plus} onClick={onCreate}>
-            Nova assinatura
-          </Button>
-        </div>
         {query.isPending ? (
           <CollectionSkeleton rows={2} label="Carregando assinaturas…" />
         ) : query.isError ? (
@@ -200,6 +201,15 @@ function SubscriptionsPanel({
               <InlineNotice tone="neutral">Há mais assinaturas do que esta lista mostra - a busca por mais páginas ainda não é suportada.</InlineNotice>
             ) : null}
             <SubscriptionsTable subscriptions={query.data.subscriptions} onRemove={onRemove} onViewHistory={setHistoryFor} />
+            {/* 2026-09-23 (Marcelo, protótipo): o botão "Nova assinatura" que ficava acima de toda
+                a seção (fora deste Panel) foi removido - a única outra chamada para a ação
+                (EmptyState acima) só existe com zero assinaturas. Sem isto aqui, uma organização
+                com assinaturas já criadas perderia todo jeito de adicionar mais uma. */}
+            <div className="reports-subscriptions__table-footer">
+              <Button variant="secondary" size="sm" icon={Plus} onClick={onCreate}>
+                Nova assinatura
+              </Button>
+            </div>
           </>
         )}
       </Panel>

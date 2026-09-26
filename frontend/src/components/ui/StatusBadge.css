@@ -1,7 +1,11 @@
 /* StatusBadge — a compact, NON-interactive attribute (mission §31). It must never look like
-   a button: no hover, no pointer, no shadow, and a pill radius that reads as a label.
-   Every badge carries three cues — text label, a shape marker, and color — so removing color
-   entirely still leaves the status readable (mission §11/§98). */
+   a button: no hover, no pointer, no shadow. Shape (soft chip, `prototype/novasTelas`'s own
+   `.badge` — 2026-09-25) is now a plain background+color chip with a uniform dot marker (two
+   cues: label + color), not the pill/multi-shape-marker treatment this used to have — the
+   border stays fully transparent in normal mode ONLY so `border-style` exists for the
+   `forced-colors` override below to repaint, never removed outright (Windows High Contrast
+   strips background color entirely; without a real border-style, forced-colors would leave the
+   badge with no visible boundary at all). */
 
 .ui-badge {
   display: inline-flex;
@@ -9,8 +13,8 @@
   gap: var(--space-2);
   max-width: 100%;
   padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  border: var(--border-width-thin) solid;
+  border-radius: var(--radius-sm);
+  border: var(--border-width-thin) solid transparent;
   font-size: var(--font-size-100);
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-default);
@@ -19,69 +23,39 @@
   white-space: nowrap;
 }
 
-/* Shape marker. Distinct per tone so the shape alone is discriminating, not merely present:
-   a filled dot is neutral/steady, a ring is informational, a triangle warns, a square-ish
-   block is critical. Decorative for AT (the text label already carries the meaning). */
+/* Uniform dot marker for every tone (2026-09-25) — decorative for AT, the text label already
+   carries the meaning; color is the only discriminator now (see file header for the tradeoff). */
 .ui-badge__marker {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   background: currentColor;
   border-radius: 50%;
-}
-
-.ui-badge--info .ui-badge__marker {
-  background: transparent;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-}
-
-.ui-badge--warning .ui-badge__marker {
-  width: 0;
-  height: 0;
-  background: transparent;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-bottom: 7px solid currentColor;
-  border-radius: 0;
-}
-
-.ui-badge--critical .ui-badge__marker {
-  border-radius: 1px;
-}
-
-/* Losango (Marcelo, 2026-09-20): `success` precisava da própria forma - sem isso reaproveitaria
-   a bolinha do `neutral` e a distinção viraria só cor, quebrando a regra acima ("shape alone is
-   discriminating, not merely present"). */
-.ui-badge--success .ui-badge__marker {
-  border-radius: 1px;
-  transform: rotate(45deg);
 }
 
 .ui-badge--neutral {
   color: var(--color-status-neutral-fg);
   background: var(--color-status-neutral-bg);
-  border-color: var(--color-status-neutral-border);
 }
 .ui-badge--info {
-  color: var(--color-status-info-fg);
-  background: var(--color-status-info-bg);
-  border-color: var(--color-status-info-border);
+  /* Marcelo, 2026-09-25: pills specifically use the brand lilac here (matching
+     `prototype/novasTelas`'s own "later/no urgency" chip), not the shared blue
+     `--color-status-info-*` tokens InlineNotice/IconButton keep using for "info" elsewhere -
+     scoped to this component on purpose. */
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
 }
 .ui-badge--success {
   color: var(--color-status-success-fg);
   background: var(--color-status-success-bg);
-  border-color: var(--color-status-success-border);
 }
 .ui-badge--warning {
   color: var(--color-status-warning-fg);
   background: var(--color-status-warning-bg);
-  border-color: var(--color-status-warning-border);
 }
 .ui-badge--critical {
   color: var(--color-status-critical-fg);
   background: var(--color-status-critical-bg);
-  border-color: var(--color-status-critical-border);
 }
 
 /* Long pt-BR status labels ("Verificado (segurança) — conteúdo não conferido") must wrap

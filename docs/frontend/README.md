@@ -214,3 +214,7 @@ modo de engenharia) e `interface-validation-readiness.md` §15-18/§23-24 (tese 
 de validação, tarefas candidatas, limitações conhecidas a comunicar ao facilitador) — sem
 redescobrir estrutura, estados, semântica, achados de acessibilidade, ou os gates de produto/
 engenharia já fechados. Não obriga o início imediato de Visual Design/Design System.
+
+## Implementação OmniVence
+
+Estado e diferenças de integração das telas aprovadas: [omnivence-screen-implementation.md](omnivence-screen-implementation.md).

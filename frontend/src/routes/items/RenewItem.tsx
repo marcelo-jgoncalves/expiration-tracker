@@ -10,9 +10,15 @@
  * current version) AND resets the mutation (`mutation.reset()`) so the derived conflict flag
  * clears and the form becomes submittable again with the freshly-fetched version, never a
  * blind retry of the stale one.
+ *
+ * Modal conversion (2026-09-25): short, single-purpose, only ever reachable from ItemDetail/
+ * ItemsCollection - reuses the existing `Dialog` rather than a dedicated route. The success
+ * path still navigates for real (`navigate`) - renewing produces a genuinely NEW item, so the
+ * modal closes and the caller lands on that new item's Detail page, it does not merely refresh
+ * in place.
  */
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Check, RotateCw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useItem } from "../../hooks/useItem.js";
@@ -22,27 +28,33 @@ import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { ApiError, isConflict, isUnknownOutcome } from "../../api/errors.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
-import { PageHeader, Panel } from "../../components/ui/Layout.js";
-import { Button, ButtonLink } from "../../components/ui/Button.js";
+import { Panel } from "../../components/ui/Layout.js";
+import { Button } from "../../components/ui/Button.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
+import { Dialog } from "../../components/ui/Dialog.js";
 
-export function RenewItem() {
-  const { itemId } = useParams<{ itemId: string }>();
+export function RenewItemDialog({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const navigate = useNavigate();
   const orgPath = useOrgPath();
-  const itemQuery = useItem(itemId ?? "");
+  const itemQuery = useItem(itemId);
   const [newDueDate, setNewDueDate] = useState("");
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
-  const mutation = useRenewItem(itemId ?? "");
-
-  if (!itemId) return null; // unreachable - the route always supplies :itemId
+  const mutation = useRenewItem(itemId);
 
   if (itemQuery.isPending) {
-    return <InitialLoading label="Carregando vencimento…" />;
+    return (
+      <Dialog title="Renovar vencimento" onClose={onClose}>
+        <InitialLoading label="Carregando vencimento…" />
+      </Dialog>
+    );
   }
   if (itemQuery.isError) {
     const message = itemQuery.error instanceof ApiError ? itemQuery.error.message : "Não foi possível carregar este vencimento.";
-    return <ErrorState message={message} onRetry={() => void itemQuery.refetch()} />;
+    return (
+      <Dialog title="Renovar vencimento" onClose={onClose}>
+        <ErrorState message={message} onRetry={() => void itemQuery.refetch()} />
+      </Dialog>
+    );
   }
 
   const item = itemQuery.data.item;
@@ -59,6 +71,7 @@ export function RenewItem() {
     try {
       const response = await mutation.mutateAsync({ newDueDate: `${newDueDate}T00:00:00.000Z`, expectedVersion: item.version });
       mutation.newIntent();
+      onClose();
       navigate(orgPath(`/items/${response.item.itemId}`), { state: { justRenewed: true, copiedReminderPolicyIds: response.copiedReminderPolicyIds } });
     } catch (err) {
       if (isConflict(err)) return; // surfaced by the derived `conflict` flag below, no separate copy needed
@@ -71,16 +84,10 @@ export function RenewItem() {
   }
 
   return (
-    <div>
-      <PageHeader
-        above={<Link to={orgPath(`/items/${item.itemId}`)}>← Voltar para o vencimento</Link>}
-        title="Renovar vencimento"
-        description={
-          <>
-            <strong>{item.name}</strong> - ciclo atual: {formatRelativeDueDate(item.dueDate, new Date())}
-          </>
-        }
-      />
+    <Dialog title="Renovar vencimento" onClose={onClose}>
+      <p className="u-text-secondary">
+        <strong>{item.name}</strong> - ciclo atual: {formatRelativeDueDate(item.dueDate, new Date())}
+      </p>
       {/* The consequence of the action, stated before submission (Core Expiration slice §37).
           `info`, not `warning`: renewing is a normal, expected operation - toning it as a
           hazard would be crying wolf. */}
@@ -123,11 +130,11 @@ export function RenewItem() {
           <Button type="submit" variant="primary" icon={Check} pending={mutation.isPending} disabled={conflict}>
             {mutation.isPending ? "Renovando…" : "Confirmar renovação"}
           </Button>
-          <ButtonLink to={orgPath(`/items/${item.itemId}`)} variant="tertiary">
+          <Button type="button" variant="tertiary" onClick={onClose}>
             Cancelar
-          </ButtonLink>
+          </Button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }

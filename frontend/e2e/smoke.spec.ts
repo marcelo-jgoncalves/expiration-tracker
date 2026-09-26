@@ -28,8 +28,35 @@ function mockSession(
   return page.route("**/bff/session", (route) => route.fulfill({ json: session }));
 }
 
-function mockDashboard(page: Page, response: unknown, status = 200) {
-  return page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ status, json: response }));
+// D-2xx/OmniVence redesign: Overview and ItemsCollection both moved off `/items/dashboard` onto
+// `useItemSearch` (`GET /items/search`, paginated) + `useDashboardSummary` (`GET
+// /dashboard/summary`, the counters row) - see hooks/useItemSearch.ts and
+// hooks/useItemsDashboard.ts. Every scenario below mocks both real endpoints instead of the
+// retired one.
+function mockItemsSearch(page: Page, items: unknown[], status = 200) {
+  return page.route("**/bff/api/items/search**", (route) =>
+    route.fulfill({ status, json: { items: (items as { itemId: string }[]).map((item) => ({ kind: "EXPIRATION_ITEM", item })), cursor: null, scanLimitReached: false } }),
+  );
+}
+
+function mockDashboardSummary(page: Page, overrides: Partial<Record<string, unknown>> = {}) {
+  return page.route("**/bff/api/dashboard/summary**", (route) =>
+    route.fulfill({
+      json: {
+        summary: {
+          overdueCount: 0,
+          expiringSoonCount: 0,
+          awaitingReviewCount: 0,
+          missingRequirementsCount: 0,
+          itemsOverdueCount: 0,
+          itemsExpiringSoonCount: 0,
+          activeItemsCount: 0,
+          approximate: false,
+          ...overrides,
+        },
+      },
+    }),
+  );
 }
 
 // D-321 (reversal of D-320): `reauthenticate()` now does a same-origin client-side `navigate()`
@@ -72,7 +99,8 @@ test("selecting an organization from the A02 picker grid selects it and proceeds
     selected = true;
     return route.fulfill({ status: 204, body: "" });
   });
-  await mockDashboard(page, { items: [] });
+  await mockItemsSearch(page, []);
+  await mockDashboardSummary(page);
 
   // No dedicated /onboarding route exists - OnboardingGate renders Onboarding INSTEAD of
   // AppShell/children for ANY protected route while no organization is selected, so any
@@ -83,17 +111,16 @@ test("selecting an organization from the A02 picker grid selects it and proceeds
   await page.getByRole("button", { name: /Org Two/ }).click();
 
   await selectRequest;
-  await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
+  await expect(page.getByText("Nenhum vencimento em acompanhamento")).toBeVisible();
 });
 
 test("an authenticated session renders the dashboard sorted by due date ascending (most urgent first)", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
-  await mockDashboard(page, {
-    items: [
-      { itemId: "b", tenantId: "tenant-1", name: "Later", category: "x", dueDate: "2026-12-01", tags: [], status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", version: 1 },
-      { itemId: "a", tenantId: "tenant-1", name: "Sooner", category: "x", dueDate: "2026-09-01", tags: [], status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", version: 1 },
-    ],
-  });
+  await mockItemsSearch(page, [
+    { itemId: "b", tenantId: "tenant-1", name: "Later", category: "x", dueDate: "2026-12-01", tags: [], status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", version: 1 },
+    { itemId: "a", tenantId: "tenant-1", name: "Sooner", category: "x", dueDate: "2026-09-01", tags: [], status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", version: 1 },
+  ]);
+  await mockDashboardSummary(page, { activeItemsCount: 2 });
 
   await page.goto("/overview");
 
@@ -107,17 +134,22 @@ test("an authenticated session renders the dashboard sorted by due date ascendin
 
 test("a true-empty dashboard shows the true-empty state, distinct copy from a filtered/unavailable state", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
-  await mockDashboard(page, { items: [] });
+  await mockItemsSearch(page, []);
+  await mockDashboardSummary(page);
 
   await page.goto("/overview");
 
-  await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
+  await expect(page.getByText("Nenhum vencimento em acompanhamento")).toBeVisible();
 });
 
 test("a backend failure on the dashboard call shows the error state with a working retry", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
+  // Only the list query (`/items/search`) is made to fail - `/dashboard/summary` succeeds
+  // throughout, so the page renders exactly one alert/one "Tentar novamente" button rather than
+  // one per failing query.
+  await mockDashboardSummary(page);
   let callCount = 0;
-  await page.route("**/bff/api/items/dashboard**", (route) => {
+  await page.route("**/bff/api/items/search**", (route) => {
     callCount += 1;
     if (callCount === 1) {
       // retryable: false - a definitive backend failure, never auto-retried by
@@ -127,20 +159,20 @@ test("a backend failure on the dashboard call shows the error state with a worki
       // test/api/retryPolicy.test.ts instead of faked against this UI.
       return route.fulfill({ status: 500, json: { code: "INTERNAL", category: "INTERNAL", message: "erro interno", retryable: false } });
     }
-    return route.fulfill({ json: { items: [] } });
+    return route.fulfill({ json: { items: [], cursor: null, scanLimitReached: false } });
   });
 
   await page.goto("/overview");
 
   await expect(page.getByRole("alert")).toBeVisible();
   await page.getByRole("button", { name: "Tentar novamente" }).click();
-  await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
+  await expect(page.getByText("Nenhum vencimento em acompanhamento")).toBeVisible();
   expect(callCount).toBe(2);
 });
 
 test("a 401 mid-session (session expired) triggers a redirect back to the app's own /login screen", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
-  await page.route("**/bff/api/items/dashboard**", (route) => route.fulfill({ status: 401, json: { code: "AUTH_REQUIRED", category: "AUTH", message: "sessão expirada", retryable: false } }));
+  await page.route("**/bff/api/items/search**", (route) => route.fulfill({ status: 401, json: { code: "AUTH_REQUIRED", category: "AUTH", message: "sessão expirada", retryable: false } }));
 
   await page.goto("/overview");
 
@@ -155,12 +187,13 @@ test("a 401 mid-session (session expired) triggers a redirect back to the app's 
 
 test("logout calls the BFF's logout endpoint and returns to the app's own /login screen", async ({ page }) => {
   await mockSession(page, { authenticated: true, activeOrganizationId: "org-1" });
-  await mockDashboard(page, { items: [] });
+  await mockItemsSearch(page, []);
+  await mockDashboardSummary(page);
   const logoutRequest = page.waitForRequest((req) => req.url().includes("/bff/session/logout") && req.method() === "POST");
   await page.route("**/bff/session/logout", (route) => route.fulfill({ status: 204, body: "" }));
 
   await page.goto("/overview");
-  await expect(page.getByText("Nenhum vencimento cadastrado ainda.")).toBeVisible();
+  await expect(page.getByText("Nenhum vencimento em acompanhamento")).toBeVisible();
   await page.getByRole("button", { name: "Sair" }).click();
 
   await logoutRequest;

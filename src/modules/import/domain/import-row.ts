@@ -368,28 +368,53 @@ const MAX_PRIORITY_LENGTH = 50;
 
 const PLAIN_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 // RFC3339 date-time (matches ajv's "date-time" format, the same one create-item-request.v1.json
-// validates against at the interactive HTTP boundary).
-const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+// validates against at the interactive HTTP boundary). Captures y/m/d so the timestamp branch can
+// run the SAME calendar-validity check as the plain-date branch (round-1 Codex finding: a
+// syntactically valid but calendar-impossible timestamp like "2026-02-30T00:00:00Z" used to pass
+// through unrejected - `Date.parse` silently rolls it forward to March 2nd instead of erroring).
+const DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function isValidCalendarDate(y: number, m: number, d: number): boolean {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
+// Round-2 Codex finding: the regex alone accepts an hour of "24" (e.g. "2026-12-31T24:00:00Z"),
+// which `Date.parse`/`new Date(...)` silently rolls forward into the NEXT day at midnight instead
+// of rejecting - the calendar-date check alone doesn't catch this, since the date part itself is
+// valid. RFC3339 (unlike some ISO-8601 profiles) never allows "24:00:00" as a same-day sentinel,
+// so this is rejected outright rather than special-cased into "next day".
+function isValidClockTime(h: number, mi: number, s: number): boolean {
+  return h <= 23 && mi <= 59 && s <= 59;
+}
+
 /** Accepts either a bare `YYYY-MM-DD` (normalized to midnight UTC - real-world CSV date columns
  * are plain dates far more often than full timestamps, D-3xx decision 1) or an already-full
  * ISO-8601 date-time string; rejects anything else, including a syntactically date-shaped but
- * calendar-invalid value (e.g. "2026-02-30"). Exported for reuse by `import-parse-service.ts`
- * test fixtures - never re-implemented at the call site. */
+ * calendar-invalid value (e.g. "2026-02-30", now rejected in BOTH branches - round-1 Codex
+ * finding, the timestamp branch used to only regex-match, never calendar-validate).
+ *
+ * Always returns the value canonicalized via `Date.parse(...).toISOString()` (round-1 Codex
+ * finding: `"2026-12-31"`, `"2026-12-31T00:00:00Z"`, and `"2026-12-30T21:00:00-03:00"` are the
+ * SAME instant but, before this fix, produced three different strings - which meant
+ * `buildItemDedupKey()` never caught them as the same dueDate, letting an equivalent-but-
+ * differently-formatted re-import slip past dedup). Exported for reuse by
+ * `import-parse-service.ts` test fixtures - never re-implemented at the call site. */
 export function normalizeCsvDateTime(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (PLAIN_DATE_PATTERN.test(trimmed)) {
     const [y, m, d] = trimmed.split("-").map(Number) as [number, number, number];
     if (!isValidCalendarDate(y, m, d)) return undefined;
-    return `${trimmed}T00:00:00.000Z`;
+    return new Date(Date.UTC(y, m - 1, d)).toISOString();
   }
-  if (DATE_TIME_PATTERN.test(trimmed) && !Number.isNaN(Date.parse(trimmed))) {
-    return trimmed;
+  const match = DATE_TIME_PATTERN.exec(trimmed);
+  if (match) {
+    const [, yStr, mStr, dStr, hStr, miStr, sStr] = match;
+    if (!isValidCalendarDate(Number(yStr), Number(mStr), Number(dStr))) return undefined;
+    if (!isValidClockTime(Number(hStr), Number(miStr), Number(sStr))) return undefined;
+    const parsedMs = Date.parse(trimmed);
+    if (Number.isNaN(parsedMs)) return undefined;
+    return new Date(parsedMs).toISOString();
   }
   return undefined;
 }
@@ -479,5 +504,9 @@ export function validateItemImportRow(raw: RawItemImportRow): { row: ValidatedIt
  * name/category with a DIFFERENT due date (e.g. next year's same renewal) must never be treated
  * as a duplicate of a previous one. */
 export function buildItemDedupKey(category: string, name: string, dueDate: string): string {
-  return `${normalizeCategory(category)}|${normalizeDisplayName(name)}|${dueDate}`;
+  // JSON.stringify of a tuple, never raw `|`-joined interpolation (round-1 Codex finding: a plain
+  // `${a}|${b}|${c}` join lets category="a|b"/name="c" collide with category="a"/name="b|c" - both
+  // produce the literal string "a|b|c". JSON-encoding each field escapes any `|`/quote it contains,
+  // so two different (category, name) pairs can never produce the same key.
+  return JSON.stringify([normalizeCategory(category), normalizeDisplayName(name), dueDate]);
 }

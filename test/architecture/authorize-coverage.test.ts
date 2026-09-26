@@ -42,8 +42,6 @@ const PUBLIC_ROUTE_ALLOWLIST: Record<string, string> = {
     "D-146 - rotas de guest (authorization_type NONE no API Gateway), defendidas por GuestAccessInvalidError/anti-enumeração, nunca por authorize()/RBAC.",
   "document-archive/http/external-share-handlers.ts":
     "D-225/D-273 - resolução anônima de ExternalShareLink (authorization_type NONE), mesma postura de isolamento do handler guest acima.",
-  "subject/http/guest-handlers.ts":
-    "D-145 - GuestSubmissionService.resolveToken() é a única defesa, nunca RequestContextResolver/authorize() (mesma classe das duas rotas acima).",
   "identity/http/test-route-handler.ts":
     "Rota /test/ping (M1 exit-criterion) - endpoint de smoke test sem recurso de negócio para autorizar; já JWT-protegida no API Gateway, mas o handler em si não tem ação RBAC própria.",
   "bff/http/http-types.ts": "Arquivo só de tipos (HttpRequest/HttpResponse) - nunca exporta uma função handle*, não é um handler real.",
@@ -51,7 +49,7 @@ const PUBLIC_ROUTE_ALLOWLIST: Record<string, string> = {
 
 /** Um arquivo "é um handler HTTP real" quando exporta pelo menos uma função cujo nome começa
  * com `handle` - mesma convenção que todo handler deste projeto já segue
- * (`handleGetPreferences`/`handleUpdatePreferences`/`handleRecordWhatsAppOptIn`/etc, visível no
+ * (`handleGetPreferences`/`handleUpdatePreferences`/`handleConfirmWhatsAppPhoneConfirmation`/etc, visível no
  * próprio grep desta suite). Um arquivo de tipos puro (`http-types.ts`) nunca bate neste
  * padrão. */
 function exportsAtLeastOneHandler(source: string): boolean {

@@ -129,17 +129,16 @@ run "gsi3_access_granted_only_to_reminder_producer" {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI3")])
     error_message = "SesCallback must NOT reference GSI3"
   }
+  # D-328's 4th entry (feature_flags_read_policy_json) references AppConfig application/
+  # environment/configuration-profile IDs, which AWS assigns server-side - only known after
+  # apply for a not-yet-created resource, same class of gap as dispatch_outbox_relay's stream-
+  # read policy above. `slice(0, 3)` checks the 3 entries that ARE plan-time-known (table RW,
+  # GSI4, WhatsApp secret read - none of which could ever reference GSI3 by construction); the
+  # 4th is a fixed AppConfig statement that by construction never mentions a DynamoDB index ARN,
+  # so omitting it here does not weaken the GSI3 isolation guarantee.
   assert {
-    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
+    condition     = !anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI3")])
     error_message = "NotificationsHandler must NOT reference GSI3"
-  }
-
-  # M10 cluster 4 (D-039/D-046/D-048): DocumentChasingDispatch never queries GSI3 directly -
-  # only the shared ReminderProducer (already asserted above) does. This function only
-  # consumes claimed commands off SQS and mutates the base table + sends SES.
-  assert {
-    condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI3")])
-    error_message = "DocumentChasingDispatch must NOT reference GSI3"
   }
 
   # BLOCKER-B: ReminderMaterializationTrigger only ever does get()/queryByItem() on base
@@ -315,8 +314,10 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
     condition     = !anytrue([for p in module.ses_callback.capability_policy_documents : strcontains(p, "/index/GSI6")])
     error_message = "SesCallback must NOT reference GSI6"
   }
+  # slice(0, 3) - see the GSI3 assertion above for why the 4th entry (AppConfig, D-328) is
+  # excluded (only known after apply for a not-yet-created resource).
   assert {
-    condition     = !anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
+    condition     = !anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI6")])
     error_message = "NotificationsHandler must NOT reference GSI6"
   }
 
@@ -339,14 +340,6 @@ run "gsi6_access_granted_only_to_reconciliation_and_sweeper" {
   assert {
     condition     = !strcontains(module.malware_result_handler.capability_policy_documents[0], "/index/GSI6")
     error_message = "MalwareResultWorker's table-access policy must NOT reference GSI6"
-  }
-
-  # M10 cluster 4 (D-039/D-046/D-048): DocumentChasingDispatch is not one of the three
-  # GSI6-privileged roles - claim-expiry reconciliation for its occurrences is handled by
-  # the SAME ReminderReconciliation role (already privileged), never by this dispatch worker.
-  assert {
-    condition     = !anytrue([for p in module.document_chasing_dispatch_handler.capability_policy_documents : strcontains(p, "/index/GSI6")])
-    error_message = "DocumentChasingDispatch must NOT reference GSI6"
   }
 
   # BLOCKER-B: ReminderMaterializationTrigger is not one of the three GSI6-privileged roles
@@ -383,8 +376,11 @@ run "gsi4_access_granted_only_to_identity_context_lambdas" {
     condition     = anytrue([for p in module.reminders_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
     error_message = "RemindersHandler must have a policy referencing GSI4"
   }
+  # slice(0, 3) - see the GSI3 assertion (gsi3_access_granted_only_to_reminder_producer) for why
+  # the 4th entry (AppConfig, D-328) is excluded (only known after apply for a not-yet-created
+  # resource) - GSI4 is in element [1], well within the sliced range.
   assert {
-    condition     = anytrue([for p in module.notifications_handler.capability_policy_documents : strcontains(p, "/index/GSI4")])
+    condition     = anytrue([for p in slice(module.notifications_handler.capability_policy_documents, 0, 3) : strcontains(p, "/index/GSI4")])
     error_message = "NotificationsHandler must have a policy referencing GSI4"
   }
   assert {
@@ -503,12 +499,12 @@ run "seven_reminder_alarms_plus_one_dlq_age_alarm_per_m4_queue" {
   # alarm for the new functions yet (docs/architecture observability milestone, planned as
   # the next work item after M4, is where that gets decided holistically rather than
   # duplicating reminder-observability's non-generic per-function-name module shape here).
-  # M10 cluster 4 (D-039/D-046/D-048) DOES extend this module's existing per-function-name
-  # shape (not a new pattern) with a 6th entry, DocumentChasingDispatch - the fused
-  # dispatch+delivery worker sharing GSI3 with this pipeline had zero alarm coverage before.
+  # ADR-0016 Decision A (2026-09-25) retired the DocumentChasingDispatch alarm this module's
+  # per-function-name shape used to also carry (document-chasing feature, fully removed) - back
+  # to the original 5.
   assert {
-    condition     = length(module.observability.function_error_alarm_names) == 6
-    error_message = "Expected exactly 6 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper, document-chasing-dispatch)"
+    condition     = length(module.observability.function_error_alarm_names) == 5
+    error_message = "Expected exactly 5 per-function error alarms (producer, dispatch, reconciliation, relay, sweeper)"
   }
 
   assert {
@@ -1191,7 +1187,7 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
   # itself isn't plan-time-known here since aws_sns_topic.this.arn depends on the real
   # account id/topic creation, unlike the other modules' deterministically-constructed ARNs).
   assert {
-    condition     = length(module.observability.function_error_alarm_names) == 6 && module.observability.dispatch_queue_backlog_alarm_name != ""
+    condition     = length(module.observability.function_error_alarm_names) == 5 && module.observability.dispatch_queue_backlog_alarm_name != ""
     error_message = "Observability module must still produce its alarms with the alert topic wired"
   }
   assert {
