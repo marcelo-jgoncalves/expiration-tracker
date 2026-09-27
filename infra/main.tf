@@ -3180,6 +3180,14 @@ module "feature_flags" {
   aws_region     = var.aws_region
   aws_account_id = var.aws_account_id
   tags           = { Project = local.project_name, Environment = var.environment }
+
+  # D-193 item 8/9 STARTER+PROMOTER, ligados em `dev` a pedido de Marcelo (D-342, 2026-09-27) -
+  # sem usuário real e sem custo extra (`ocr_enabled`/`ai_extraction_enabled` continuam `false`,
+  # bloqueando Textract/Bedrock; STARTER só abre o gate do ExtractionRun/`startExecution()`, que
+  # o próprio gate do OCR barra logo em seguida). Efeito real: documentos saem de quarentena de
+  # verdade em vez de expirar via TIMEOUT do reconciliador de 10min.
+  extraction_document_archive_trigger_enabled = true
+  document_archive_promotion_enabled          = true
 }
 
 # --- M7 (extração/OCR): ExtractionStarterWorker (item 2, D-035 §12.5) ---------------------
