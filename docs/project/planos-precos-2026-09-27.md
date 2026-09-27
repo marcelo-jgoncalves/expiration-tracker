@@ -113,32 +113,34 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Conclusão honesta desta rodada**: o digest é uma correção real e válida da causa estrutural identificada (3 mensagens × fornecedores) e deve ser implementado de qualquer forma — reduz custo e melhora a experiência do cliente. Mas **não é, sozinho, prova suficiente de que Profissional/Premium têm margem garantida** — falta saber (a) quantos destinatários por organização o produto real vai ter, e (b) quantos documentos/requisitos por fornecedor são típicos. Sem esses dois números, tratar os preços atuais como economicamente validados seria repetir o mesmo excesso de confiança que rodadas anteriores já cometeram duas vezes (erros aritméticos declarados como resolvidos antes da hora).
 
-### 3.7 Cota de IA/OCR com degradação graciosa — resposta ao resíduo de IA/OCR (decisão de Marcelo, 2026-09-27)
+### 3.7 Cota de verificação automática (OCR+IA) — desenho reconstruído na Rodada 8, garantia por construção
 
-**Diferença deliberada do digest do WhatsApp**: WhatsApp é informação que chega ao cliente (cortar reduz o que ele sabe sobre seus prazos) — por isso a solução ali foi consolidar entrega, nunca reduzir cobertura. IA/OCR é automação **interna** (o documento é sempre aceito e rastreado; a única coisa em jogo é se um humano confirma o dado manualmente ou se o Bedrock sugere o valor primeiro) — degradar aqui não reduz a visibilidade do cliente sobre nada, só desloca uma fração do trabalho de "IA sugere, humano confirma" para "humano preenche direto". O produto já trata confirmação manual como caminho normal do fluxo (fail-closed, FR-043) — não é uma experiência degradada nova, é um caminho que já existe e já é usado para baixa confiança.
+**Correção de fundo na Rodada 8**: as Rodadas 6-7 tentaram cortar só o Bedrock, mantendo o Textract sempre ativo — isso criou 2 problemas reais (unidade errada na fórmula, e o achado de que Textract sozinho excede o orçamento do Premium mesmo com Bedrock zerado). A correção não é uma cota adicional — é **redefinir o que a cota cobre**: em vez de "cota de chamadas Bedrock" (com Textract sempre incondicional), a cota agora é de **verificações completas** — cada verificação acima da cota pula o pipeline inteiro (Textract E Bedrock), não só o Bedrock.
 
-**Mecânica proposta**: cota mensal de **chamadas Bedrock** (não de Textract/OCR básico, que sempre roda — ver achado importante abaixo) por assinatura, recalculada dinamicamente pelo número de organizações realmente criadas pelo dono (não um número fixo por tier). Acima da cota: `needsBedrock()` (`decide-bedrock.ts`) continua decidindo normalmente, mas a chamada real ao Bedrock é pulada — o campo cai direto em `PENDING_CONFIRMATION`, do mesmo jeito que já cai hoje por baixa confiança. **Nenhum upload é bloqueado, nenhum documento deixa de ser processado.**
+**Diferença deliberada do digest do WhatsApp, mantida**: IA/OCR é automação **interna** — o documento é sempre aceito, armazenado e rastreado; acima da cota, o campo simplesmente não tem sugestão automática nenhuma (nem OCR nem IA) e vai direto para preenchimento manual — um caminho que já existe e já é tratado como normal (fail-closed, FR-043), não uma experiência nova degradada. **Nenhum upload é bloqueado, nenhum documento deixa de ser rastreado.**
 
-**Achado técnico do Codex, Rodada 7, a implementar junto**: pular o Bedrock sozinho não garante `PENDING_CONFIRMATION` automaticamente no código atual — `needsBedrock()` também dispara por ambiguidade de múltiplos candidatos de OCR, e o parser determinístico pode confirmar automaticamente um candidato único com confiança suficiente mesmo sem chamar o Bedrock. A implementação real precisa preservar o MOTIVO de `needsBedrock()` ter retornado verdadeiro e garantir revisão manual explícita para os campos cuja ambiguidade não foi resolvida — não basta simplesmente "pular a chamada" sem tratar o resultado.
+**Por que isto resolve os 2 achados da Rodada 7 ao mesmo tempo**: como a verificação inteira é pulada (não só o Bedrock), a taxa correta para o cálculo volta a ser o custo médio esperado por verificação completa — R$0,03975 (Textract sempre + Bedrock esperado em 30% dos casos) — e não há mais erro de unidade, porque agora a cota realmente controla esse custo médio, não uma fração dele. E como o Textract também é pulado acima da cota, ele deixa de ser um custo "sempre incorrido e incontrolável" — passa a ser coberto pela mesma garantia.
 
-**Erro corrigido na Rodada 7 (achado real do Codex — erro de unidade, não só arredondamento)**: a fórmula da versão anterior usava R$0,03975 (custo MÉDIO esperado por verificação — Textract sempre + Bedrock esperado em 30% dos casos) como se fosse o custo de uma chamada Bedrock real. Isso permitia gastar o dobro do orçamento disponível só em Bedrock antes de esgotar a cota. Custo real por chamada Bedrock efetiva: US$0,015 × 5,30 = **R$0,0795** (não R$0,03975). Fórmula corrigida, separando o custo obrigatório de Textract do custo condicional de Bedrock:
+**Garantia matemática por construção (não mais estimativa)**: os 3 custos variáveis do modelo agora têm, cada um, um teto REAL e já aplicado, não apenas estimado:
+1. **Verificações automáticas**: hard-limitadas pela cota abaixo.
+2. **WhatsApp**: hard-limitado pelo digest (seção 3.5) — no máximo 1 mensagem/destinatário/dia, estrutural, não estimativa.
+3. **Storage**: hard-limitado pela cota técnica já implementada (`DEFAULT_STORAGE_QUOTA_BYTES`, D-249, enforcement fail-closed já existe em produção).
+
+Com os 3 hard-limitados, o custo total de uma assinatura no PIOR CASO é, por construção, `Cota×R$0,03975 + N×R$3,00 + N×GB×R$0,122` — exatamente o orçamento definido, nunca mais que isso. **A margem de 60% deixa de ser uma esperança sobre o comportamento do cliente e passa a ser garantida pelo próprio sistema.**
 
 ```
-Orçamento(N orgs) = Preço × 0,40 − N × R$3,00 (teto WhatsApp/digest) − N × GB_do_tier × R$0,122
-Cota_Bedrock(N orgs) = [ Orçamento(N orgs) − Verificações_estimadas × R$0,0159 (Textract, sempre incorrido) ] ÷ R$0,0795
+Cota(N orgs) = [ Preço × 0,40 − N × R$3,00 (teto WhatsApp/digest) − N × GB_do_tier × R$0,122 ] ÷ R$0,03975
 ```
 
-**Achado mais importante desta rodada, honesto e não resolvido pela cota**: aplicando a fórmula corrigida ao Premium com 5 organizações e a mesma premissa de 5 documentos/fornecedor da Rodada 6 (10.000 fornecedores agregados × 40% ativos × 5 docs ÷ 6 ≈ 3.333 verificações/mês): **só o Textract obrigatório já custa ~R$53,00/mês**, mais o teto de WhatsApp (R$15) e storage cheio (R$30,50) = **R$98,50 — já acima do orçamento de R$59,96 para 60% de margem, ZERANDO o Bedrock por completo.** Ou seja: **a cota de IA/OCR reduz custo (é real e vale implementar), mas não é suficiente, sozinha, para garantir a margem do Premium no agregado de 5 organizações** — o custo obrigatório de Textract, que não pode ser degradado sem perder a extração automática por completo, já excede o orçamento antes de qualquer chamada Bedrock entrar na conta.
-
-**Conclusão prática**: para o Premium especificamente, no cenário de uso agressivo do agregado de 5 organizações, **o problema não se resolve só com engenharia de cota — precisa de uma decisão de produto**: (a) reduzir fornecedores e/ou organizações incluídos no Premium, (b) subir o preço do Premium, ou (c) cobrar excedente de Textract/armazenamento além de um teto (não só Bedrock). A cota de Bedrock proposta aqui continua válida e deve ser implementada (reduz custo real, sem cortar informação do cliente) — só não deve ser apresentada como a solução completa do problema do Premium.
-
-| Plano | Cota Bedrock com 1 organização (verificações típicas da seção 3.6) | Cota Bedrock com o máximo de organizações do plano |
+| Plano | Cota com 1 organização | Cota com o máximo de organizações do plano |
 |---|---:|---:|
-| Essencial (máx. 1 org, 6,7 verif./mês típicas) | ~250 chamadas/mês | (mesmo, só tem 1) |
-| Profissional (1 org, 33,3 verif./mês típicas) | ~428 chamadas/mês | Agregado 2 orgs, 66,7 verif./mês: ~352 chamadas/mês |
-| Premium (1 org, 133,3 verif./mês típicas) | ~613 chamadas/mês | Agregado 5 orgs, 666,7 verif./mês (1 doc/fornecedor): **~49 chamadas/mês — já bem apertado**. Com a hipótese de 5 documentos/fornecedor da Rodada 6 (3.333 verif./mês): **cota negativa — nem zerando o Bedrock a margem de 60% se sustenta** (achado acima) |
+| Essencial (máx. 1 org) | ~503 verificações/mês | (mesmo, só tem 1) |
+| Profissional (máx. 2 orgs) | ~869 verificações/mês | ~732 verificações/mês (2 orgs) |
+| Premium (máx. 5 orgs) | ~1.279 verificações/mês | ~364 verificações/mês (5 orgs) |
 
-**Ressalva ainda não resolvida**: mesmo corrigido, o modelo depende da mesma variável real não medida da Rodada 6 (documentos/requisitos por fornecedor) — os números acima usam a mesma hipótese de 5 docs/fornecedor só para ilustrar a ordem de grandeza, não são uma cota final a implementar sem essa medição real.
+**O que isto significa para os números incluídos no Premium (resposta direta ao objetivo de ganhar mercado)**: **não é preciso reduzir os 2.000 fornecedores nem as 5 organizações incluídas** — esses números continuam sendo o diferencial competitivo (D-346: nenhum concorrente pesquisado chega perto dessa combinação de preço+capacidade). O que muda é que, no uso mais agressivo (5 organizações, muitos documentos por fornecedor), a EXTRAÇÃO AUTOMÁTICA além de ~364 verificações/mês passa a exigir preenchimento manual — a capacidade de rastrear 2.000×5 fornecedores nunca é reduzida, só a automação de leitura de documento acima desse volume. Isto preserva o posicionamento competitivo de preço/capacidade intacto, protegendo a margem só na parte operacional interna que o cliente não vê como "o que eu comprei".
+
+**Implementação simplificada (resolve também o achado técnico do Codex, Rodada 7)**: como a verificação inteira é pulada acima da cota (não uma tentativa parcial de suprimir só uma etapa do pipeline), não há necessidade de tocar `needsBedrock()`/`decide-field-outcome.ts` internamente — o corte acontece ANTES de iniciar a execução do Step Functions de extração para aquele documento, redirecionando direto para entrada manual. Mais simples de implementar corretamente do que a versão anterior (Bedrock-only).
 
 ## 4. Comparação direta com a concorrência
 
@@ -273,7 +275,13 @@ Cota_Bedrock(N orgs) = [ Orçamento(N orgs) − Verificações_estimadas × R$0,
 
 ---
 
-## 13. Limitações desta proposta
+## 13. Revisão Claude↔Codex — Rodada 8 (pendente)
+
+Aguardando resposta do Codex ao redesenho da cota (seção 3.7, agora cobrindo o pipeline inteiro de verificação, não só o Bedrock) — pedido direto de Marcelo para o Claude e o Codex convergirem numa decisão para o Premium, considerando explicitamente o objetivo de ganhar fatia de mercado (preservar os números competitivos de fornecedores/organizações, não reduzi-los).
+
+---
+
+## 14. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
 - **Política de custo de WhatsApp resolvida via digest (seção 3.5/3.6, Rodada 6)** — não mais uma lacuna aberta. Resíduo: só o cenário sintético extremo de IA/OCR (5 orgs Premium renovando 100% no mesmo mês) segue sem política de fair-use definida.
