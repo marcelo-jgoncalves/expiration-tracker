@@ -303,8 +303,12 @@ test("E2E-B3-12: MEMBER deletes a requirement (docarchive:requirement-delete is 
   });
 
   await page.goto("/requirements");
-  await page.getByRole("button", { name: "Excluir" }).click();
-  await page.getByRole("button", { name: "Confirmar" }).click();
+  // Real UX fix (2026-09-27): row actions/delete confirmation now match
+  // `SubjectsCollection.tsx`'s own pattern (icon-only actions, a real alertdialog `Dialog`).
+  await page.getByRole("button", { name: /^Excluir Certidão Negativa de Débitos/ }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Excluir requisito?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Excluir" }).click();
   await expect.poll(() => deleteCalled).toBe(true);
 });
 
@@ -338,8 +342,10 @@ test("E2E-B3-13 (D-339): navigate A08 -> A09 (Requisitos already shown) -> open/
   await expect(page.getByText("Certidão Negativa de Débitos")).toBeVisible();
 
   // D-339 achado 1: the requirement's own name opens the REQUIREMENT now (a real, addressable
-  // route), never the subject page it wrongly opened before this fix.
-  await page.getByRole("button", { name: "Certidão Negativa de Débitos" }).click();
+  // route), never the subject page it wrongly opened before this fix. `exact: true` - the row's
+  // icon-only "Editar"/"Excluir" actions carry this same name as a real substring of their own
+  // accessible name (same disambiguation SubjectsCollection's own tests already use).
+  await page.getByRole("button", { name: "Certidão Negativa de Débitos", exact: true }).click();
   await expect(page).toHaveURL(/\/subjects\/subj-1\/requirements\/req-1$/);
   await expect(page.getByRole("dialog", { name: "Certidão Negativa de Débitos" })).toBeVisible();
 

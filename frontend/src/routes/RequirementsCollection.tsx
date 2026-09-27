@@ -44,7 +44,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
 import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
@@ -59,6 +59,7 @@ import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
+import { IconButton } from "../components/ui/IconButton.js";
 import { Dialog } from "../components/ui/Dialog.js";
 import { Combobox } from "../components/ui/Combobox.js";
 import { RequirementDetail } from "./subjects/RequirementDetail.js";
@@ -369,49 +370,57 @@ export function RequirementsCollection() {
   );
 }
 
+// Real UX fix (Marcelo, 2026-09-27): row actions now match `SubjectsCollection.tsx`'s own
+// pattern (icon-only `IconButton`s, a real `Dialog` for the destructive confirmation) instead of
+// this screen's own earlier, different-looking text buttons + a bare `role="alertdialog"` span.
 function RowActions({ requirement }: { requirement: Requirement }) {
   const deleteMutation = useDeleteRequirement(requirement.subjectId, requirement.requirementId);
-  const [confirming, setConfirming] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [action, setAction] = useState<"edit" | "delete">();
   const [deleteError, setDeleteError] = useState<string | undefined>();
 
   async function handleDelete() {
     try {
       await deleteMutation.mutateAsync({ expectedVersion: requirement.version });
-      setConfirming(false);
+      setAction(undefined);
     } catch (err) {
       if (isConflict(err)) return;
       setDeleteError(err instanceof ApiError ? err.message : "Não foi possível excluir este requisito.");
     }
   }
 
-  if (editing) {
-    return <EditRequirementForm requirement={requirement} onClose={() => setEditing(false)} />;
-  }
-
-  return confirming ? (
-    <span role="alertdialog" aria-label={`Excluir ${requirement.name}`}>
-      Excluir &quot;{requirement.name}&quot;?{" "}
-      <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
-        Confirmar
-      </Button>{" "}
-      <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
-        Cancelar
-      </Button>
-      {/* Holistic frontend review finding: a conflict on delete used to `return` silently in
-          `handleDelete` above, never rendering anything - the same class of gap already fixed for
-          SubjectsCollection.tsx's archive/reactivate action (Codex Block 3 round 1 finding 12). */}
-      {deleteMutation.isConflict ? <span role="alert"> Este requisito foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</span> : null}
-      {deleteError ? <span role="alert"> {deleteError}</span> : null}
-    </span>
-  ) : (
+  return (
     <>
-      <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-        Editar
-      </Button>{" "}
-      <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
-        Excluir
-      </Button>
+      <IconButton size="sm" variant="tertiary" label={`Editar ${requirement.name}`} onClick={() => setAction("edit")}>
+        <Pencil size={16} aria-hidden="true" />
+      </IconButton>{" "}
+      <IconButton
+        size="sm"
+        variant="danger"
+        label={`Excluir ${requirement.name}`}
+        onClick={() => {
+          setDeleteError(undefined);
+          setAction("delete");
+        }}
+      >
+        <Trash2 size={16} aria-hidden="true" />
+      </IconButton>
+      {action === "edit" ? <EditRequirementForm requirement={requirement} onClose={() => setAction(undefined)} /> : null}
+      {action === "delete" ? (
+        <Dialog title="Excluir requisito?" variant="alertdialog" onClose={() => (deleteMutation.isPending ? undefined : setAction(undefined))}>
+          <p>O requisito &quot;{requirement.name}&quot; será excluído permanentemente. Esta ação não pode ser desfeita.</p>
+          <Button variant="secondary" disabled={deleteMutation.isPending} onClick={() => setAction(undefined)}>
+            Cancelar
+          </Button>{" "}
+          <Button variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
+            Excluir
+          </Button>
+          {/* Holistic frontend review finding: a conflict on delete used to `return` silently in
+              `handleDelete` above, never rendering anything - the same class of gap already fixed
+              for SubjectsCollection.tsx's archive/reactivate action (Codex Block 3 round 1 finding 12). */}
+          {deleteMutation.isConflict ? <p role="alert">Este requisito foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</p> : null}
+          {deleteError ? <p role="alert">{deleteError}</p> : null}
+        </Dialog>
+      ) : null}
     </>
   );
 }
@@ -439,27 +448,29 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-      <FormErrorSummary errors={errors} />
-      {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
-      <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
-      <SelectField
-        id={`req-edit-applicability-${requirement.requirementId}`}
-        label="Aplicabilidade"
-        value={applicability}
-        onChange={(v) => setApplicability(v as RequirementApplicability)}
-        options={[
-          { value: "APPLICABLE", label: "Aplicável" },
-          { value: "NOT_APPLICABLE", label: "Não se aplica" },
-        ]}
-      />
-      <Button type="submit" variant="primary" pending={mutation.isPending}>
-        {mutation.isPending ? "Salvando…" : "Salvar"}
-      </Button>{" "}
-      <Button type="button" variant="secondary" onClick={onClose}>
-        Cancelar
-      </Button>
-    </form>
+    <Dialog title="Editar requisito" onClose={onClose}>
+      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <FormErrorSummary errors={errors} />
+        {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
+        <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
+        <SelectField
+          id={`req-edit-applicability-${requirement.requirementId}`}
+          label="Aplicabilidade"
+          value={applicability}
+          onChange={(v) => setApplicability(v as RequirementApplicability)}
+          options={[
+            { value: "APPLICABLE", label: "Aplicável" },
+            { value: "NOT_APPLICABLE", label: "Não se aplica" },
+          ]}
+        />
+        <Button type="submit" variant="primary" pending={mutation.isPending}>
+          {mutation.isPending ? "Salvando…" : "Salvar"}
+        </Button>{" "}
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Cancelar
+        </Button>
+      </form>
+    </Dialog>
   );
 }
 
