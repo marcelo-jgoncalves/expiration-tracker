@@ -23,7 +23,7 @@ Não identificado, nas fontes consultadas, um concorrente brasileiro direto e es
 - Apps pessoais simples (**RemindMe**, R$25-60/mês) — sem B2B, só push local, sem OCR.
 - Módulos dentro de GEDs corporativos genéricos (**Software Neutron**, **MegaGED**) — sem preço público, vendidos por "fale conosco" para médio/grande porte, sem multi-canal/templates/import em massa/trilha de auditoria confirmados.
 
-**Gap real**: nenhum concorrente identificado nas fontes consultadas ataca o meio-termo (freelancer/MEI/PME, self-serve, preço público, multi-canal com WhatsApp/Telegram) — exatamente nosso posicionamento nos tiers Essencial/Profissional.
+**Gap real**: nenhum concorrente identificado nas fontes consultadas ataca o meio-termo (freelancer/MEI/PME, self-serve, preço público, multi-canal com WhatsApp) — exatamente nosso posicionamento nos tiers Essencial/Profissional. (**Correção, achado da rodada de planos/preço, 2026-09-27**: "Telegram" foi removido desta lista — o Executive Summary de `ARCHITECTURE.md` planejava Telegram como canal na fase de design, mas nunca foi implementado; o schema real [`notification-intent-created.v1.json`] só aceita `EMAIL`/`WHATSAPP`. Erro carregado por 6 rodadas deste relatório sem ser pego — corrigido aqui e em todos os pontos equivalentes abaixo.)
 
 ### 2.2 Brasil — compliance documental de fornecedores (8 concorrentes relevantes)
 
@@ -70,7 +70,7 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 |---|---|---|
 | Lembrete por e-mail | ✅ | Maioria |
 | Lembrete por WhatsApp | ✅ (M4, gated por E-019 jurídico) | Só 3: Expiration Reminder, Remindax, suaCND(?) — raro |
-| Lembrete por Telegram | ✅ | 0 confirmados — **diferencial real** |
+| ~~Lembrete por Telegram~~ | ❌ **nunca implementado — corrigido, era erro** (planejado no design original, nunca construído; schema real só tem EMAIL/WHATSAPP) | N/A, linha removida da comparação |
 | Templates de requisito reutilizáveis | ✅ (Requirement Templates, roadmap item 1) | Poucos (Rapid Global, Contractbook, Linkana parcial) |
 | Importação em massa (CSV) | ✅ (Items; Requirements ainda não) | ~8 de 36 |
 | Guest upload sem conta | ✅ (A14, já implementado) | Raro — só VendorJot (magic link) faz bem; TrustLayer reivindica mas sem prova |
@@ -89,7 +89,7 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 | SSO/SCIM/enterprise | 🔴 backlog Futuro | Só nos tiers Enterprise dos concorrentes maiores |
 | **Multi-organização por dono, gated por plano** | ✅ **decidido (D-345)**, não implementado | **2 precedentes reais**: Remindax (empresas incluídas por tier = 1/2/2/3; compra de empresa extra avulsa sem subir de tier não identificada em outro concorrente) e VendorJot (6 planos, cada um incluindo de 1 a 20 workspaces) — Remindax não é o único precedente |
 
-**Conclusão (corrigida após Rodada 1 do protocolo — ver seção 5)**: já cobrimos a maior parte do que os concorrentes oferecem, incluindo itens que a primeira versão deste relatório havia marcado incorretamente como pendentes (ações em massa, compartilhamento externo seguro — já entregues, roadmap §18.3). Telegram como canal continua um diferencial não identificado nas fontes consultadas (nunca "comprovadamente ausente do mercado" — distinção reforçada na Rodada 3). **Verificação humana obrigatória e score de compliance NÃO são diferenciais exclusivos** como a primeira versão afirmou — Linkana já tem score calculado (0-100, pesos por documento) e myCOI já usa humano-no-loop; a alegação de exclusividade foi retirada. Full-text search e e-signature seguem com baixa contagem de concorrentes, mas o Codex apontou corretamente que baixa contagem não prova baixo risco de negócio — tratar como hipótese a validar, não como fato estabelecido.
+**Conclusão (corrigida após Rodada 1 do protocolo — ver seção 5)**: já cobrimos a maior parte do que os concorrentes oferecem, incluindo itens que a primeira versão deste relatório havia marcado incorretamente como pendentes (ações em massa, compartilhamento externo seguro — já entregues, roadmap §18.3). ~~Telegram como canal continua um diferencial~~ — **corrigido posteriormente: Telegram nunca foi implementado no produto (era só design, não código real) — não é um diferencial de verdade, era um erro deste relatório.** **Verificação humana obrigatória e score de compliance NÃO são diferenciais exclusivos** como a primeira versão afirmou — Linkana já tem score calculado (0-100, pesos por documento) e myCOI já usa humano-no-loop; a alegação de exclusividade foi retirada. Full-text search e e-signature seguem com baixa contagem de concorrentes, mas o Codex apontou corretamente que baixa contagem não prova baixo risco de negócio — tratar como hipótese a validar, não como fato estabelecido.
 
 ---
 
@@ -152,7 +152,7 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 2. **Full-text search (D-202, P1 bloqueado)**: dado registrado — só 2 de 36 concorrentes confirmam ter. Não é recomendação de descer prioridade; é um dado a mais para a decisão de caminho que já está pendente com Marcelo em D-202.
 3. **Integração de calendário (P2)**: dado registrado — Remindax e Expiration Reminder confirmam ter (2 de 36, não só 1 como a versão anterior afirmou). Já está em P2, sem mudança de tier recomendada.
 4. **Score de compliance (já é item P2 existente, roadmap §18.4)**: dado registrado — Linkana já tem um score calculado (0-100, pesos por documento, dispensas, revisão pendente). Implementar um score raso (média simples que esconde uma pendência crítica atrás de uma nota favorável) seria pior que não ter — qualquer implementação futura precisa tratar criticidade/documentos faltantes/dispensas explicitamente, não só "média de status", achado real do Codex.
-5. **Telegram como canal**: dado registrado — 0 de 36 concorrentes confirmam ter. Vale comunicar como diferencial, mas demanda real de cliente por esse canal específico não foi medida por esta pesquisa.
+5. ~~Telegram como canal~~ — **removido: nunca foi implementado no produto** (achado tardio, ver seção 13).
 
 ---
 
@@ -308,6 +308,8 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 **Por que não forçar o critério 1 (verificabilidade) para cima só para fechar em 9,0**: o gap é real e não desaparece só de descrevê-lo com mais precisão — 11 das 36 linhas da tabela de fontes não têm uma URL de terceiro rastreável, só "busca agregada" registrado. Resolver isso de verdade exigiria uma nova rodada de pesquisa (recuperar as URLs específicas dos agregadores), não mais edição de texto. Reportar 9,0 sem isso seria repetir o mesmo tipo de erro que o Codex encontrou nesta mesma rodada.
 
 **Status**: Rodada 6 completa. **Codex confirmou ≥9,0 pela segunda rodada consecutiva (9,15 → 9,00).** A nota do Claude permanece em 8,975 em ambas as rodadas 5 e 6 — **a decisão NÃO converge pelo critério formal do protocolo** (exige ambos os lados ≥9,0 em 2 rodadas consecutivas). O gap residual é conhecido, específico e pequeno (rastreabilidade de 11 fontes secundárias) — não um problema de fundo na proposta de preço/posicionamento em si, que já tem nota alta e estável nos critérios de maior peso (gating multi-org 9,5/10, validação comercial 9,5/10).
+
+**Achado pós-fechamento (2026-09-27, durante a rodada seguinte de planos/preço)**: o Codex encontrou, ao revisar a proposta de planos que reaproveitava este relatório, que **"Telegram" nunca foi implementado no OmniVence** — era só uma intenção do design original (`ARCHITECTURE.md`), nunca virou código real (schema de notificação só aceita `EMAIL`/`WHATSAPP`). Esse erro passou por 6 rodadas deste protocolo sem ser pego, porque nenhuma delas verificou a alegação contra o código do PRÓPRIO produto — só contra as fontes dos concorrentes. Corrigido em todos os pontos deste relatório. Lição registrada: verificar alegações sobre o próprio produto com a mesma disciplina de fonte+data usada pras alegações sobre concorrentes, não presumir.
 
 ## 13. Limitações desta pesquisa
 
