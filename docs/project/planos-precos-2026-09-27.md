@@ -188,9 +188,17 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Status**: Rodada 4 completa, não convergida. Rodada 5 (seção 3.5 reconstruída) aguarda nova crítica do Codex (seção 10).
 
-## 10. Revisão Claude↔Codex — Rodada 5 (pendente)
+## 10. Revisão Claude↔Codex — Rodada 5 (2026-09-27)
 
-Aguardando resposta do Codex à estimativa de custo reconstruída (seção 3.5) e à checagem de que nenhuma seção de revisão anterior descreve mais do que o documento realmente entrega.
+**Nota do Codex: design 7,0/10, régua 8,5/10 — ainda não convergido.** O Codex refez a matemática das 10 linhas à mão e confirmou que bate com as premissas declaradas (divergências de centavos por arredondamento intermediário, não erro real). **Achado mais importante desta rodada**: os agregados TÍPICOS (não só elevados) de multi-org estavam faltando na tabela — ao adicioná-los, o Premium fica negativo (~-52%) já no cenário típico com as 5 organizações incluídas, não só em uso elevado. Isto contradizia a própria conclusão anterior deste relatório ("problema isolado ao uso elevado") — corrigido.
+
+**Achados residuais que permanecem em aberto, não resolvidos até esta rodada**:
+- Storage: premissa de ocupação real não declarada (cenários "típico" tratam storage como ~R$0 sem justificar; "elevado" assume cota cheia, pior caso) — reconhecido explicitamente como pendência na seção 3.5, não uma solução fingida.
+- Modelo assume 1 verificação por fornecedor por renovação — não tem sensibilidade para múltiplos documentos/requisitos por fornecedor.
+- Custo unitário do Bedrock (US$0,015/chamada) continua sendo uma premissa sem modelo/contagem de tokens que a sustente.
+- **Ambiguidade de fundo, não resolvida em nenhuma rodada**: mesmo com a matemática certa e a transparência sobre a pendência de WhatsApp, o Codex mantém que "diagnosticar o déficit" não é o mesmo que "resolver a sustentabilidade econômica" — o critério 1 do checklist continua sem nota alta enquanto a política de cota/cobrança de WhatsApp não for de fato decidida (não só descrita como pendente).
+
+**Status**: 5 rodadas completas. Régua estável em 8,5/10 há 3 rodadas seguidas, nunca atingindo 9,0 — o Codex mantém a mesma ressalva (âncora do critério 1 ainda não distingue "reconhecer o gap" de "resolvê-lo"). Design oscila entre 6,25 e 7,0, sem convergência. **Achado de negócio real e acionável, robusto a todas as 5 rodadas de verificação**: os números atuais de fornecedores/organizações incluídos em Profissional e especialmente Premium não são sustentáveis com WhatsApp habilitado sem uma política de cota separada — isto precisa ser resolvido antes de qualquer lançamento comercial com WhatsApp ativo, independente do resultado formal do protocolo.
 
 ---
 
