@@ -54,7 +54,7 @@ Todos são **enterprise puro, venda consultiva, sem preço público**, mirando e
 ### 2.4 Global — trackers de expiração e CLM para PME (13 concorrentes)
 
 - **Expiration Reminder** e **Remindax** são os gêmeos funcionais mais próximos do OmniVence — WhatsApp, IA/OCR de datas, importação em massa. Remindax: US$18-23/mês (dentro da nossa faixa-alvo). Expiration Reminder: US$49-399/mês (acima).
-- **Achado crucial para D-345 (multi-org gated por plano)**: a **Remindax já vende "número de empresas" como diferenciador de tier** — 1 empresa nos planos baratos, 2 no Business (US$95-119/mês), 3 no Premium (US$191-239/mês), customizado acima. **Precedente real de mercado exatamente do modelo que decidimos adotar.**
+- **Achado crucial para D-345 (multi-org gated por plano)**: a **Remindax já vende "número de empresas" como diferenciador de tier** — 1 empresa no Basic (US$23-29/mês), **Professional já inclui 2 empresas**, 3 no Business (US$119-149/mês), mais no Premium (US$239-299/mês) — **preços corrigidos após a Rodada 1 do protocolo (ver seção 6); a versão original deste relatório tinha os números errados**. A Remindax também permite comprar empresas extras avulsas sem subir de tier (nuance que a proposta original da seção 4.3 tinha omitido). Ainda assim, o precedente de "número de organizações como alavanca de preço" se confirma.
 - **VendorJot** (nicho B2B fornecedores): melhor exemplo de guest upload sem conta (link mágico) — valida a feature.
 - Ferramentas de CLM (**ContractSafe**, **Contractbook**, **Concord**, **Gatekeeper**) custam **muito acima** da nossa faixa: US$450-1.245/mês.
 - Enterprise (**Ironclad**, **Agiloft**): US$30 mil–600 mil+/ano — serve só de contraste de mensagem.
@@ -79,23 +79,23 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 | Dashboard de compliance/risco | ✅ | Maioria dos players B2B |
 | Relatórios + trilha de auditoria | ✅ (parcial — export ainda backlog P1) | Maioria |
 | Tipos de documento configuráveis | ✅ | Vários |
-| Ações em massa | 🔴 não implementado | Poucos confirmam |
-| Compartilhamento externo seguro (link temporário) | 🔴 backlog P1 | Só VendorJot (magic link) e parcialmente ContractSafe/Contract Hound |
+| Ações em massa | ✅ (roadmap §18.3, já entregue) | Poucos confirmam |
+| Compartilhamento externo seguro (link temporário) | ✅ (`ExternalShareLink`, roadmap §18.3, já entregue) | VendorJot (magic link), parcialmente ContractSafe/Contract Hound |
 | Assinatura eletrônica | 🔴 backlog P2 | ~6 de 37, mas como add-on pago ou via DocuSign — poucos nativos |
 | API pública/webhooks | 🔴 backlog P2 | ~8 de 37, muitos via Zapier só |
-| Integração com calendário | 🔴 backlog P2 | Só Remindax confirmado — **raro em geral, talvez não seja prioridade alta** |
-| Score de compliance (nota calculada) | 🔴 não implementado | **0 de 37 confirmados** — diferencial real se implementarmos |
+| Integração com calendário | 🔴 backlog P2 | Remindax e Expiration Reminder (Outlook) confirmados — menos raro do que a 1ª versão deste relatório concluiu |
+| Score de compliance (nota calculada) | 🔴 backlog P2 (roadmap §18.4, já é item existente — corrigido, não é novidade desta pesquisa) | Linkana confirma ter (0-100, pesos por documento) — **não é uma ausência de mercado, corrigido após crítica do Codex** |
 | Portal completo do fornecedor/cliente | Parcial (guest upload existe, portal completo não) | Vários (Avetta, ISNetworld, Wehandle, VendorJot) — mas todos enterprise |
 | SSO/SCIM/enterprise | 🔴 backlog Futuro | Só nos tiers Enterprise dos concorrentes maiores |
 | **Multi-organização por dono, gated por plano** | ✅ **decidido (D-345)**, não implementado | **Remindax é o único precedente claro** (1→1→2→3 empresas por tier) |
 
-**Conclusão**: já cobrimos a maior parte do que os concorrentes oferecem, e temos 3 diferenciais que aparecem em pouquíssimos ou nenhum concorrente: **Telegram como canal**, **verificação humana obrigatória como princípio de design** (não só "temos IA"), e **score de compliance calculado** (se implementado). Full-text search, e-signature, API pública e integração de calendário são menos urgentes do que o roadmap atual sugere, já que poucos concorrentes os têm — vale revalidar a prioridade P1/P2 desses itens à luz disso.
+**Conclusão (corrigida após Rodada 1 do protocolo — ver seção 5)**: já cobrimos a maior parte do que os concorrentes oferecem, incluindo itens que a primeira versão deste relatório havia marcado incorretamente como pendentes (ações em massa, compartilhamento externo seguro — já entregues, roadmap §18.3). Telegram como canal continua um diferencial real (nenhum concorrente pesquisado o oferece). **Verificação humana obrigatória e score de compliance NÃO são diferenciais exclusivos** como a primeira versão afirmou — Linkana já tem score calculado (0-100, pesos por documento) e myCOI já usa humano-no-loop; a alegação de exclusividade foi retirada. Full-text search e e-signature seguem com baixa contagem de concorrentes, mas o Codex apontou corretamente que baixa contagem não prova baixo risco de negócio — tratar como hipótese a validar, não como fato estabelecido.
 
 ---
 
 ## 4. Proposta de posicionamento e preço (Rodada 1 do protocolo Claude↔Codex)
 
-> Isto é uma PROPOSTA para revisão — não uma decisão. Marcelo decide.
+> Isto é uma PROPOSTA para revisão — não uma decisão. Marcelo decide. **A Rodada 1 do protocolo (seção 5) encontrou erros factuais reais nesta seção — corrigidos abaixo — e deu nota 5,5/10, longe da convergência (≥9,0 nas duas notas). Não tratar nada nesta seção como validado até novas rodadas.**
 
 ### 4.1 Pitch de posicionamento
 
@@ -126,7 +126,31 @@ Seguindo o precedente real da Remindax (único concorrente com esse modelo docum
 
 ---
 
-## 5. Limitações desta pesquisa
+## 5. Revisão Claude↔Codex — Rodada 1 (2026-09-27)
+
+**Protocolo acionado por pedido explícito de Marcelo.** Rodada 1: proposta (seção 4, versão original) submetida ao Codex para crítica adversarial independente.
+
+**Nota do Codex**: Proposta 5,5/10 (independente/provisória) · Régua de pesquisa (E-014) 2,0/10 — checklist ponderado com âncoras ainda não existe, só a declaração `SIM`.
+
+**Achados reais confirmados e corrigidos nesta versão do relatório**:
+1. Ações em massa e compartilhamento externo seguro (`ExternalShareLink`) já estão **entregues** (roadmap §18.3) — a versão original os listava como pendentes. Corrigido na seção 3.
+2. "Compliance score avançado" já é item existente do backlog P2 (roadmap §18.4) — a versão original afirmava que não era item numerado. Corrigido.
+3. Score calculado NÃO é ausente no mercado — Linkana já tem (0-100, pesos por documento, [documentação oficial](https://suporte.linkana.com/pt-BR/articles/5339977-como-configuro-categorias-e-score-de-risco)). Alegação de exclusividade retirada.
+4. Integração de calendário não é exclusiva da Remindax — Expiration Reminder também tem (sync com Outlook). Corrigido.
+5. Preços da Remindax estavam errados na versão original — corrigidos na seção 2.4 conforme a [tabela oficial](https://www.remindax.com/pricing) (Basic US$23-29, Business US$119-149, Premium US$239-299; Professional já inclui 2 empresas, e há compra avulsa de empresa extra sem subir de tier).
+6. "Verificação humana obrigatória" como diferencial de confiabilidade não está provada como exclusiva — o próprio relatório já registrava humano-no-loop no myCOI/illumend. Tratar como diferencial de comunicação, não de exclusividade de mercado.
+
+**Achados metodológicos não corrigíveis só com edição de texto (permanecem em aberto)**:
+- Falta lista completa dos 37 concorrentes com URLs/datas de consulta por item (reprodutibilidade).
+- Faltou normalizar mensal vs. anual e câmbio de forma consistente entre seções.
+- Contagem "poucos concorrentes têm X" foi usada para inferir "baixo risco de não ter X" — inferência de ausência que o Codex aponta como logicamente frágil (a contagem mede o que os concorrentes DIVULGAM publicamente, não o que os clientes exigem).
+- §13 do roadmap ("evitar depender principalmente da quantidade de empresas" para limites) não foi conciliado explicitamente com a proposta de gating por número de organizações da seção 4.3 — pendência real.
+
+**Status**: Rodada 1 completa, não convergida (mínimo 2 rodadas consecutivas ≥9,0 nas duas notas, cegas, exigido pelo protocolo). Próxima rodada (réplica do Claude + crítica do Codex) fica pendente de instrução de Marcelo — ele pediu para ler antes de decidir os próximos passos.
+
+---
+
+## 6. Limitações desta pesquisa
 
 - Pesquisa feita via busca web + fetch de páginas públicas, não testes reais de produto (trial/demo) — features marcadas "não encontrado no site" podem existir e não estarem documentadas publicamente.
 - Preços de concorrentes "fale conosco" foram, quando possível, estimados por fontes de terceiros (marcado explicitamente como tal) — não são números oficiais.
