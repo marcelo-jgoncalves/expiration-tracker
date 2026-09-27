@@ -20,9 +20,6 @@
  *    affordance behind it.
  *  - Template-apply (`docarchive:requirementtemplate-apply`, opens A21) is Block 4 scope - "Ver
  *    templates" is out of scope for this screen this block; omitted rather than a dead link.
- *  - "Novo requisito" asks for a subjectId directly (no subject-name typeahead picker yet) -
- *    same "operator supplies the id directly" precedent the legacy review flow already
- *    established for `itemId`, not a fabricated shortcut.
  *  - The tenant-wide "Todos" tab merges each status's FIRST page only (`searchRequirements`'s
  *    cursor is read but not followed) - a true cursor-following aggregate would need either a
  *    dedicated backend endpoint or client-side multi-page fetching per status, out of this
@@ -55,19 +52,22 @@ import { useCreateRequirement } from "../hooks/useCreateRequirement.js";
 import { useUpdateRequirement } from "../hooks/useUpdateRequirement.js";
 import { useDeleteRequirement } from "../hooks/useDeleteRequirement.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
+import { useSubjectsDashboard } from "../hooks/useSubjectsDashboard.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
+import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
+import { Dialog } from "../components/ui/Dialog.js";
+import { Combobox } from "../components/ui/Combobox.js";
 import { RequirementDetail } from "./subjects/RequirementDetail.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presentation.js";
-import type { Requirement, RequirementApplicability, RequirementSearchHit, RequirementStatus } from "../api/types.js";
+import type { Requirement, RequirementApplicability, RequirementSearchHit, RequirementStatus, TrackedSubject } from "../api/types.js";
 import "./RequirementsCollection.css";
 
 /** "success" aqui é deliberadamente diferente do tom de `presentRequirementDocStatus` (mantido
@@ -181,6 +181,21 @@ export function RequirementsCollection() {
   // ("a busca não altera... o total global"). O contador de resultados filtrados vive à parte,
   // junto do campo de busca.
   const subjectTotalCount = filterSubjectId ? (subjectQuery.data?.requirements.length ?? 0) : undefined;
+
+  // Tenant-wide view only: grouped by fornecedor instead of one flat 28-row table repeating the
+  // same requirement names per fornecedor (real UX finding, Marcelo 2026-09-27) - nested (already
+  // single-fornecedor) stays flat, `DataTable`'s own grouped mode already handles the header row/
+  // count/a11y (same mechanism `ItemsCollection.tsx` uses for "Vencidos"/"Vence em breve").
+  const groups: DataTableGroup<RequirementRow>[] | undefined = filterSubjectId
+    ? undefined
+    : Object.values(
+        requirements.reduce<Record<string, DataTableGroup<RequirementRow>>>((acc, row) => {
+          const id = row.requirement.subjectId;
+          const group = (acc[id] ??= { id, label: row.subjectDisplayName ?? row.requirement.subjectId, rows: [] });
+          group.rows.push(row);
+          return acc;
+        }, {}),
+      ).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
 
   return (
     <div>
@@ -299,28 +314,25 @@ export function RequirementsCollection() {
             <DataTable
               caption="Requisitos documentais"
               rowKey={(r: RequirementRow) => r.requirement.requirementId}
-              rows={requirements}
+              rows={groups ? undefined : requirements}
+              groups={groups}
               columns={[
             {
               key: "name",
               header: "Requisito",
               primary: true,
+              // D-339 achado 1: o nome abria o FORNECEDOR (mesmo destino de um clique errado) - o
+              // requisito já tem um destino próprio; o nome agora abre esse destino diretamente
+              // (a ação "Ver" que fazia a mesma coisa foi removida por ser redundante). O
+              // fornecedor não aparece mais nesta célula: fora do contexto de um fornecedor a
+              // linha já mora dentro do grupo com o nome dele no cabeçalho; dentro do contexto
+              // (`filterSubjectId`) a página inteira (SubjectLayout) já o mostra.
               render: (r) => (
-                // D-339 achado 1: o nome abria o FORNECEDOR (mesmo destino de um clique errado) -
-                // o requisito já tem um destino próprio (o botão "Ver" mais à direita); o nome
-                // agora abre o MESMO destino, nunca um recurso diferente do que anuncia. O link
-                // para o fornecedor mora no identificador abaixo, onde genuinamente pertence.
-                <>
-                  <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
-                    {r.requirement.name}
-                  </Button>
-                  <CellSecondary>
-                    <Link to={orgPath(`/subjects/${r.requirement.subjectId}`)}>{r.subjectDisplayName ?? r.requirement.subjectId}</Link>
-                  </CellSecondary>
-                </>
+                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
+                  {r.requirement.name}
+                </Button>
               ),
             },
-            { key: "assignee", header: "Responsável", render: (r) => r.requirement.assigneeUserId ?? "Sem responsável" },
             { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.requirement.status)} /> },
             {
               key: "validity",
@@ -341,16 +353,6 @@ export function RequirementsCollection() {
                 ) : (
                   "—"
                 ),
-            },
-            {
-              key: "view",
-              header: "",
-              actions: true,
-              render: (r) => (
-                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
-                  Ver
-                </Button>
-              ),
             },
             {
               key: "actions",
@@ -389,7 +391,7 @@ function RowActions({ requirement }: { requirement: Requirement }) {
 
   return confirming ? (
     <span role="alertdialog" aria-label={`Excluir ${requirement.name}`}>
-      Excluir &quot;{requirement.name}&quot; ({requirement.subjectId})?{" "}
+      Excluir &quot;{requirement.name}&quot;?{" "}
       <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
         Confirmar
       </Button>{" "}
@@ -463,27 +465,29 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
 
 function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => void; defaultSubjectId?: string }) {
   const mutation = useCreateRequirement();
-  // D-339 achado 2: quando `defaultSubjectId` vem do contexto (filtro/rota de um fornecedor
-  // específico), o fornecedor NUNCA é um campo de formulário editável - antes, `defaultSubjectId`
-  // só pré-preenchia um `TextField` que continuava aceitando qualquer edição, permitindo trocar
-  // de fornecedor silenciosamente ao criar. Fixo por construção agora: nem renderiza o campo
-  // nesse caso, só usa `defaultSubjectId` direto no payload. A criação a partir da coleção
-  // GLOBAL (sem fornecedor conhecido) continua exigindo o ID explícito.
-  const [subjectId, setSubjectId] = useState(defaultSubjectId ?? "");
+  // Real UX finding (Marcelo, 2026-09-27): a partir da coleção GLOBAL, este campo pedia o ID
+  // interno do fornecedor como texto livre ("copie o ID na página do fornecedor") - o pior ponto
+  // de fricção da tela, obrigando o usuário a navegar pra outro lugar só pra copiar um ULID. Um
+  // `Combobox` (mesmo componente/padrão que `SubjectRequests.tsx` já usa pra "Requisito") busca
+  // por nome sobre a lista real de fornecedores ativos. D-339 achado 2 continua valendo: quando
+  // `defaultSubjectId` vem do contexto (dentro do Hub do fornecedor), o fornecedor nunca é um
+  // campo de formulário - nem o Combobox é renderizado, só `defaultSubjectId` vai direto no payload.
+  const subjectsQuery = useSubjectsDashboard("ACTIVE");
+  const [selectedSubject, setSelectedSubject] = useState<TrackedSubject | null>(null);
   const [name, setName] = useState("");
   const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
   const [errors, setErrors] = useState<string[]>([]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const effectiveSubjectId = defaultSubjectId ?? subjectId;
-    if (!effectiveSubjectId.trim() || !name.trim()) {
-      setErrors(["Informe o fornecedor (ID) e o nome do requisito."]);
+    const effectiveSubjectId = defaultSubjectId ?? selectedSubject?.subjectId;
+    if (!effectiveSubjectId || !name.trim()) {
+      setErrors([defaultSubjectId ? "Informe o nome do requisito." : "Escolha o fornecedor e informe o nome do requisito."]);
       return;
     }
     setErrors([]);
     try {
-      await mutation.mutateAsync({ subjectId: effectiveSubjectId.trim(), name: name.trim(), applicability });
+      await mutation.mutateAsync({ subjectId: effectiveSubjectId, name: name.trim(), applicability });
       onClose();
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar este requisito."]);
@@ -491,28 +495,40 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-      <FormErrorSummary errors={errors} />
-      {defaultSubjectId ? null : (
-        <TextField id="req-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
-      )}
-      <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
-      <SelectField
-        id="req-applicability"
-        label="Aplicabilidade"
-        value={applicability}
-        onChange={(v) => setApplicability(v as RequirementApplicability)}
-        options={[
-          { value: "APPLICABLE", label: "Aplicável" },
-          { value: "NOT_APPLICABLE", label: "Não se aplica" },
-        ]}
-      />
-      <Button type="submit" variant="primary" pending={mutation.isPending}>
-        {mutation.isPending ? "Criando…" : "Criar requisito"}
-      </Button>{" "}
-      <Button type="button" variant="secondary" onClick={onClose}>
-        Cancelar
-      </Button>
-    </form>
+    <Dialog title="Novo requisito" onClose={onClose}>
+      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <FormErrorSummary errors={errors} />
+        {defaultSubjectId ? null : (
+          <Combobox
+            id="req-subject"
+            label="Fornecedor"
+            required
+            options={subjectsQuery.data?.subjects ?? []}
+            value={selectedSubject}
+            onChange={setSelectedSubject}
+            getOptionId={(s) => s.subjectId}
+            getOptionLabel={(s) => s.displayName}
+            placeholder={subjectsQuery.isPending ? "Carregando fornecedores…" : "Buscar por nome"}
+          />
+        )}
+        <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
+        <SelectField
+          id="req-applicability"
+          label="Aplicabilidade"
+          value={applicability}
+          onChange={(v) => setApplicability(v as RequirementApplicability)}
+          options={[
+            { value: "APPLICABLE", label: "Aplicável" },
+            { value: "NOT_APPLICABLE", label: "Não se aplica" },
+          ]}
+        />
+        <Button type="submit" variant="primary" pending={mutation.isPending}>
+          {mutation.isPending ? "Criando…" : "Criar requisito"}
+        </Button>{" "}
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Cancelar
+        </Button>
+      </form>
+    </Dialog>
   );
 }

@@ -255,6 +255,10 @@ test("E2E-B3-10: MEMBER creates a requirement -> visible in the list", async ({ 
     const url = new URL(route.request().url());
     return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit({ requirementId: "r-existing", name: "Existente" })] : [], scanLimitReached: false } });
   });
+  // Real UX fix (2026-09-27): "Novo requisito" used to ask for the fornecedor's raw internal ID
+  // as free text - this Combobox (same pattern as A14's "Requisito" field) searches the real
+  // subjects list by name instead.
+  await page.route("**/bff/api/subjects/dashboard**", (route) => route.fulfill({ json: { subjects: [subject({ subjectId: "subj-2", displayName: "Fornecedor Beta Ltda" })] } }));
   let createBody: Record<string, unknown> | undefined;
   await page.route("**/bff/api/document-archive/requirements", (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -264,7 +268,8 @@ test("E2E-B3-10: MEMBER creates a requirement -> visible in the list", async ({ 
 
   await page.goto("/requirements");
   await page.getByRole("button", { name: "Novo requisito" }).click();
-  await page.getByLabel("ID do fornecedor").fill("subj-2");
+  await page.getByRole("combobox", { name: /Fornecedor/ }).fill("Beta");
+  await page.getByRole("option", { name: "Fornecedor Beta Ltda" }).click();
   await page.getByLabel("Nome do requisito").fill("Apólice de Seguro Vigente");
   await page.getByRole("button", { name: "Criar requisito" }).click();
 
@@ -611,7 +616,7 @@ test("A11Y-forms: A08's create form has full label/error association", async ({ 
   await expect(page.locator(`#${describedBy}`)).toHaveText("Informe o nome do fornecedor.");
 });
 
-test("A11Y-forms: A11's inline create-requirement form has full label/error association", async ({ page }) => {
+test("A11Y-forms: A11's create-requirement dialog has full label/error association", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await setupA11(page);
   await page.goto("/requirements");
