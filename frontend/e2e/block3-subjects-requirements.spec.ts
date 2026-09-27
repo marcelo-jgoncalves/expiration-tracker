@@ -60,6 +60,15 @@ function requirement(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// Real bug found live against dev (2026-09-27): `GET .../requirements/search` wraps each hit as
+// `{kind: "REQUIREMENT", requirement, subjectDisplayName}` (`RequirementSearchHit`, D-194 Fatia 3)
+// - it never returns a bare `Requirement`. Every mock below used to fabricate the bare shape,
+// which is why the resulting crash (StatusBadge reading `.tone` off `undefined`) survived a green
+// e2e suite: this helper is what actually keeps these mocks honest to the real contract.
+function requirementHit(overrides: Record<string, unknown> = {}, subjectDisplayName = "Fornecedor Alfa Ltda") {
+  return { kind: "REQUIREMENT", requirement: requirement(overrides), subjectDisplayName };
+}
+
 function mockCompliance(page: Page, compliance: Record<string, unknown>) {
   return page.route("**/bff/api/document-archive/requirements/*/compliance", (route) => route.fulfill({ json: { compliance } }));
 }
@@ -224,11 +233,11 @@ test("E2E-B3-09: all 5 Requirement status states render with the correct label",
     const url = new URL(route.request().url());
     const status = url.searchParams.get("status");
     const byStatus: Record<string, unknown> = {
-      MISSING: requirement({ requirementId: "r-missing", name: "Req Missing", status: "MISSING" }),
-      PENDING: requirement({ requirementId: "r-pending", name: "Req Pending", status: "PENDING" }),
-      SATISFIED: requirement({ requirementId: "r-satisfied", name: "Req Satisfied", status: "SATISFIED" }),
-      NOT_SATISFIED: requirement({ requirementId: "r-notsat", name: "Req NotSatisfied", status: "NOT_SATISFIED" }),
-      NOT_APPLICABLE: requirement({ requirementId: "r-na", name: "Req NA", status: "NOT_APPLICABLE" }),
+      MISSING: requirementHit({ requirementId: "r-missing", name: "Req Missing", status: "MISSING" }),
+      PENDING: requirementHit({ requirementId: "r-pending", name: "Req Pending", status: "PENDING" }),
+      SATISFIED: requirementHit({ requirementId: "r-satisfied", name: "Req Satisfied", status: "SATISFIED" }),
+      NOT_SATISFIED: requirementHit({ requirementId: "r-notsat", name: "Req NotSatisfied", status: "NOT_SATISFIED" }),
+      NOT_APPLICABLE: requirementHit({ requirementId: "r-na", name: "Req NA", status: "NOT_APPLICABLE" }),
     };
     return route.fulfill({ json: { items: status && byStatus[status] ? [byStatus[status]] : [], scanLimitReached: false } });
   });
@@ -244,7 +253,7 @@ test("E2E-B3-10: MEMBER creates a requirement -> visible in the list", async ({ 
   await mockOrganizations(page, "MEMBER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement({ requirementId: "r-existing", name: "Existente" })] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit({ requirementId: "r-existing", name: "Existente" })] : [], scanLimitReached: false } });
   });
   let createBody: Record<string, unknown> | undefined;
   await page.route("**/bff/api/document-archive/requirements", (route) => {
@@ -267,7 +276,7 @@ test("E2E-B3-11: VIEWER sees no 'Novo requisito' button and no row actions", asy
   await mockOrganizations(page, "VIEWER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement()] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit()] : [], scanLimitReached: false } });
   });
 
   await page.goto("/requirements");
@@ -280,7 +289,7 @@ test("E2E-B3-12: MEMBER deletes a requirement (docarchive:requirement-delete is 
   await mockOrganizations(page, "MEMBER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement()] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit()] : [], scanLimitReached: false } });
   });
   let deleteCalled = false;
   await page.route("**/bff/api/document-archive/requirements/subj-1/req-1/delete", (route) => {
@@ -401,7 +410,7 @@ async function setupA11(page: Page) {
     const status = url.searchParams.get("status");
     return route.fulfill({
       json: {
-        items: status === "MISSING" ? [requirement()] : status === "PENDING" ? [requirement({ requirementId: "r-2", name: "Req Pendente", status: "PENDING" })] : [],
+        items: status === "MISSING" ? [requirementHit()] : status === "PENDING" ? [requirementHit({ requirementId: "r-2", name: "Req Pendente", status: "PENDING" })] : [],
         scanLimitReached: false,
       },
     });

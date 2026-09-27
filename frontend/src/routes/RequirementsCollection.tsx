@@ -67,7 +67,7 @@ import { SelectField } from "../components/forms/SelectField.js";
 import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presentation.js";
-import type { Requirement, RequirementApplicability, RequirementStatus } from "../api/types.js";
+import type { Requirement, RequirementApplicability, RequirementSearchHit, RequirementStatus } from "../api/types.js";
 import "./RequirementsCollection.css";
 
 /** "success" aqui é deliberadamente diferente do tom de `presentRequirementDocStatus` (mantido
@@ -81,6 +81,15 @@ const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical
   { value: "NOT_SATISFIED", label: "Não satisfeito", tone: "critical" },
   { value: "NOT_APPLICABLE", label: "Não se aplica", tone: "neutral" },
 ];
+
+// `searchRequirements` (tenant-wide, used whenever `!filterSubjectId`) returns
+// `RequirementSearchHit[]` (`{kind, requirement, subjectDisplayName}`), never a bare
+// `Requirement[]` - only the per-subject route does. `RequirementRow` is the one shape both
+// branches normalize into below, so the table doesn't need to special-case its source.
+interface RequirementRow {
+  requirement: Requirement;
+  subjectDisplayName?: string;
+}
 
 export function RequirementsCollection() {
   const orgPath = useOrgPath();
@@ -111,6 +120,7 @@ export function RequirementsCollection() {
     if (nested) navigate(orgPath(`/subjects/${r.subjectId}/requirements/${r.requirementId}`));
     else setViewingRequirement({ subjectId: r.subjectId, requirementId: r.requirementId });
   }
+
 
   function closeRequirement() {
     if (nested && filterSubjectId) navigate(orgPath(`/subjects/${filterSubjectId}`));
@@ -152,16 +162,18 @@ export function RequirementsCollection() {
     return <ErrorState message={message} onRetry={() => allQueries.forEach((q) => void q.refetch())} />;
   }
 
-  let requirements: Requirement[];
+  let requirements: RequirementRow[];
   if (filterSubjectId) {
-    requirements = subjectQuery.data?.requirements ?? [];
-    if (statusTab !== "ALL") requirements = requirements.filter((r) => r.status === statusTab);
+    let subjectRequirements = subjectQuery.data?.requirements ?? [];
+    if (statusTab !== "ALL") subjectRequirements = subjectRequirements.filter((r) => r.status === statusTab);
     if (searchTerm.trim()) {
       const needle = searchTerm.trim().toLowerCase();
-      requirements = requirements.filter((r) => r.name.toLowerCase().includes(needle));
+      subjectRequirements = subjectRequirements.filter((r) => r.name.toLowerCase().includes(needle));
     }
+    requirements = subjectRequirements.map((requirement) => ({ requirement }));
   } else {
-    requirements = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    const hits = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    requirements = hits.map((hit: RequirementSearchHit) => ({ requirement: hit.requirement, subjectDisplayName: hit.subjectDisplayName }));
   }
   // Item 37 (spec §3/§6): "Requisitos (N)" no hub do fornecedor é sempre o TOTAL sem busca - antes
   // desta correção, a anotação usava `requirements.length` (já filtrado por busca), então digitar
@@ -286,7 +298,7 @@ export function RequirementsCollection() {
           ) : (
             <DataTable
               caption="Requisitos documentais"
-              rowKey={(r: Requirement) => r.requirementId}
+              rowKey={(r: RequirementRow) => r.requirement.requirementId}
               rows={requirements}
               columns={[
             {
@@ -299,17 +311,17 @@ export function RequirementsCollection() {
                 // agora abre o MESMO destino, nunca um recurso diferente do que anuncia. O link
                 // para o fornecedor mora no identificador abaixo, onde genuinamente pertence.
                 <>
-                  <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
-                    {r.name}
+                  <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
+                    {r.requirement.name}
                   </Button>
                   <CellSecondary>
-                    <Link to={orgPath(`/subjects/${r.subjectId}`)}>{r.subjectId}</Link>
+                    <Link to={orgPath(`/subjects/${r.requirement.subjectId}`)}>{r.subjectDisplayName ?? r.requirement.subjectId}</Link>
                   </CellSecondary>
                 </>
               ),
             },
-            { key: "assignee", header: "Responsável", render: (r) => r.assigneeUserId ?? "Sem responsável" },
-            { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.status)} /> },
+            { key: "assignee", header: "Responsável", render: (r) => r.requirement.assigneeUserId ?? "Sem responsável" },
+            { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.requirement.status)} /> },
             {
               key: "validity",
               header: "Validade",
@@ -320,8 +332,12 @@ export function RequirementsCollection() {
                 // Isto NÃO é uma coleção completa de documentos do fornecedor (achado mantido,
                 // não fingido como resolvido) - só o acesso ao documento já vinculado a este
                 // requisito específico.
-                r.evidenceValidUntil ? (
-                  r.evidenceDocumentId ? <Link to={orgPath(`/documents/${r.evidenceDocumentId}`)}>{formatAbsoluteDate(r.evidenceValidUntil)}</Link> : formatAbsoluteDate(r.evidenceValidUntil)
+                r.requirement.evidenceValidUntil ? (
+                  r.requirement.evidenceDocumentId ? (
+                    <Link to={orgPath(`/documents/${r.requirement.evidenceDocumentId}`)}>{formatAbsoluteDate(r.requirement.evidenceValidUntil)}</Link>
+                  ) : (
+                    formatAbsoluteDate(r.requirement.evidenceValidUntil)
+                  )
                 ) : (
                   "—"
                 ),
@@ -331,7 +347,7 @@ export function RequirementsCollection() {
               header: "",
               actions: true,
               render: (r) => (
-                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
+                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
                   Ver
                 </Button>
               ),
@@ -340,7 +356,7 @@ export function RequirementsCollection() {
               key: "actions",
               header: "Ações",
               actions: true,
-              render: (r) => (canWrite ? <RowActions requirement={r} /> : null),
+              render: (r) => (canWrite ? <RowActions requirement={r.requirement} /> : null),
             },
           ]}
             />

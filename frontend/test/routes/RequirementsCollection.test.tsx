@@ -23,6 +23,14 @@ function requirement(overrides: Partial<Requirement> = {}): Requirement {
   };
 }
 
+// Real bug found live against dev (2026-09-27): `GET .../requirements/search` wraps each hit as
+// `{kind: "REQUIREMENT", requirement, subjectDisplayName}` (D-194 Fatia 3), never a bare
+// `Requirement` - only the per-subject route (`GET .../requirements/{subjectId}`) does. Every
+// mock of the search endpoint below used to fabricate the bare shape.
+function requirementHit(overrides: Partial<Requirement> = {}) {
+  return { kind: "REQUIREMENT" as const, requirement: requirement(overrides) };
+}
+
 beforeEach(() => {
   getMock.mockReset();
 });
@@ -30,7 +38,7 @@ beforeEach(() => {
 describe("RequirementsCollection (A11)", () => {
   it("shows initial loading, then lists MISSING requirements by default", async () => {
     getMock.mockImplementation((path: string) => {
-      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirement()], cursor: null });
+      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirementHit()], cursor: null });
       return Promise.resolve({ items: [], cursor: null });
     });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
@@ -45,7 +53,7 @@ describe("RequirementsCollection (A11)", () => {
   it("the requirement name opens the requirement itself (not the subject) - D-339 achado 1", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/search?")) {
-        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirement()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
+        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirementHit()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
       }
       if (path.includes("/document-requests")) return Promise.resolve({ documentRequests: [] });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [requirement()] });
@@ -63,7 +71,7 @@ describe("RequirementsCollection (A11)", () => {
 
   it("distinguishes NOT_APPLICABLE from MISSING with different labels", async () => {
     getMock.mockImplementation((path: string) => {
-      if (path.includes("status=NOT_APPLICABLE")) return Promise.resolve({ items: [requirement({ requirementId: "req-2", status: "NOT_APPLICABLE", name: "Comprovante" })], cursor: null });
+      if (path.includes("status=NOT_APPLICABLE")) return Promise.resolve({ items: [requirementHit({ requirementId: "req-2", status: "NOT_APPLICABLE", name: "Comprovante" })], cursor: null });
       return Promise.resolve({ items: [], cursor: null });
     });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
@@ -84,8 +92,8 @@ describe("RequirementsCollection (A11)", () => {
   // items, or if the count only appeared once its own tab were selected.
   it("shows a real count on each metric tile, independent of which tab is active", async () => {
     getMock.mockImplementation((path: string) => {
-      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirement(), requirement({ requirementId: "req-2" })], cursor: null });
-      if (path.includes("status=PENDING")) return Promise.resolve({ items: [requirement({ requirementId: "req-3", status: "PENDING" })], cursor: null });
+      if (path.includes("status=MISSING")) return Promise.resolve({ items: [requirementHit(), requirementHit({ requirementId: "req-2" })], cursor: null });
+      if (path.includes("status=PENDING")) return Promise.resolve({ items: [requirementHit({ requirementId: "req-3", status: "PENDING" })], cursor: null });
       return Promise.resolve({ items: [], cursor: null });
     });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
@@ -98,7 +106,7 @@ describe("RequirementsCollection (A11)", () => {
   it("the row 'Ver' action opens the RequirementDetail modal instead of navigating to a route", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.includes("/search?")) {
-        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirement()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
+        return path.includes("status=MISSING") ? Promise.resolve({ items: [requirementHit()], cursor: null }) : Promise.resolve({ items: [], cursor: null });
       }
       if (path.includes("/document-requests")) return Promise.resolve({ documentRequests: [] });
       if (path.startsWith("/document-archive/requirements/")) return Promise.resolve({ requirements: [requirement()] });

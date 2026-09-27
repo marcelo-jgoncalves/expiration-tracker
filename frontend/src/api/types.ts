@@ -199,8 +199,17 @@ export interface UpdateRequirementInput {
   assigneeUserId?: string;
 }
 
+/** Wraps each hit with `subjectDisplayName` enrichment - `document-archive-service.ts`'s
+ * `searchRequirements` (tenant-wide) never returns a bare `Requirement`, unlike the per-subject
+ * `GET .../requirements/{subjectId}` route (`useRequirementsForSubject`), which does. */
+export interface RequirementSearchHit {
+  kind: "REQUIREMENT";
+  requirement: Requirement;
+  subjectDisplayName?: string;
+}
+
 export interface RequirementSearchPage {
-  items: Requirement[];
+  items: RequirementSearchHit[];
   cursor: string | null;
   scanLimitReached?: boolean;
 }
