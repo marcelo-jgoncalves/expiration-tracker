@@ -44,7 +44,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, FileCheck2 } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
 import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
@@ -55,6 +55,7 @@ import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useSubjectsDashboard } from "../hooks/useSubjectsDashboard.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
+import { OmniHero } from "../components/OmniHero.js";
 import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
@@ -210,11 +211,25 @@ export function RequirementsCollection() {
           </p>
         ) : null
       ) : (
-        <PageHeader
-          title="Requisitos documentais"
-          description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
-          actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
-        />
+        <>
+          <PageHeader
+            title="Requisitos documentais"
+            above={<span className="ov-eyebrow">Conformidade documental</span>}
+            description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
+            actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
+          />
+          {/* Banner roxo (protótipo `expiration-tracker-requisitos-documentais.html`, Marcelo
+              2026-09-27) - mesmo `OmniHero` já usado por Vencimentos/Fornecedores/Membros/
+              Atividade, só que ainda faltava aqui. Só na visão tenant-wide: dentro do hub do
+              fornecedor o `SubjectLayout` já tem o seu próprio cabeçalho/hero. */}
+          <OmniHero
+            icon={FileCheck2}
+            eyebrow="Conformidade em dia"
+            title="Cada exigência, com evidência rastreável."
+            description="Acompanhe o que está em falta, pendente ou satisfeito para cada fornecedor, num só lugar."
+            summary={<><strong>{totalCount}{anyScanLimitReached ? "+" : ""}</strong><span>{totalCount === 1 ? "requisito" : "requisitos"}</span></>}
+          />
+        </>
       )}
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
@@ -449,7 +464,7 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
 
   return (
     <Dialog title="Editar requisito" onClose={onClose}>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={errors} />
         {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
         <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
@@ -463,12 +478,14 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
             { value: "NOT_APPLICABLE", label: "Não se aplica" },
           ]}
         />
-        <Button type="submit" variant="primary" pending={mutation.isPending}>
-          {mutation.isPending ? "Salvando…" : "Salvar"}
-        </Button>{" "}
-        <Button type="button" variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Salvando…" : "Salvar"}
+          </Button>
+          <Button type="button" variant="tertiary" onClick={onClose}>
+            Cancelar
+          </Button>
+        </div>
       </form>
     </Dialog>
   );
@@ -507,7 +524,7 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
 
   return (
     <Dialog title="Novo requisito" onClose={onClose}>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         <FormErrorSummary errors={errors} />
         {defaultSubjectId ? null : (
           <Combobox
@@ -533,12 +550,14 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
             { value: "NOT_APPLICABLE", label: "Não se aplica" },
           ]}
         />
-        <Button type="submit" variant="primary" pending={mutation.isPending}>
-          {mutation.isPending ? "Criando…" : "Criar requisito"}
-        </Button>{" "}
-        <Button type="button" variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Criando…" : "Criar requisito"}
+          </Button>
+          <Button type="button" variant="tertiary" onClick={onClose}>
+            Cancelar
+          </Button>
+        </div>
       </form>
     </Dialog>
   );
