@@ -117,25 +117,28 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Diferença deliberada do digest do WhatsApp**: WhatsApp é informação que chega ao cliente (cortar reduz o que ele sabe sobre seus prazos) — por isso a solução ali foi consolidar entrega, nunca reduzir cobertura. IA/OCR é automação **interna** (o documento é sempre aceito e rastreado; a única coisa em jogo é se um humano confirma o dado manualmente ou se o Bedrock sugere o valor primeiro) — degradar aqui não reduz a visibilidade do cliente sobre nada, só desloca uma fração do trabalho de "IA sugere, humano confirma" para "humano preenche direto". O produto já trata confirmação manual como caminho normal do fluxo (fail-closed, FR-043) — não é uma experiência degradada nova, é um caminho que já existe e já é usado para baixa confiança.
 
-**Mecânica proposta**: cota mensal de **chamadas Bedrock** (não de Textract/OCR básico, que sempre roda — ver ressalva abaixo) por assinatura, recalculada dinamicamente pelo número de organizações realmente criadas pelo dono (não um número fixo por tier). Acima da cota: `needsBedrock()` (`decide-bedrock.ts`) continua decidindo normalmente, mas a chamada real ao Bedrock é pulada — o campo cai direto em `PENDING_CONFIRMATION`, do mesmo jeito que já cai hoje por baixa confiança. **Nenhum upload é bloqueado, nenhum documento deixa de ser processado.**
+**Mecânica proposta**: cota mensal de **chamadas Bedrock** (não de Textract/OCR básico, que sempre roda — ver achado importante abaixo) por assinatura, recalculada dinamicamente pelo número de organizações realmente criadas pelo dono (não um número fixo por tier). Acima da cota: `needsBedrock()` (`decide-bedrock.ts`) continua decidindo normalmente, mas a chamada real ao Bedrock é pulada — o campo cai direto em `PENDING_CONFIRMATION`, do mesmo jeito que já cai hoje por baixa confiança. **Nenhum upload é bloqueado, nenhum documento deixa de ser processado.**
 
-**Fórmula (derivada do modelo de custo da seção 3.6, com meta de margem ≥60%)**:
+**Achado técnico do Codex, Rodada 7, a implementar junto**: pular o Bedrock sozinho não garante `PENDING_CONFIRMATION` automaticamente no código atual — `needsBedrock()` também dispara por ambiguidade de múltiplos candidatos de OCR, e o parser determinístico pode confirmar automaticamente um candidato único com confiança suficiente mesmo sem chamar o Bedrock. A implementação real precisa preservar o MOTIVO de `needsBedrock()` ter retornado verdadeiro e garantir revisão manual explícita para os campos cuja ambiguidade não foi resolvida — não basta simplesmente "pular a chamada" sem tratar o resultado.
+
+**Erro corrigido na Rodada 7 (achado real do Codex — erro de unidade, não só arredondamento)**: a fórmula da versão anterior usava R$0,03975 (custo MÉDIO esperado por verificação — Textract sempre + Bedrock esperado em 30% dos casos) como se fosse o custo de uma chamada Bedrock real. Isso permitia gastar o dobro do orçamento disponível só em Bedrock antes de esgotar a cota. Custo real por chamada Bedrock efetiva: US$0,015 × 5,30 = **R$0,0795** (não R$0,03975). Fórmula corrigida, separando o custo obrigatório de Textract do custo condicional de Bedrock:
 
 ```
-Cota_Bedrock(N orgs) = [ Preço × 0,40 − N × (R$3,00 teto WhatsApp/digest) − N × (GB_do_tier × R$0,122) ] ÷ R$0,03975
+Orçamento(N orgs) = Preço × 0,40 − N × R$3,00 (teto WhatsApp/digest) − N × GB_do_tier × R$0,122
+Cota_Bedrock(N orgs) = [ Orçamento(N orgs) − Verificações_estimadas × R$0,0159 (Textract, sempre incorrido) ] ÷ R$0,0795
 ```
 
-(R$0,03975 é o custo médio por verificação já usado na seção 3.6 — Textract sempre + Bedrock esperado em 30% dos casos; usar essa mesma unidade mantém a cota consistente com o resto do modelo, mesmo a cota sendo tecnicamente aplicada à chamada Bedrock.)
+**Achado mais importante desta rodada, honesto e não resolvido pela cota**: aplicando a fórmula corrigida ao Premium com 5 organizações e a mesma premissa de 5 documentos/fornecedor da Rodada 6 (10.000 fornecedores agregados × 40% ativos × 5 docs ÷ 6 ≈ 3.333 verificações/mês): **só o Textract obrigatório já custa ~R$53,00/mês**, mais o teto de WhatsApp (R$15) e storage cheio (R$30,50) = **R$98,50 — já acima do orçamento de R$59,96 para 60% de margem, ZERANDO o Bedrock por completo.** Ou seja: **a cota de IA/OCR reduz custo (é real e vale implementar), mas não é suficiente, sozinha, para garantir a margem do Premium no agregado de 5 organizações** — o custo obrigatório de Textract, que não pode ser degradado sem perder a extração automática por completo, já excede o orçamento antes de qualquer chamada Bedrock entrar na conta.
 
-| Plano | Cota com 1 organização | Cota com o máximo de organizações do plano |
+**Conclusão prática**: para o Premium especificamente, no cenário de uso agressivo do agregado de 5 organizações, **o problema não se resolve só com engenharia de cota — precisa de uma decisão de produto**: (a) reduzir fornecedores e/ou organizações incluídos no Premium, (b) subir o preço do Premium, ou (c) cobrar excedente de Textract/armazenamento além de um teto (não só Bedrock). A cota de Bedrock proposta aqui continua válida e deve ser implementada (reduz custo real, sem cortar informação do cliente) — só não deve ser apresentada como a solução completa do problema do Premium.
+
+| Plano | Cota Bedrock com 1 organização (verificações típicas da seção 3.6) | Cota Bedrock com o máximo de organizações do plano |
 |---|---:|---:|
-| Essencial (máx. 1 org) | ~502 verificações/mês | (mesmo, só tem 1) |
-| Profissional (máx. 2 orgs) | ~869 verificações/mês | ~732 verificações/mês (2 orgs) |
-| Premium (máx. 5 orgs) | ~1.279 verificações/mês | ~364 verificações/mês (5 orgs) |
+| Essencial (máx. 1 org, 6,7 verif./mês típicas) | ~250 chamadas/mês | (mesmo, só tem 1) |
+| Profissional (1 org, 33,3 verif./mês típicas) | ~428 chamadas/mês | Agregado 2 orgs, 66,7 verif./mês: ~352 chamadas/mês |
+| Premium (1 org, 133,3 verif./mês típicas) | ~613 chamadas/mês | Agregado 5 orgs, 666,7 verif./mês (1 doc/fornecedor): **~49 chamadas/mês — já bem apertado**. Com a hipótese de 5 documentos/fornecedor da Rodada 6 (3.333 verif./mês): **cota negativa — nem zerando o Bedrock a margem de 60% se sustenta** (achado acima) |
 
-**Achado honesto, não escondido**: a cota do Premium cai bastante conforme o dono usa mais das 5 organizações incluídas (1.279→364) — é o mesmo efeito de concentração de custo que a seção 3.6 já registrou. Isto significa que, em uso real de 5 organizações, o Premium vai frequentemente operar próximo ou dentro da degradação graciosa (mais campos confirmados manualmente, menos sugeridos por IA) — uma escolha consciente de proteger a margem em vez de arriscar prejuízo, não um bug. Se a telemetria real mostrar isso como problema de experiência (não só de custo), a resposta correta é revisar o número de organizações/fornecedores incluídos no Premium, não afrouxar a cota sem mais receita.
-
-**Ressalva não resolvida**: mesmo com o Bedrock cortado, o Textract básico continua rodando para cada documento (R$0,0159/verificação) — em volume verdadeiramente extremo isso sozinho poderia se tornar relevante. Não modelado com uma segunda cota nesta rodada; registrado como resíduo menor, de ordem de grandeza bem menor que o problema original do WhatsApp.
+**Ressalva ainda não resolvida**: mesmo corrigido, o modelo depende da mesma variável real não medida da Rodada 6 (documentos/requisitos por fornecedor) — os números acima usam a mesma hipótese de 5 docs/fornecedor só para ilustrar a ordem de grandeza, não são uma cota final a implementar sem essa medição real.
 
 ## 4. Comparação direta com a concorrência
 
@@ -258,9 +261,15 @@ Cota_Bedrock(N orgs) = [ Preço × 0,40 − N × (R$3,00 teto WhatsApp/digest) �
 
 ---
 
-## 12. Revisão Claude↔Codex — Rodada 7 (pendente)
+## 12. Revisão Claude↔Codex — Rodada 7 (2026-09-27)
 
-Aguardando resposta do Codex à cota de IA/OCR com degradação graciosa (seção 3.7) — pedido direto de Marcelo, resposta ao resíduo identificado na Rodada 6.
+**Nota do Codex: design 6,78/10, régua 8,5/10 — não convergido.** Achado grave: **erro de unidade na fórmula** — R$0,03975 (custo médio esperado por verificação) foi usado como se fosse o custo de uma chamada Bedrock real (R$0,0795), permitindo gastar o dobro do orçamento disponível. Corrigido na seção 3.7 (fórmula separando Textract obrigatório de Bedrock condicional).
+
+**Achado mais importante**: mesmo com a fórmula corrigida e zerando o Bedrock por completo, o custo obrigatório de Textract sozinho (que não pode ser degradado sem perder a extração automática) já excede o orçamento de 60% de margem do Premium no agregado de 5 organizações, sob a mesma hipótese de múltiplos documentos/fornecedor da Rodada 6. **Conclusão honesta, corrigida nesta rodada**: a cota de IA/OCR é real e vale implementar (reduz custo, não corta informação do cliente), mas **não é suficiente sozinha para garantir a margem do Premium no cenário agressivo de 5 organizações** — falta uma decisão de produto sobre os números incluídos no Premium (fornecedores/organizações), preço, ou uma segunda cota de excedente que cubra Textract/storage, não só Bedrock.
+
+**Achado técnico adicional**: pular a chamada Bedrock sozinha não garante `PENDING_CONFIRMATION` automaticamente no código real — `needsBedrock()` também dispara por ambiguidade de múltiplos candidatos OCR, e o parser determinístico pode confirmar um candidato único automaticamente mesmo sem Bedrock. A implementação precisa preservar o motivo original e garantir revisão manual explícita, não só "pular a chamada" — registrado como requisito de implementação, não resolvido só com a proposta de preço.
+
+**Status**: 7 rodadas completas nesta decisão. Régua estável em 8,5/10 desde a Rodada 3 (5 rodadas seguidas sem 9,0). Cada rodada de correção da cota de IA/OCR reforçou, em vez de dissolver, o achado original da Rodada 5-6: **o Premium, com os números atuais de fornecedores/organizações incluídos, não tem margem sustentável sob premissas realistas de uso, com ou sem engenharia de cota interna.** Isto deixou de ser uma questão de rigor de análise — é uma decisão de produto real e pendente: reduzir o que o Premium inclui, subir o preço, ou aceitar um mecanismo de cobrança por excedente mais amplo que só Bedrock.
 
 ---
 
