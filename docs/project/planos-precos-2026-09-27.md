@@ -119,10 +119,10 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Correção de fundo: trocar cota pré-calculada por orçamento de custo REAL, debitado em tempo real** — o mesmo padrão que `TenantQuotaService`/`quota.consume()` já implementa hoje em `start-ocr.ts`/`run-bedrock-extraction.ts` (reserva de cota por operação, não estimativa mensal). Mecânica:
 
-1. **Orçamento mensal por assinatura** = Preço × 0,40 (meta de margem ≥60%) — sem depender do número de organizações na fórmula (diferente da Rodada 8): o gasto real de cada canal já escala naturalmente com o uso real, não precisa ser pré-multiplicado por N.
+1. **Orçamento mensal por assinatura** = Preço (100% — corrigido na seção 3.8, a restrição real é margem ≥0%, nunca foi ≥60%) — sem depender do número de organizações na fórmula: o gasto real de cada canal já escala naturalmente com o uso real, não precisa ser pré-multiplicado por N.
 2. **WhatsApp nunca é bloqueado** (diretriz de Marcelo) — cada mensagem de digest ou bypass é enviada normalmente e debita seu custo REAL (R$0,10) do orçamento da assinatura, mesmo que o saldo fique negativo.
 3. **Textract roda sempre** (custo fixo baixo, R$0,0159/documento, aceito como parte do custo base do produto, nunca gated).
-4. **Bedrock é a válvula de segurança primária**: no momento em que `needsBedrock()` retorna verdadeiro, o sistema checa o saldo REAL restante do orçamento (Preço×0,40 − gasto real de WhatsApp do mês − gasto real de Bedrock do mês) contra o custo REAL de uma chamada (R$0,0795, não a média). Se insuficiente, a chamada é pulada — o campo cai em `PENDING_CONFIRMATION` (candidato do parser determinístico, se houver, continua sendo sugerido; só a etapa de LLM é que não roda).
+4. **Bedrock é a válvula de segurança primária**: no momento em que `needsBedrock()` retorna verdadeiro, o sistema checa o **único saldo real da assinatura** (Preço − gasto real acumulado de WhatsApp do mês − gasto real acumulado de Bedrock do mês − gasto real acumulado de Textract do mês — o mesmo saldo que a válvula secundária do passo 5 também consulta, achado do Codex Rodada 9: as duas válvulas precisam ler o mesmo saldo, não saldos parciais diferentes) contra o custo REAL de uma chamada (R$0,0795, não a média). Se insuficiente, a chamada é pulada — o campo cai em `PENDING_CONFIRMATION` (candidato do parser determinístico, se houver, continua sendo sugerido; só a etapa de LLM é que não roda).
 5. **Válvula de segurança secundária (rara, só em extremos)**: se mesmo com Bedrock sempre pulado o gasto acumulado de Textract+WhatsApp real do mês ameaçar ultrapassar o orçamento, novos uploads continuam sendo aceitos e armazenados normalmente, mas a extração automática (mesmo o Textract) passa a ser adiada para o próximo ciclo de orçamento — nunca um bloqueio de upload, só um adiamento da automação.
 
 **Por que isto é uma garantia real desta vez**: cada débito é o custo REAL incorrido, checado no momento da decisão, não uma média pré-calculada — o mesmo tipo de erro que a Rodada 8 cometeu (média tratada como teto) não pode se repetir, porque não há mais média nenhuma no caminho crítico, só custo real acumulado. O WhatsApp nunca é bloqueado (cumpre a diretriz de Marcelo à risca, sem "teto assumido" que a Rodada 8 tratou incorretamente como hard); a IA/OCR é a única válvula, e ela reage ao gasto real, não a uma projeção.
@@ -130,6 +130,8 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 **Mitigação de UX real, resposta ao achado do Codex de que perder OCR/IA é degradação perceptível, não invisível**: quando o orçamento estiver apertado, priorizar automação pelos requisitos com vencimento mais próximo primeiro — o cliente sente o mínimo de fricção manual exatamente onde o produto mais precisa acertar (prazo perto de vencer), e mais fricção manual só em itens com folga de tempo maior.
 
 **Implicação para os números do Premium, sem alegar mais do que o modelo sustenta**: os 2.000 fornecedores/5 organizações continuam como oferta (D-346: combinação sem equivalente direto entre os concorrentes pesquisados) — mas, ao contrário da Rodada 8, **não alegamos que a experiência de automação fica "intacta"**: em uso agressivo, uma fração real dos documentos vai exigir preenchimento manual (o orçamento de custo real vai sinalizar isso objetivamente, mês a mês, em vez de uma cota fixa arbitrária). Isso é comunicado como tradeoff consciente — capacidade rastreada nunca cai, mas a promessa de "toda leitura é automática" não se sustenta em uso extremo, e não deveria ser prometida dessa forma no marketing.
+
+**Exceção explícita do Free (achado real do Codex, R8/R9)**: com orçamento = Preço, o Free (R$0) teria orçamento zero por definição, o que zeraria toda automação mesmo no uso mínimo (25 fornecedores) — não é a intenção. Free usa uma cota fixa e pequena, subsidiada conscientemente (ex. mesma ordem de grandeza da seção 3.6, ~R$1/mês de custo aceito como investimento de aquisição), não a fórmula de orçamento por preço.
 
 **Pendência de implementação explícita**: a reserva precisa ser atômica (evitar corrida entre operações concorrentes), e falta decidir se o "orçamento" reseta mensalmente de forma dura ou acumula saldo residual — decisão de produto, não fechada aqui.
 
@@ -145,18 +147,22 @@ Orçamento(mês) = Preço (100%, não 40%) − gasto real de WhatsApp do mês �
 
 A cota de verificações automáticas (seção 3.7) consome o que sobrar desse orçamento, exatamente como já desenhado — só a base de cálculo muda, de 40% do preço para 100% do preço.
 
+**Correção da Rodada 10 sobre o próprio cenário "extremo" (achado real do Codex — a versão anterior desta seção confundiu dois cenários diferentes)**: "5 documentos/fornecedor" com a taxa de renovação típica (÷6) é o cenário TÍPICO-com-mais-documentos, não o extremo. O extremo real é 100% dos fornecedores ativos renovando 5 documentos cada NO MESMO MÊS — para o Premium agregado de 5 organizações (10.000 fornecedores), isso são **50.000 verificações/mês**, não 3.333.
+
 **Recálculo do Premium (5 organizações, o caso mais apertado) com a restrição real**:
 
-| Cenário | WhatsApp | Storage | IA/OCR (cota disponível) | Margem resultante |
-|---|---:|---:|---:|---:|
-| Típico (1 doc/fornecedor), 1 destinatário/org | R$15,00 | R$30,50 | R$26,50 (666,7 verif. — cobre 100% do típico) | **~52%** |
-| Típico (1 doc/fornecedor), 5 destinatários/org (pior caso realista de equipe) | R$75,00 | R$30,50 | R$26,50 (cobre 100%) | **~12%** — positiva |
-| Extremo (5 docs/fornecedor, tudo junto), 1 destinatário/org | R$15,00 | R$30,50 | Cota real-time para em ~2.626 verif. antes de estourar (cenário pede 3.333 — cobre ~79%) | **≥0%** (mecanismo já impede negativo) |
-| Extremo (5 docs/fornecedor, tudo junto), 5 destinatários/org | R$75,00 | R$30,50 | Cota real-time para em ~1.117 verif. antes de estourar (cenário pede 3.333 — cobre ~34%) | **≥0%** (mecanismo já impede negativo) |
+| Cenário | WhatsApp | Storage | Cota de IA/OCR disponível | Cobertura | Resultado |
+|---|---:|---:|---:|---:|---:|
+| Típico (1 doc/fornecedor), 1 destinatário/org | R$15,00 | R$30,50 | 2.626 verif. (orçamento R$104,40) | 666,7 necessárias — **100% cobertas** | **Margem ~52%** |
+| Típico (1 doc/fornecedor), 5 destinatários/org | R$75,00 | R$30,50 | 1.117 verif. (orçamento R$44,40) | 666,7 necessárias — **100% cobertas** | **Margem ~12%, positiva** |
+| Típico com 5 docs/fornecedor, 1 destinatário/org | R$15,00 | R$30,50 | 2.626 verif. | 3.333 necessárias — **~79% cobertas** | Margem ~0% (mecanismo para antes de negativar) |
+| Típico com 5 docs/fornecedor, 5 destinatários/org | R$75,00 | R$30,50 | 1.117 verif. | 3.333 necessárias — **~34% cobertas** | Margem ~0% (mecanismo para antes de negativar) |
+| **Extremo real** (100% ativos × 5 docs, tudo no mesmo mês), 1 destinatário/org | R$15,00 | R$30,50 | 2.626 verif. | 50.000 necessárias — **~5% cobertas** | Margem ~0% (mecanismo para bem antes, quase tudo manual naquele mês) |
+| **Extremo real**, 5 destinatários/org | R$75,00 | R$30,50 | 1.117 verif. | 50.000 necessárias — **~2% cobertas** | Margem ~0% (idem, cobertura automática mínima) |
 
-**Conclusão corrigida**: com a restrição real (evitar negativo, não manter 60%), **o mecanismo de orçamento de custo real em tempo real (seção 3.7) já entrega o que Marcelo pediu**, inclusive no cenário mais agressivo — porque a válvula de segurança (parar de processar automaticamente antes de estourar o orçamento) é exatamente o que impede a margem negativa, por construção, independente de quão alto o uso fique. **O "achado estrutural" da Rodada 9 não era real — era um artefato da meta de 60% inventada por este relatório.**
+**Conclusão corrigida, sem alegar "garantia" (achado do Codex: aumentar o orçamento de 40%→100% do preço reduz drasticamente o risco, mas não torna um custo sem teto genuinamente limitado)**: nos cenários típicos (com ou sem múltiplos documentos por fornecedor), a margem fica positiva com folga real. No cenário extremo sintético, a cota de IA/OCR em tempo real impede a margem de ficar negativa **nessa componente especificamente** — mas isso significa que, nesse mês, a esmagadora maioria dos documentos (95-98%) cairia em preenchimento manual, um custo de experiência real, não hipotético. **O "achado estrutural" da Rodada 9 não desaparece por completo** — ele fica muito mais raro e muito mais bem delimitado: só vira risco de margem negativa de verdade se WhatsApp+storage, SOZINHOS, excederem o preço total antes mesmo de qualquer IA/OCR — o que exige recorrência de destinatários muito acima do típico (a análise da Rodada 10 original estimou ~8+/org como referência de ordem de grandeza, mas o Codex apontou corretamente que esse número não conta mensagens de bypass nem parte do orçamento já consumido por IA/OCR — é uma referência aproximada, não um limiar exato).
 
-**Resíduo genuíno, agora muito mais estreito**: só existe risco real de margem negativa se WhatsApp+storage, SOZINHOS (sem nenhuma verificação automática, cota já zerada), excederem o preço total — o que exigiria algo como 8+ destinatários ativos em média nas 5 organizações do Premium, com armazenamento quase cheio. Isto é um cenário de uso genuinamente incomum (equipes grandes operando um Premium no limite simultâneo de tudo), não um risco de lançamento — mas vale monitorar via os limiares de breakeven já definidos, exatamente como Marcelo pediu antes nesta conversa.
+**Posição final honesta**: o mecanismo (digest + orçamento de custo real) reduz o risco de prejuízo a um resíduo estreito e monitorável, mas **não é uma garantia absoluta enquanto o WhatsApp permanecer irrestrito por definição** — isso é matematicamente inevitável, não uma falha de desenho a corrigir. A resposta correta não é prometer "nunca negativo" sem ressalva, é: monitorar o gasto real de WhatsApp (que é o único componente genuinamente sem teto) contra os limiares de breakeven já definidos nesta conversa, e ter uma política pronta (aceitar o risco residual, ou introduzir cobrança de excedente de WhatsApp especificamente) para o caso raro em que ele se aproximar do preço da assinatura sozinho.
 
 ## 4. Comparação direta com a concorrência
 
@@ -315,9 +321,15 @@ A cota de verificações automáticas (seção 3.7) consome o que sobrar desse o
 
 ---
 
-## 15. Revisão Claude↔Codex — Rodada 10 (pendente)
+## 15. Revisão Claude↔Codex — Rodada 10 (2026-09-27)
 
-Aguardando resposta do Codex à correção da restrição de margem (seção 3.8) — Marcelo apontou diretamente que a meta de 60% usada nas Rodadas 6-9 nunca foi pedida por ele; a restrição real é só evitar margem negativa.
+**Nota do Codex: design 7,80/10 (subiu de 7,125), régua 8,5/10 — não convergido, mas o "achado estrutural" da Rodada 9 foi genuinamente reduzido, não eliminado.** Aceitou a correção de Marcelo (60% nunca foi pedido) sem ressalva. Achado real, embaraçoso: a versão original desta seção confundiu "cenário típico com 5 documentos/fornecedor" (3.333 verificações/mês) com "cenário extremo" — o extremo real (100% ativos × 5 documentos, tudo no mesmo mês) é **50.000 verificações/mês**, com cobertura automática de só ~2-5%. Corrigido na tabela acima.
+
+**Posição final do Codex, adotada**: aumentar o orçamento de 40%→100% do preço reduz drasticamente o risco (cenários típicos ficam com margem 12-52%, saudáveis), mas **não torna WhatsApp genuinamente limitado** — ele continua sem teto por definição (nunca bloqueado). Ainda é matematicamente possível, em teoria, que WhatsApp+storage sozinhos excedam o preço antes de qualquer IA/OCR — o limiar de "~8 destinatários/org" é só uma referência de ordem de grandeza, não um número exato (não conta bypass nem consumo de IA/OCR já feito no mês). **Conclusão adotada nesta versão**: parar de alegar "garantia" e apresentar como "risco reduzido a um resíduo estreito e monitorável, com uma política pendente para o caso raro" — exatamente a posição final registrada na seção 3.8.
+
+**Achados menores adicionais, corrigidos**: as duas válvulas (Bedrock primária, Textract secundária) precisavam consultar o mesmo saldo único, não saldos parciais diferentes — corrigido na seção 3.7; exceção do Free (orçamento = Preço = R$0 zeraria toda automação) não estava explícita — corrigida.
+
+**Status**: 10 rodadas completas. Régua estável em 8,5/10 desde a Rodada 3 (8 rodadas seguidas sem 9,0) — mas o design subiu de forma consistente nas últimas 2 rodadas (6,725→7,125→7,80) depois da correção do Marcelo, mostrando convergência real em andamento, não estagnação. O mecanismo (digest + orçamento de custo real) está tecnicamente sólido e pronto para implementação — o que resta não é mais precisão técnica, é uma frase final honesta sobre o que ele garante (proteção forte, não absoluta) e uma política pendente (aceitar risco residual vs. cobrar excedente de WhatsApp) para o caso raro que nem mecanismo nenhum elimina por completo.
 
 ---
 
