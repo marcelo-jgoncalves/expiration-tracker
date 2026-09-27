@@ -113,6 +113,30 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Conclusão honesta desta rodada**: o digest é uma correção real e válida da causa estrutural identificada (3 mensagens × fornecedores) e deve ser implementado de qualquer forma — reduz custo e melhora a experiência do cliente. Mas **não é, sozinho, prova suficiente de que Profissional/Premium têm margem garantida** — falta saber (a) quantos destinatários por organização o produto real vai ter, e (b) quantos documentos/requisitos por fornecedor são típicos. Sem esses dois números, tratar os preços atuais como economicamente validados seria repetir o mesmo excesso de confiança que rodadas anteriores já cometeram duas vezes (erros aritméticos declarados como resolvidos antes da hora).
 
+### 3.7 Cota de IA/OCR com degradação graciosa — resposta ao resíduo de IA/OCR (decisão de Marcelo, 2026-09-27)
+
+**Diferença deliberada do digest do WhatsApp**: WhatsApp é informação que chega ao cliente (cortar reduz o que ele sabe sobre seus prazos) — por isso a solução ali foi consolidar entrega, nunca reduzir cobertura. IA/OCR é automação **interna** (o documento é sempre aceito e rastreado; a única coisa em jogo é se um humano confirma o dado manualmente ou se o Bedrock sugere o valor primeiro) — degradar aqui não reduz a visibilidade do cliente sobre nada, só desloca uma fração do trabalho de "IA sugere, humano confirma" para "humano preenche direto". O produto já trata confirmação manual como caminho normal do fluxo (fail-closed, FR-043) — não é uma experiência degradada nova, é um caminho que já existe e já é usado para baixa confiança.
+
+**Mecânica proposta**: cota mensal de **chamadas Bedrock** (não de Textract/OCR básico, que sempre roda — ver ressalva abaixo) por assinatura, recalculada dinamicamente pelo número de organizações realmente criadas pelo dono (não um número fixo por tier). Acima da cota: `needsBedrock()` (`decide-bedrock.ts`) continua decidindo normalmente, mas a chamada real ao Bedrock é pulada — o campo cai direto em `PENDING_CONFIRMATION`, do mesmo jeito que já cai hoje por baixa confiança. **Nenhum upload é bloqueado, nenhum documento deixa de ser processado.**
+
+**Fórmula (derivada do modelo de custo da seção 3.6, com meta de margem ≥60%)**:
+
+```
+Cota_Bedrock(N orgs) = [ Preço × 0,40 − N × (R$3,00 teto WhatsApp/digest) − N × (GB_do_tier × R$0,122) ] ÷ R$0,03975
+```
+
+(R$0,03975 é o custo médio por verificação já usado na seção 3.6 — Textract sempre + Bedrock esperado em 30% dos casos; usar essa mesma unidade mantém a cota consistente com o resto do modelo, mesmo a cota sendo tecnicamente aplicada à chamada Bedrock.)
+
+| Plano | Cota com 1 organização | Cota com o máximo de organizações do plano |
+|---|---:|---:|
+| Essencial (máx. 1 org) | ~502 verificações/mês | (mesmo, só tem 1) |
+| Profissional (máx. 2 orgs) | ~869 verificações/mês | ~732 verificações/mês (2 orgs) |
+| Premium (máx. 5 orgs) | ~1.279 verificações/mês | ~364 verificações/mês (5 orgs) |
+
+**Achado honesto, não escondido**: a cota do Premium cai bastante conforme o dono usa mais das 5 organizações incluídas (1.279→364) — é o mesmo efeito de concentração de custo que a seção 3.6 já registrou. Isto significa que, em uso real de 5 organizações, o Premium vai frequentemente operar próximo ou dentro da degradação graciosa (mais campos confirmados manualmente, menos sugeridos por IA) — uma escolha consciente de proteger a margem em vez de arriscar prejuízo, não um bug. Se a telemetria real mostrar isso como problema de experiência (não só de custo), a resposta correta é revisar o número de organizações/fornecedores incluídos no Premium, não afrouxar a cota sem mais receita.
+
+**Ressalva não resolvida**: mesmo com o Bedrock cortado, o Textract básico continua rodando para cada documento (R$0,0159/verificação) — em volume verdadeiramente extremo isso sozinho poderia se tornar relevante. Não modelado com uma segunda cota nesta rodada; registrado como resíduo menor, de ordem de grandeza bem menor que o problema original do WhatsApp.
+
 ## 4. Comparação direta com a concorrência
 
 **Achado do Codex, Rodada 1**: os números de "fornecedores incluídos" da Remindax/Expiration Reminder na versão anterior desta seção não estavam registrados em D-346 (D-346 só registra preço, não volume de itens por tier) — eram alegações novas, não verificadas. Corrigido: números abaixo verificados de novo diretamente nas páginas oficiais nesta rodada, citados como tal (não como "já em D-346").
@@ -234,7 +258,13 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 ---
 
-## 12. Limitações desta proposta
+## 12. Revisão Claude↔Codex — Rodada 7 (pendente)
+
+Aguardando resposta do Codex à cota de IA/OCR com degradação graciosa (seção 3.7) — pedido direto de Marcelo, resposta ao resíduo identificado na Rodada 6.
+
+---
+
+## 13. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
 - **Política de custo de WhatsApp resolvida via digest (seção 3.5/3.6, Rodada 6)** — não mais uma lacuna aberta. Resíduo: só o cenário sintético extremo de IA/OCR (5 orgs Premium renovando 100% no mesmo mês) segue sem política de fair-use definida.
