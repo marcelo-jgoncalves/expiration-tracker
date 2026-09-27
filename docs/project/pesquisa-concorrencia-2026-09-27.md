@@ -2,7 +2,7 @@
 
 **Pedido por:** Marcelo, 2026-09-27, no mesmo fluxo da decisão D-345 (multi-organização por `OWNER`, gated por plano). Objetivo: descobrir se já cobrimos as funcionalidades dos concorrentes, quanto cobram, e onde há espaço para diferencial com plano mais barato.
 
-**Método:** 3 agentes de pesquisa web independentes, cada um cobrindo um segmento (mercado brasileiro; plataformas globais de compliance de fornecedores; SaaS de contratos/renovação para PME fora do Brasil), buscando e lendo diretamente páginas de preço/produto reais — nunca inventando concorrente ou preço. 36 concorrentes reais encontrados com fonte individual rastreável (URL + data de consulta, tabela completa na seção 6) — alguns apps genéricos de nicho sem preço/feature distintos, mencionados agregadamente na seção 2.1, não contam nesses 36 e não têm linha própria na seção 6. Onde um dado não pôde ser confirmado no site, foi marcado explicitamente como não encontrado (nunca presumido).
+**Método:** 3 agentes de pesquisa web independentes, cada um cobrindo um segmento (mercado brasileiro; plataformas globais de compliance de fornecedores; SaaS de contratos/renovação para PME fora do Brasil), buscando e lendo diretamente páginas de preço/produto reais — nunca inventando concorrente ou preço. 36 concorrentes reais encontrados, cada um com URL + data de consulta (tabela completa na seção 6) — **25 verificados por fetch direto da página oficial, 11 por busca agregada (agregador terceiro nomeado só em 1 dos 11 casos), achado da Rodada 6, ver seção 6** — alguns apps genéricos de nicho sem preço/feature distintos, mencionados agregadamente na seção 2.1, não contam nesses 36 e não têm linha própria na seção 6. Onde um dado não pôde ser confirmado no site, foi marcado explicitamente como não encontrado (nunca presumido).
 
 **Como isto se encaixa no que já existe:** `docs/project/roadmap-competitivo-2026-09-01.md` já tinha uma tabela de preço RASCUNHO (Free R$0 / Essencial R$59,90 / Profissional R$99,90 / Premium R$149,90, §12) e um roadmap de features P0-P2 (§3) — esta pesquisa testa essas duas coisas contra o mercado real, não as substitui sem revisão de Marcelo.
 
@@ -95,7 +95,7 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 
 ## 4. Checklist de critérios de nota (E-014) — introduzido na Rodada 2, reponderado na Rodada 3
 
-**Declaração de pesquisa externa (protocolo E-014, `docs/engineering/research-protocol.md`): SIM.** Pricing/posicionamento de SaaS B2B é um padrão que outras empresas já resolveram extensivamente; a amostra (36 concorrentes com fonte individual rastreável, 4 segmentos: Brasil pessoal/PME, Brasil B2B fornecedores, global B2B fornecedores, global trackers/CLM) cobre desde apps pessoais até enterprise, reduzindo viés de nicho único — representatividade justificada, não só listada.
+**Declaração de pesquisa externa (protocolo E-014, `docs/engineering/research-protocol.md`): SIM.** Pricing/posicionamento de SaaS B2B é um padrão que outras empresas já resolveram extensivamente; a amostra (36 concorrentes, 25 verificados por fetch direto e 11 por busca agregada — ver ressalva de rastreabilidade na seção 6 —, 4 segmentos: Brasil pessoal/PME, Brasil B2B fornecedores, global B2B fornecedores, global trackers/CLM) cobre desde apps pessoais até enterprise, reduzindo viés de nicho único — representatividade justificada, não só listada.
 
 **Correção de processo registrada explicitamente (exigida pelo protocolo quando o Codex contesta a régua)**: a Rodada 1 foi submetida **sem** este checklist — o Codex apontou isso corretamente (nota da régua 2,0/10) e a proposta foi avaliada por impressão geral em vez de critérios explícitos. Este checklist nasceu na Rodada 2; a Rodada 2 do Codex **contestou parcialmente** os pesos/âncoras (régua 8,0/10, ainda não ≥9,0) e sugeriu explicitamente a reponderação e o critério novo abaixo — **incorporados nesta versão (Rodada 3)**, citado aqui como correção explícita, nunca trocado em silêncio. Subordinado ao eixo "Arquitetura/Modelo de Produto" de `docs/engineering/joint-review-criteria.md` — este checklist é uma sub-rubrica específica desta decisão, não substitui os 9 eixos fixos.
 
@@ -201,7 +201,7 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 
 **Nota sobre "fetch direto" vs. "busca agregada"**: fetch direto = página oficial do concorrente foi lida diretamente pelo agente de pesquisa nesta sessão. Busca agregada = dado vem de agregador terceiro (Capterra/G2/Vendr/GetApp/blog de mercado) porque a página oficial não publicava preço ou o fetch direto não foi possível — marcado explicitamente em cada caso, nunca apresentado com a mesma confiança de um dado de fonte primária.
 
-**Limitação reconhecida na Rodada 5 (achado do Codex, generalizado além do caso pontual da Agiloft)**: toda linha marcada "Busca agregada" nesta tabela cita o agregador pelo nome (Vendr, Capterra, etc.) mas não a URL específica da página consultada dentro desse agregador — só o domínio raiz do PRÓPRIO concorrente está listado na coluna URL, que nesses casos não é de onde o preço realmente veio. Isto é uma lacuna real de rastreabilidade em ~10 das 36 linhas (as marcadas "Busca agregada"), não só na Agiloft — registrada aqui honestamente em vez de corrigida linha a linha (as URLs específicas dos agregadores não foram capturadas durante a pesquisa original e não devem ser reconstruídas de memória agora, por risco de citar uma URL incorreta).
+**Limitação reconhecida na Rodada 5, corrigida na Rodada 6 (achado do Codex: a generalização da R5 estava ela própria incorreta)**: **11 das 36 linhas** desta tabela estão marcadas "Busca agregada". Só a Agiloft nomeia o agregador (Vendr) explicitamente — Veriforce, ISNetworld, Cognibox, TrustLayer, Contractbook, Concord, PandaDoc, Ironclad, Gatekeeper e TrackSSL dizem apenas "Busca agregada" sem nomear a fonte terceira específica nem sua URL. Em nenhum dos 11 casos a coluna URL (que lista o domínio do PRÓPRIO concorrente) é de onde o preço realmente veio. Esta é uma lacuna real de rastreabilidade não resolvida — registrada honestamente em vez de reconstruída de memória agora (risco de citar uma URL/fonte incorreta), e a afirmação "36 concorrentes com fonte individual rastreável" usada no resto do relatório deve ser lida com essa ressalva: rastreável para 25 das 36 linhas (fetch direto), e apontada mas não plenamente rastreável para as outras 11.
 
 ---
 
@@ -293,17 +293,21 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 - Critério 5 (câmbio/periodicidade, 10%): 8,5 — faixas separadas corretamente agora; taxa de câmbio segue sem fonte primária única, reconhecido.
 - Critério 6 (reconciliação com princípios, 10%): 9,0 — §13 tratado com honestidade, deixado como pergunta aberta.
 - Critério 7 (validação comercial, 10%): 9,5 — plano concreto, efeito de cotas multiplicadas reconhecido.
-- **Nota ponderada: 9,0/10.**
+- **Nota ponderada: 8,975/10 — correção da Rodada 6**: a soma ponderada real (8×20% + 9,5×15% + 9×15% + 9,5×20% + 8,5×10% + 9×10% + 9,5×10%) é 8,975, não 9,0 como esta seção afirmou originalmente. O Codex recalculou e apontou o erro aritmético na Rodada 6 — erro de cálculo real, não arredondamento indevido; `AGENTS.md` §4 já proíbe arredondar 8,99 para 9, e 8,975 também não vira 9,0. Isto invalida o status de "primeira rodada bilateral convergida" que esta seção declarava.
 
-**Status**: Rodada 5 completa. **Ambos os lados atingiram ≥9,0 nesta rodada (Codex 9,15, Claude 9,0)** — mas o protocolo (`AGENTS.md` §4) exige **duas rodadas consecutivas** ≥9,0 dos dois lados antes de considerar a decisão concluída. Esta é a primeira; falta confirmar numa Rodada 6 sem regressão.
-
----
-
-## 12. Revisão Claude↔Codex — Rodada 6 (pendente, confirmação de convergência)
-
-Rodada de confirmação: nenhuma mudança de conteúdo esperada além das correções já aplicadas nesta revisão (seção 11). Se o Codex mantiver ≥9,0 sem achar regressão, e o Claude confirmar ≥9,0 de forma independente, a decisão converge (2ª rodada consecutiva ≥9,0 dos dois lados) e o registro final vai para `decisions-log.md` D-346 com o checklist final da seção 4.
+**Status (corrigido na Rodada 6)**: Rodada 5 completa. Codex atingiu ≥9,0 (9,15). A nota do Claude foi originalmente reportada como 9,0, mas era **8,975 de verdade** (erro aritmético, corrigido acima) — **a Rodada 5 NÃO foi uma rodada bilateral ≥9,0**, diferente do que esta seção afirmava antes da correção.
 
 ---
+
+## 12. Revisão Claude↔Codex — Rodada 6 (2026-09-27)
+
+**Nota do Codex: 9,00/10, sem arredondamento — fecha a sequência do lado do Codex** (R5 9,15 → R6 9,00, ambas ≥9,0). Achado real e importante desta rodada: **o Codex recalculou a soma ponderada dos 7 critérios que o Claude reportou na Rodada 5 e encontrou 8,975, não 9,0** — erro aritmético real do lado do Claude, corrigido na seção 11 acima. Também corrigiu a generalização da limitação de rastreabilidade (a R5 dizia que toda linha "Busca agregada" nomeia o agregador; na verdade só 1 das 11 nomeia — Agiloft/Vendr) — corrigido nas seções 1, 4 e 6.
+
+**Nota do Claude (Rodada 6, recomputada com cuidado após o achado aritmético da R5)**: reavaliei os 7 critérios do zero em vez de reaproveitar os números da R5. Nenhum critério individual mudou de valor — a correção desta rodada foi de DESCRIÇÃO (rastreabilidade real: 25 fetch direto / 11 busca agregada, só 1 nomeando o agregador), não de substância nova encontrada. Recalculando com os mesmos 7 valores da R5 (8,0 / 9,5 / 9,0 / 9,5 / 8,5 / 9,0 / 9,5): a soma ponderada continua **8,975/10** — abaixo de 9,0.
+
+**Por que não forçar o critério 1 (verificabilidade) para cima só para fechar em 9,0**: o gap é real e não desaparece só de descrevê-lo com mais precisão — 11 das 36 linhas da tabela de fontes não têm uma URL de terceiro rastreável, só "busca agregada" registrado. Resolver isso de verdade exigiria uma nova rodada de pesquisa (recuperar as URLs específicas dos agregadores), não mais edição de texto. Reportar 9,0 sem isso seria repetir o mesmo tipo de erro que o Codex encontrou nesta mesma rodada.
+
+**Status**: Rodada 6 completa. **Codex confirmou ≥9,0 pela segunda rodada consecutiva (9,15 → 9,00).** A nota do Claude permanece em 8,975 em ambas as rodadas 5 e 6 — **a decisão NÃO converge pelo critério formal do protocolo** (exige ambos os lados ≥9,0 em 2 rodadas consecutivas). O gap residual é conhecido, específico e pequeno (rastreabilidade de 11 fontes secundárias) — não um problema de fundo na proposta de preço/posicionamento em si, que já tem nota alta e estável nos critérios de maior peso (gating multi-org 9,5/10, validação comercial 9,5/10).
 
 ## 13. Limitações desta pesquisa
 
