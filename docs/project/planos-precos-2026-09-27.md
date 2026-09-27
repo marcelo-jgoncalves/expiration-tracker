@@ -48,7 +48,7 @@ A Rodada 2 tratava "25 fornecedores" e "vencimentos pessoais ilimitados" como o 
 - **`TrackedSubject`** (fornecedor/parceiro) — a entidade do módulo B2B (Requisitos documentais, Guest Upload, IA/OCR). Já tem cota técnica real (`activeTrackedSubjectsLimit`, default 25 no free).
 - **`ExpirationItem`** (item com vencimento — certidão, contrato, seguro, documento de veículo, etc., sem vínculo a um fornecedor) — entidade separada, **sem nenhuma cota técnica hoje** (não existe `activeItemsLimit` nem equivalente no código). **Correção de linguagem (achado do Codex, Rodada 3)**: chamar isso de "vencimento pessoal" é impreciso — o item pertence à organização (tenant), não a um usuário individual, e pode ter um responsável atribuído. "Pessoal" aqui descreve o caso de uso (item sem fornecedor associado), não uma propriedade técnica de posse individual.
 
-**Correção**: Free ganha acesso **completo** ao módulo Fornecedores (não mais "limitado"), dentro do teto já existente de 25 `TrackedSubject` — resolve o risco de funil de conversão cego (D-346/Rodada 1) sem inventar um sub-limite novo e confuso. `ExpirationItem` (vencimentos pessoais) fica sem cota técnica em nenhum tier — mecanismo não existe hoje, e criar um está fora do escopo desta proposta de preço (registrado como pendência técnica, seção 3.5).
+**Correção**: Free ganha acesso **completo** ao módulo Fornecedores (não mais "limitado"), dentro do teto já existente de 25 `TrackedSubject` — resolve o risco de funil de conversão cego (D-346/Rodada 1) sem inventar um sub-limite novo e confuso. `ExpirationItem` (vencimentos pessoais) fica sem cota técnica em nenhum tier — mecanismo não existe hoje, e criar um está fora do escopo desta proposta de preço (registrado como pendência técnica, seção 3.6).
 
 **Comportamento ao atingir o teto de fornecedores** (achado da Rodada 2, não respondido antes): criação/ativação de um fornecedor além do limite do tier é bloqueada com mensagem explícita + CTA de upgrade; os fornecedores já ativos continuam funcionando normalmente. Arquivar um fornecedor libera a vaga (mesma semântica que `TrackedSubjectStatus` já usa para "ACTIVE").
 
@@ -65,36 +65,48 @@ Segue a recomendação explícita da pesquisa de 2026-09-09: produtos do nosso s
 
 Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downgrade/transferência de titularidade permanece um gap de design real, não resolvido aqui** — esta proposta só confirma os números de inclusão por tier, não a implementação. Compra de organização extra avulsa (precedente Remindax) fica como direção a explorar, preço avulso não definido nesta rodada.
 
-### 3.5 Cota de IA/OCR, política de excedente e estimativa de custo — reconstruída na Rodada 3 com premissas reproduzíveis
+### 3.5 Solução ao problema de custo do WhatsApp: digest na camada de entrega, não cota de mensagens
 
-**Ainda não resolvido**: cota mensal formal de chamadas de IA/OCR por tier e regra de excedente (bloquear? cobrar por unidade extra? degradar para fila?) — precisa de uma rodada dedicada com dados reais de consumo. A estimativa abaixo serve só para checar plausibilidade da faixa de preço, não substitui essa rodada.
+**Decisão de Marcelo (2026-09-27)**: não limitar quantidade de mensagens — a informação completa sempre chega ao cliente. A causa raiz do problema de margem (seções 3.5-antiga/Rodadas 4-5) não é "WhatsApp é caro", é **3 mensagens separadas por requisito** (lembretes 30/15/7 dias) multiplicadas por milhares de fornecedores.
+
+**Isto já era uma questão em aberto documentada, com gatilho de reavaliação já satisfeito**: `docs/architecture/roadmap-evolution/07-domain-model-escalation-watchers-digest.md` (Fase 2b, cluster 5) cogitou digest e adiou deliberadamente, registrando o gatilho exato: *"evidência real de notification fatigue ou volume de notificações por usuário acima de threshold observado em uso real, não especulação"*. A análise de custo desta rodada (planos/preço) **é** essa evidência — não uma nova pesquisa, ativação de uma decisão já prevista. O mesmo documento já especifica a forma correta: **agregação na camada de entrega** (`DigestEntry` por intent elegível, agrupado por `tenantId+recipient+channel+window`), nunca no domínio do evento original — `NotificationIntent` continua 1-por-evento (cada prazo é registrado e rastreado individualmente, nada é perdido); só o WhatsApp de SAÍDA é consolidado. Vencidos/escalation crítico fazem bypass do digest (mensagem imediata), exatamente como aquele documento já previa.
+
+**Mecânica concreta proposta**: no máximo **1 mensagem WhatsApp por organização por dia**, consolidando todos os requisitos que cruzaram um limiar de lembrete (30/15/7 dias) naquele dia — "3 fornecedores com documento vencendo em 15 dias: X, Y, Z" numa mensagem só, em vez de 3 mensagens separadas. Item vencido ou escalonamento crítico continua imediato, fora do digest (nunca atrasa uma notificação urgente). **Nenhuma informação é omitida ou limitada** — o volume de eventos rastreados não muda, só a forma de entrega consolidada. Isto também é uma melhoria real de produto (menos spam para o cliente), não só uma correção de custo.
+
+**Efeito no custo**: o teto estrutural passa a ser **dias do mês × organizações**, não mais **fornecedores × 3**. No máximo 30 mensagens/organização/mês, **independente de o tier ter 25 ou 2.000 fornecedores incluídos** — quebra a multiplicação que causava o problema.
+
+### 3.6 Cota de IA/OCR, política de excedente e estimativa de custo — recalculada com o digest da seção 3.5
+
+**Ainda não resolvido**: cota mensal formal de chamadas de IA/OCR por tier e regra de excedente para o cenário extremo (ver achado ao final desta seção) — precisa de uma rodada dedicada com dados reais de consumo. A estimativa abaixo serve só para checar plausibilidade da faixa de preço, não substitui essa rodada.
 
 **Premissas explícitas, recalculadas com cuidado na Rodada 4 (achado real do Codex, Rodada 4: a versão anterior tinha erro aritmético — o cenário típico do Essencial deveria dar ~R$0,27+R$2,00, não R$0,70+R$12-18; refeito passo a passo abaixo, verificável)**:
 - Verificações/mês = (fornecedores incluídos × % ativos) ÷ 6 — cenário típico assume 40% ativos, renovação a cada 6 meses. Cenário de uso elevado assume 100% ativos renovando no mesmo mês (pico de fim de período).
 - Custo por verificação = Textract (2 páginas × US$1,50/1.000 = US$0,003) + Bedrock fallback esperado (30% × US$0,015 = US$0,0045) = **US$0,0075/verificação**.
-- WhatsApp: 3 mensagens por verificação (lembretes 30/15/7 dias) × R$0,10/mensagem entregue (modelo real de cobrança, corrigido na R3) = **R$0,30/verificação**.
+- WhatsApp: **com digest (seção 3.5)**, no máximo 1 mensagem/organização/dia, R$0,10/mensagem entregue. Dias ativos/mês (dias com pelo menos 1 requisito cruzando um limiar) estimados por faixa de fornecedores: Free/Essencial (25-100 fornecedores) ~15-20 dias/mês no elevado, menos no típico; Profissional/Premium (500-2.000 fornecedores) praticamente todo dia tem algo a reportar dado o volume — usado o teto de 30 dias/mês como estimativa conservadora (pior caso realista, não o pior caso absoluto).
 - Câmbio de referência: US$1 = R$5,30 (mesma taxa ilustrativa de D-346, seção 6). Storage: US$0,023/GB/mês.
 - E-mail (SES) tem custo desprezível (~US$0,10/1.000) e não entra no total.
 - **Storage na tabela abaixo permanece uma lacuna real, não resolvida (achado do Codex, Rodada 5)**: os valores de storage usados nas linhas de "uso elevado" abaixo assumem a cota CHEIA do tier (pior caso, não uma ocupação realista) — nenhuma premissa de ocupação típica real foi declarada. Isto significa que o storage nas linhas "típico" está subestimado (tratado como ~R$0) sem justificativa, e o impacto real pode ser maior do que a tabela sugere. Não corrigido nesta rodada — registrado explicitamente como pendência, não escondido atrás de uma premissa nova não verificada.
 - **Decisão de desenho nova, fechando um gap real**: Free (R$0 de receita) usa **só e-mail**, nunca WhatsApp — evita expor custo variável de mensagem numa assinatura sem receita nenhuma. Não estava explícito antes.
 - **Margem-alvo proposta (nova, respondendo ao achado do Codex de que nenhuma foi definida)**: ≥60% no cenário típico, tolerável (não necessariamente lucrativo) até o breakeven no cenário de uso elevado de 1 organização — qualquer tier que fique negativo já no cenário elevado de 1 organização (antes de multi-org) é sinalizado como pendência real abaixo, não aceito silenciosamente.
 
-| Tier | Cenário | Fornecedores | Verif./mês | IA/OCR | WhatsApp | Storage | Total | Preço | Margem |
+| Tier | Cenário | Fornecedores | Verif./mês | IA/OCR | WhatsApp (com digest) | Storage | Total | Preço | Margem |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Free | Típico (40% ativos) | 25 | 1,7 | R$0,07 | R$0 (sem WhatsApp) | ~R$0 | R$0,07 | R$0 | Custo puro (loss-leader por desenho) |
 | Free | Elevado (100% ativos) | 25 | 25 | R$1,00 | R$0 | ~R$0 | R$1,00 | R$0 | Custo puro (loss-leader por desenho) |
-| Essencial | Típico (40% ativos) | 100 | 6,7 | R$0,27 | R$2,00 | ~R$0 | R$2,27 | R$59,90 | **~96%** |
-| Essencial | Elevado (100% ativos) | 100 | 100 | R$3,98 | R$30,00 | ~R$0 | R$33,98 | R$59,90 | **~43%** |
-| Profissional | Típico, 1 org (40% ativos) | 500 | 33,3 | R$1,32 | R$10,00 | ~R$0 | R$11,32 | R$99,90 | **~89%** |
-| Profissional | Elevado, 1 org (100% ativos) | 500 | 500 | R$19,88 | R$150,00 | ~R$0 | R$169,88 | R$99,90 | **Negativa (~-70%)** |
-| Profissional | **Típico, agregado 2 orgs** | 200 | 66,7 | R$2,65 | R$20,00 | ~R$0 | R$22,65 | R$99,90 | ~77% |
-| Profissional | Elevado, agregado 2 orgs | 1.000 | 1.000 | R$39,75 | R$300,00 | ~R$0 | R$339,75 | R$99,90 | **Negativa, bem pior** |
-| Premium | Típico, 1 org (40% ativos) | 2.000 | 133,3 | R$5,30 | R$40,00 | ~R$0,32 | R$45,62 | R$149,90 | **~70%** |
-| Premium | Elevado, 1 org (100% ativos) | 2.000 | 2.000 | R$79,50 | R$600,00 | ~R$6,10 (50GB) | R$685,60 | R$149,90 | **Negativa (~-357%)** |
-| Premium | **Típico, agregado 5 orgs** | 4.000 | 666,7 | R$26,50 | R$200,00 | ~R$1,60 | R$228,10 | R$149,90 | **Negativa (~-52%) — achado da Rodada 5, contradiz a versão anterior desta seção, ver correção abaixo** |
-| Premium | Elevado, agregado 5 orgs | 10.000 | 10.000 | R$397,50 | R$3.000,00 | ~R$30,48 (250GB) | R$3.427,98 | R$149,90 | **Negativa, catastrófica** |
+| Essencial | Típico (40% ativos, ~15 dias ativos/mês) | 100 | 6,7 | R$0,27 | R$1,50 | ~R$0 | R$1,77 | R$59,90 | **~97%** |
+| Essencial | Elevado (100% ativos, ~20 dias ativos/mês) | 100 | 100 | R$3,98 | R$2,00 | ~R$0 | R$5,98 | R$59,90 | **~90%** |
+| Profissional | Típico, 1 org (~25 dias ativos/mês) | 500 | 33,3 | R$1,32 | R$2,50 | ~R$0 | R$3,82 | R$99,90 | **~96%** |
+| Profissional | Elevado, 1 org (~30 dias ativos/mês) | 500 | 500 | R$19,88 | R$3,00 | ~R$0 | R$22,88 | R$99,90 | **~77%** |
+| Profissional | Típico, agregado 2 orgs | 200 | 66,7 | R$2,65 | R$5,00 | ~R$0 | R$7,65 | R$99,90 | **~92%** |
+| Profissional | Elevado, agregado 2 orgs | 1.000 | 1.000 | R$39,75 | R$6,00 | ~R$0 | R$45,75 | R$99,90 | **~54%** |
+| Premium | Típico, 1 org (~30 dias ativos/mês, teto já atingido dado o volume) | 2.000 | 133,3 | R$5,30 | R$3,00 | ~R$0,32 | R$8,62 | R$149,90 | **~94%** |
+| Premium | Elevado, 1 org (30 dias/mês, teto do digest) | 2.000 | 2.000 | R$79,50 | R$3,00 | ~R$6,10 (50GB) | R$88,60 | R$149,90 | **~41%** |
+| Premium | Típico, agregado 5 orgs | 4.000 | 666,7 | R$26,50 | R$15,00 | ~R$1,60 | R$43,10 | R$149,90 | **~71%** |
+| Premium | Elevado, agregado 5 orgs (cenário sintético extremo — ver achado abaixo) | 10.000 | 10.000 | R$397,50 | R$15,00 | ~R$30,48 (250GB) | R$442,98 | R$149,90 | **Negativa (~-196%)** |
 
-**Achado real, corrigido na Rodada 5 (a versão anterior desta seção estava errada nesse ponto específico — achado do Codex ao recalcular os agregados típicos que faltavam)**: para 1 organização isolada, o cenário típico tem margem saudável em todos os tiers pagos (70-96%). **Mas o problema de margem negativa NÃO está isolado ao uso elevado** — o Premium já fica negativo (~-52%) no cenário TÍPICO quando um `OWNER` usa as 5 organizações incluídas no plano (228/mês de custo variável contra R$149,90 de receita). Profissional aguenta o agregado típico de 2 organizações (~77% de margem), mas não o agregado elevado. A causa raiz é sempre a mesma: volume de mensagens WhatsApp por fornecedor incluído, multiplicado pelo número de organizações que o próprio plano oferece. **Pendência real de produto, não resolvida aqui, agora com maior urgência para o Premium especificamente**: definir uma cota de mensagens WhatsApp por tier (separada da contagem de fornecedores) ou um mecanismo de digest (1 mensagem consolidada em vez de 3 por requisito) — sem isso, o número de organizações incluídas no Premium (até 5) e/ou o número de fornecedores incluídos (2.000) não podem ser tratados como finais.
+**Achado real, atualizado na Rodada 6 (pedido direto de Marcelo: resolver o custo do WhatsApp sem limitar quantidade de mensagens)**: com o digest da seção 3.5 aplicado, **todo cenário realista fica com margem saudável (41-97%)**, incluindo o que antes era o pior caso real — Premium com agregado típico de 5 organizações, que foi de -52% para ~71%. O digest quebra a multiplicação "fornecedores × 3 mensagens" porque o teto de custo passa a ser dias-do-mês × organizações, não mais fornecedores incluídos.
+
+**Resíduo real, muito mais estreito do que antes**: só o cenário sintético extremo — **todos os 10.000 fornecedores do agregado de 5 organizações do Premium renovando no MESMO mês** — continua negativo (~-196%), e a causa já não é WhatsApp (fixo em R$15/mês pelo teto do digest), é o próprio custo de IA/OCR em volume extremo (R$397,50/mês de Textract/Bedrock). Este é um cenário de estresse sintético (nenhuma empresa real tem 100% dos documentos de 2.000 fornecedores × 5 organizações vencendo no mesmo mês), não uma previsão de uso típico — mas vale registrar como tail-risk genuíno, não descartado: se acontecer, uma política de fair-use bem mais estreita (só para o volume extremo de chamadas IA/OCR simultâneas, não para mensagens) seria suficiente, e ainda não está definida.
 
 **Achado real (não estava na versão anterior)**: o risco de margem negativa em uso elevado **não é exclusivo do Premium** — já aparece no Profissional com uma única organização em pico de renovação, muito antes de considerar o agregado multi-org. A causa raiz é o volume de mensagens WhatsApp por fornecedor incluído, não o número de organizações. **Isto é uma estimativa ilustrativa com premissas explícitas, não uma análise de consumo real validada** — mas já é suficiente para dizer que **os números de fornecedores incluídos em Profissional/Premium não podem ser considerados finais sem antes decidir uma política de limite/cobrança de WhatsApp separada da contagem de fornecedores** (ex.: cota de mensagens/mês por tier, digest em vez de 3 mensagens separadas, ou add-on pago de WhatsApp acima de um teto). Isto é uma pendência real de produto, não resolvida aqui.
 
@@ -202,11 +214,18 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 ---
 
-## 11. Limitações desta proposta
+## 11. Revisão Claude↔Codex — Rodada 6 (pendente)
+
+Aguardando resposta do Codex à solução de digest (seções 3.5/3.6) — pedido direto de Marcelo para resolver o custo do WhatsApp sem limitar quantidade de mensagens.
+
+---
+
+## 12. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
-- Cota de IA/OCR mensal e política de excedente **ainda não definidas com precisão** — só uma estimativa de ordem de grandeza foi feita, não uma cota formal com regra de bloqueio/cobrança.
+- **Política de custo de WhatsApp resolvida via digest (seção 3.5/3.6, Rodada 6)** — não mais uma lacuna aberta. Resíduo: só o cenário sintético extremo de IA/OCR (5 orgs Premium renovando 100% no mesmo mês) segue sem política de fair-use definida.
 - Comportamento de excedente de armazenamento (storage) não definido explicitamente (só fornecedores e IA/OCR foram cobertos).
-- O cálculo de custo de servir por tier (seção 3.5) é uma estimativa de ordem de grandeza com preços públicos AWS, não uma análise de consumo real validada — D-346 seção 5.2 já registrou o cálculo real como pré-requisito antes de fixar preço final; ainda pendente.
+- O cálculo de custo de servir por tier (seção 3.6) é uma estimativa de ordem de grandeza com preços públicos AWS, não uma análise de consumo real validada — D-346 seção 5.2 já registrou o cálculo real como pré-requisito antes de fixar preço final; ainda pendente.
 - Preço avulso de organização extra (Profissional/Premium) não definido.
 - Comparação da seção 4 usa "itens/registros" dos concorrentes como proxy de "fornecedores" nosso — unidades podem não ser equivalentes, ressalva já registrada, mas não eliminada.
+- **Implementação do digest não existe ainda** — esta proposta ativa uma decisão de design já documentada (`07-domain-model-escalation-watchers-digest.md`) mas o mecanismo (`DigestEntry`, agregação na camada de entrega) precisa ser construído antes de qualquer lançamento comercial com WhatsApp ativo.
