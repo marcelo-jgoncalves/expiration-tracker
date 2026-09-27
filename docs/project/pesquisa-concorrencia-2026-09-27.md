@@ -23,11 +23,11 @@ Não identificado, nas fontes consultadas, um concorrente brasileiro direto e es
 - Apps pessoais simples (**RemindMe**, R$25-60/mês) — sem B2B, só push local, sem OCR.
 - Módulos dentro de GEDs corporativos genéricos (**Software Neutron**, **MegaGED**) — sem preço público, vendidos por "fale conosco" para médio/grande porte, sem multi-canal/templates/import em massa/trilha de auditoria confirmados.
 
-**Gap real**: ninguém ataca o meio-termo (freelancer/MEI/PME, self-serve, preço público, multi-canal com WhatsApp/Telegram) — exatamente nosso posicionamento nos tiers Essencial/Profissional.
+**Gap real**: nenhum concorrente identificado nas fontes consultadas ataca o meio-termo (freelancer/MEI/PME, self-serve, preço público, multi-canal com WhatsApp/Telegram) — exatamente nosso posicionamento nos tiers Essencial/Profissional.
 
 ### 2.2 Brasil — compliance documental de fornecedores (8 concorrentes relevantes)
 
-Todos são **enterprise puro, venda consultiva, sem preço público**, mirando empresas com centenas/milhares de fornecedores:
+**Predominantemente enterprise, venda consultiva**, mirando empresas com centenas/milhares de fornecedores — **exceto suaCND** (nicho contábil, preço parcialmente público), única exceção da amostra: (achado do Codex, Rodada 4 — a frase "todos sem preço público" contradizia a própria linha da suaCND na tabela abaixo)
 
 | Concorrente | Foco | Preço público? |
 |---|---|---|
@@ -54,8 +54,8 @@ Todos são **enterprise puro, venda consultiva, sem preço público**, mirando e
 ### 2.4 Global — trackers de expiração e CLM para PME (13 concorrentes)
 
 - **Expiration Reminder** e **Remindax** são os gêmeos funcionais mais próximos do OmniVence — WhatsApp, IA/OCR de datas, importação em massa. Remindax: US$23-29/mês no tier de entrada (dentro da nossa faixa-alvo). Expiration Reminder: US$49-399/mês (acima).
-- **Achado crucial para D-345 (multi-org gated por plano), números corrigidos na Rodada 3 conforme a [tabela oficial da Remindax](https://www.remindax.com/pricing)**: sequência completa dos 4 tiers pagos — Basic US$23/mês anual (US$29 mensal, 1 empresa) → Professional US$63/mês (1 empresa) → Business US$119-149/mês (2 empresas) → Premium US$239-299/mês (3 empresas). Compra de empresa extra avulsa sem subir de tier também existe — **confirmada só na Remindax**, não na VendorJot abaixo.
-- **Segundo precedente real, adicionado na Rodada 2, plano corrigido na Rodada 3**: **VendorJot** tiera por "workspace" com planos mais granulares do que reportado antes — Free (1), US$29/mês, US$49/mês, US$99/mês, US$199/mês, US$399/mês ([vendorjot.com/pricing](https://www.vendorjot.com/pricing); contagem exata de workspaces por tier não confirmada em todos os planos) — confirma que "número de organizações/workspaces como alavanca de tier" aparece em pelo menos 2 dos 36 concorrentes pesquisados, não só na Remindax, mas a mecânica de "compra avulsa sem subir de tier" não é confirmada nela. VendorJot também tem o melhor exemplo de guest upload sem conta (link mágico) — valida essa feature.
+- **Achado crucial para D-345 (multi-org gated por plano), números corrigidos na Rodada 4 conforme a [tabela oficial da Remindax](https://www.remindax.com/pricing) (a correção da Rodada 3 ainda estava errada — Codex verificou de novo)**: sequência real dos 4 tiers pagos, empresas incluídas = **1/2/2/3** (não 1/1/2/3): Basic US$29/mês (US$23 anual-equivalente, 1 empresa) → Professional US$79/mês (US$63 anual-equivalente, 2 empresas) → Business US$149/mês (US$119 anual-equivalente, 2 empresas) → Premium US$299/mês (US$239 anual-equivalente, 3 empresas). Compra de empresa extra avulsa sem subir de tier também existe — confirmada só na Remindax, não identificada na VendorJot abaixo.
+- **Segundo precedente real, adicionado na Rodada 2, dados corrigidos na Rodada 4 conforme [vendorjot.com/pricing](https://www.vendorjot.com/pricing)**: **VendorJot** vende 6 planos, cada um JÁ INCLUINDO um número de workspaces (não "preço por workspace" — correção de unidade, achado do Codex) — Free (1 workspace), US$29/mês (1), US$49/mês (3), US$99/mês (10), US$199/mês (15), US$399/mês (20). Confirma que "número de organizações/workspaces incluídas no plano como alavanca de tier" aparece em pelo menos 2 dos 36 concorrentes pesquisados, não só na Remindax — a mecânica de "compra avulsa sem subir de tier" da Remindax não foi identificada na VendorJot. VendorJot também tem o melhor exemplo de guest upload sem conta (link mágico) — valida essa feature.
 - Ferramentas de CLM (**ContractSafe**, **Contractbook**, **Concord**, **Gatekeeper**) custam **muito acima** da nossa faixa: US$450-1.245/mês.
 - Enterprise (**Ironclad**, **Agiloft**): US$30 mil–600 mil+/ano — serve só de contraste de mensagem.
 - **"Score de compliance" (nota calculada, não só dashboard de status)**: Linkana (seção 2.2) já tem um score calculado real (0-100, pesos por documento) — **não é uma ausência de mercado**, correção mantida da Rodada 1 (a versão original deste relatório afirmava "0 de 36 têm").
@@ -85,9 +85,9 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 | API pública/webhooks | 🔴 backlog P2 | ~8 de 36, muitos via Zapier só |
 | Integração com calendário | 🔴 backlog P2 | Remindax e Expiration Reminder (Outlook) confirmados — menos raro do que a 1ª versão deste relatório concluiu |
 | Score de compliance (nota calculada) | 🔴 backlog P2 (roadmap §18.4, já é item existente — corrigido, não é novidade desta pesquisa) | Linkana confirma ter (0-100, pesos por documento) — **não é uma ausência de mercado, corrigido após crítica do Codex** |
-| Portal completo do fornecedor/cliente | Parcial (guest upload existe, portal completo não) | Avetta/ISNetworld/Wehandle são enterprise; **VendorJot é uma exceção real de porte PME** (planos Free/US$29/US$49/US$99/US$199/US$399 por workspace, [vendorjot.com/pricing](https://www.vendorjot.com/pricing)) — corrigido na Rodada 3, não é "todos enterprise" |
+| Portal completo do fornecedor/cliente | Parcial (guest upload existe, portal completo não) | Avetta/ISNetworld/Wehandle são enterprise; **VendorJot é uma exceção real de porte PME** (6 planos, US$0 a US$399/mês, cada um incluindo de 1 a 20 workspaces, [vendorjot.com/pricing](https://www.vendorjot.com/pricing)) — não é "todos enterprise" |
 | SSO/SCIM/enterprise | 🔴 backlog Futuro | Só nos tiers Enterprise dos concorrentes maiores |
-| **Multi-organização por dono, gated por plano** | ✅ **decidido (D-345)**, não implementado | **2 precedentes reais**: Remindax (Basic/Professional=1, Business=2, Premium=3 empresas; compra de empresa extra avulsa sem subir de tier é exclusiva dela) e VendorJot (tiering por workspace em 6 planos, mecânica de "extra avulso" não confirmada) — corrigido na Rodada 3, Remindax não é mais chamada de "único" precedente |
+| **Multi-organização por dono, gated por plano** | ✅ **decidido (D-345)**, não implementado | **2 precedentes reais**: Remindax (empresas incluídas por tier = 1/2/2/3; compra de empresa extra avulsa sem subir de tier não identificada em outro concorrente) e VendorJot (6 planos, cada um incluindo de 1 a 20 workspaces) — Remindax não é o único precedente |
 
 **Conclusão (corrigida após Rodada 1 do protocolo — ver seção 5)**: já cobrimos a maior parte do que os concorrentes oferecem, incluindo itens que a primeira versão deste relatório havia marcado incorretamente como pendentes (ações em massa, compartilhamento externo seguro — já entregues, roadmap §18.3). Telegram como canal continua um diferencial não identificado nas fontes consultadas (nunca "comprovadamente ausente do mercado" — distinção reforçada na Rodada 3). **Verificação humana obrigatória e score de compliance NÃO são diferenciais exclusivos** como a primeira versão afirmou — Linkana já tem score calculado (0-100, pesos por documento) e myCOI já usa humano-no-loop; a alegação de exclusividade foi retirada. Full-text search e e-signature seguem com baixa contagem de concorrentes, mas o Codex apontou corretamente que baixa contagem não prova baixo risco de negócio — tratar como hipótese a validar, não como fato estabelecido.
 
@@ -111,9 +111,9 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 
 ---
 
-## 5. Proposta de posicionamento e preço (Rodada 4, revisada)
+## 5. Proposta de posicionamento e preço (Rodada 5, revisada)
 
-> Isto é uma PROPOSTA para revisão — não uma decisão. Marcelo decide. **Revisada após as críticas das Rodadas 1-3 (seções 7-9) — a régua do checklist (seção 4) já está estável/aceita; esta rodada só ajusta o design contra ela.**
+> Isto é uma PROPOSTA para revisão — não uma decisão. Marcelo decide. **Revisada após as críticas das Rodadas 1-4 (seções 7-10) — a régua do checklist (seção 4) já está estável/aceita; esta rodada só ajusta o design contra ela.**
 
 ### 5.1 Pitch de posicionamento
 
@@ -137,7 +137,7 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 |---|---|---|---|
 | Free | 1 | Não disponível | Por organização (já é o modelo hoje, `TenantEntitlement`) |
 | Essencial | 1 | Não disponível | Por organização |
-| Profissional | até 2 | Sim, preço avulso a definir (precedente: Remindax e VendorJot vendem/tieram por org extra sem necessariamente subir de tier inteiro) | Por organização, sem compartilhamento entre as orgs do mesmo dono — ver seção 5.2 sobre o efeito de custo multiplicado |
+| Profissional | até 2 | Sim, preço avulso a definir (precedente: Remindax vende empresa extra sem subir de tier — VendorJot inclui workspaces fixos por plano, sem essa opção confirmada) | Por organização, sem compartilhamento entre as orgs do mesmo dono — ver seção 5.2 sobre o efeito de custo multiplicado |
 | Premium | até 5 | Sim, preço avulso a definir | Idem |
 
 **Gap de design real, registrado explicitamente (não resolvido nesta pesquisa)**: o modelo atual (`Membership` já permite múltiplos `OWNER`s por organização, physical model D-086) não tem hoje o conceito de "qual `OWNER` é o pagador responsável pelo limite de organizações do grupo", nem um estado de organização "pausada por billing, dados preservados, reversível" (o que existe — `TenantLifecycleRecord` — é para exclusão definitiva, não pausa). Definir isso exige: (1) quem é o pagador quando há múltiplos `OWNER`s, (2) o que acontece se esse pagador specific sai da organização ou é removido, (3) um estado novo de organização (não reaproveitando `TenantLifecycleRecord`) para "acima do limite do plano, mas não excluída", (4) fluxo de transferência de titularidade. **Isto precisa da sua própria rodada de escopo técnico (nível 5) antes da implementação de D-345** — não é algo que esta pesquisa de mercado deveria/conseguiria resolver.
@@ -186,9 +186,9 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 | TrustLayer | trustlayer.io | Não divulgado (estimativa terceiros US$1.000+) | — | Busca agregada | 2026-09-27 |
 | Certificial | certificial.com | US$0 (até 5) / US$99/mês | R$0 / R$525 | Fetch direto | 2026-09-27 |
 | Expiration Reminder | expirationreminder.com | US$49-399/mês | R$260-2.115 | Fetch direto | 2026-09-27 |
-| Remindax | remindax.com/pricing | Basic: US$29/mês ou US$23/mês anual-equivalente · Professional: US$63/mês · Business: US$119/mês ou US$95/mês anual · Premium: US$239/mês ou US$191/mês anual | R$122-1.267 | Fetch direto (corrigido na Rodada 3) | 2026-09-27 |
+| Remindax | remindax.com/pricing | Basic: US$29 ou US$23/mês anual (1 empresa) · Professional: US$79 ou US$63/mês anual (2 empresas) · Business: US$149 ou US$119/mês anual (2 empresas) · Premium: US$299 ou US$239/mês anual (3 empresas) | R$122-1.585 | Fetch direto (corrigido na Rodada 4 — a versão da Rodada 3 ainda estava errada) | 2026-09-27 |
 | RenewAlert | renewalert.net | US$14,99-49,99/mês | R$79-265 | Fetch direto | 2026-09-27 |
-| VendorJot | vendorjot.com/pricing | US$0/29/49/99/199/399/mês (6 planos por workspace) | R$0-2.115 | Fetch direto (faixa completa corrigida na Rodada 3, versão anterior só citava até US$49) | 2026-09-27 |
+| VendorJot | vendorjot.com/pricing | US$0/29/49/99/199/399/mês (6 planos, cada um incluindo 1/1/3/10/15/20 workspaces — preço do plano, não por workspace, corrigido na Rodada 4) | R$0-2.115 | Fetch direto | 2026-09-27 |
 | ContractSafe | contractsafe.com/features | US$450-815/mês | R$2.385-4.320 | Fetch direto (busca p/ preço) | 2026-09-27 |
 | Contractbook | contractbook.com | €399-599/mês | ~R$2.274-3.415 | Busca agregada | 2026-09-27 |
 | Concord | concord.app | US$499-899/mês + assento | R$2.645-4.765+ | Busca agregada | 2026-09-27 |
@@ -262,13 +262,28 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 
 ---
 
-## 10. Revisão Claude↔Codex — Rodada 4 (pendente)
+## 10. Revisão Claude↔Codex — Rodada 4 (2026-09-27)
 
-Aguardando resposta do Codex à proposta revisada (correções 1-7 acima, seções 2-3/5-7). Com a régua já estável (seção 4, aceita na Rodada 3), esta rodada e as seguintes reportam só a nota de design — a régua não muda a menos que um achado real force revisão, registrada explicitamente se ocorrer.
+**Nota do Codex**: Régua confirmada estável (sem nova contestação). Design **8,70/10** — subiu de 8,5 (R3), ainda abaixo de 9,0.
+
+**Confirmação**: nenhum problema estrutural novo no gating de multi-org (critério 4, nota 10,0) nem na validação comercial (critério 7, nota 10,0) — os dois critérios que tratam da mecânica de negócio da proposta já estão no máximo.
+
+**Achados residuais reais, corrigidos na Rodada 5**:
+1. **A correção de preço da Remindax da Rodada 3 ainda estava errada** — Codex verificou de novo contra a fonte oficial: a sequência real é 1/2/2/3 empresas (Basic/Professional/Business/Premium), não 1/1/2/3. Preços exatos: US$29/23 · US$79/63 · US$149/119 · US$299/239 (mensal/anual-equivalente). Corrigido em 2.4/3/6.
+2. **VendorJot: erro de unidade** — os 6 planos JÁ INCLUEM um número fixo de workspaces (1/1/3/10/15/20), não é "preço por workspace" (o que implicaria cobrança multiplicativa que a fonte não confirma). Corrigido em 2.4/3/6. A afirmação de que ela também permite comprar org extra sem subir de tier foi removida — não confirmada na fonte.
+3. Linguagem de exclusividade residual corrigida: "ninguém ataca o meio-termo" (2.1) → "nenhum concorrente identificado nas fontes consultadas ataca"; "compra avulsa é exclusiva da Remindax" → "não identificada em outro concorrente"; §2.2 dizia "todos sem preço público" contradizendo a própria linha da suaCND na tabela — corrigido para reconhecer a exceção.
+
+**Status**: Rodada 4 completa, régua estável, design ainda não convergido (8,70 < 9,0). Rodada 5 (correções acima) aguarda nova nota do Codex (seção 11).
 
 ---
 
-## 11. Limitações desta pesquisa
+## 11. Revisão Claude↔Codex — Rodada 5 (pendente)
+
+Aguardando resposta do Codex à proposta revisada (correções 1-3 acima). Régua já estável desde a Rodada 3 — esta rodada reporta só a nota de design.
+
+---
+
+## 12. Limitações desta pesquisa
 
 - Pesquisa feita via busca web + fetch de páginas públicas, não testes reais de produto (trial/demo) — features marcadas "não encontrado no site" podem existir e não estarem documentadas publicamente.
 - Preços de concorrentes "fale conosco" foram, quando possível, estimados por fontes de terceiros (marcado explicitamente como "busca agregada" na seção 6) — não são números oficiais.
