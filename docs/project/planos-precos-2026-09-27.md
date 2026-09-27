@@ -113,34 +113,25 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Conclusão honesta desta rodada**: o digest é uma correção real e válida da causa estrutural identificada (3 mensagens × fornecedores) e deve ser implementado de qualquer forma — reduz custo e melhora a experiência do cliente. Mas **não é, sozinho, prova suficiente de que Profissional/Premium têm margem garantida** — falta saber (a) quantos destinatários por organização o produto real vai ter, e (b) quantos documentos/requisitos por fornecedor são típicos. Sem esses dois números, tratar os preços atuais como economicamente validados seria repetir o mesmo excesso de confiança que rodadas anteriores já cometeram duas vezes (erros aritméticos declarados como resolvidos antes da hora).
 
-### 3.7 Cota de verificação automática (OCR+IA) — desenho reconstruído na Rodada 8, garantia por construção
+### 3.7 Orçamento de custo real (não cota pré-calculada por média) — desenho reconstruído na Rodada 9
 
-**Correção de fundo na Rodada 8**: as Rodadas 6-7 tentaram cortar só o Bedrock, mantendo o Textract sempre ativo — isso criou 2 problemas reais (unidade errada na fórmula, e o achado de que Textract sozinho excede o orçamento do Premium mesmo com Bedrock zerado). A correção não é uma cota adicional — é **redefinir o que a cota cobre**: em vez de "cota de chamadas Bedrock" (com Textract sempre incondicional), a cota agora é de **verificações completas** — cada verificação acima da cota pula o pipeline inteiro (Textract E Bedrock), não só o Bedrock.
+**Achado grave do Codex, Rodada 8, que invalida a "garantia matemática" da Rodada 8**: R$0,03975 é o custo médio ESPERADO por verificação (Bedrock em 30% dos casos) — não o máximo. Se a proporção real de casos que precisam de Bedrock for maior (ex. 100% num mês ruim), o custo real por verificação sobe para R$0,0954, e a mesma cota de 364 verificações custaria R$80,23, não R$14,46 — margem real ~46%, não 60%. **Uma cota fixa baseada em média nunca é uma garantia, só uma estimativa com risco não quantificado.** Também confirmado: o teto de WhatsApp "R$3/organização" não é hard de verdade — o digest agrega por destinatário (Premium tem usuários ilimitados, múltiplos destinatários multiplicam o custo) e mensagens de bypass somam por cima, sem teto.
 
-**Diferença deliberada do digest do WhatsApp, mantida**: IA/OCR é automação **interna** — o documento é sempre aceito, armazenado e rastreado; acima da cota, o campo simplesmente não tem sugestão automática nenhuma (nem OCR nem IA) e vai direto para preenchimento manual — um caminho que já existe e já é tratado como normal (fail-closed, FR-043), não uma experiência nova degradada. **Nenhum upload é bloqueado, nenhum documento deixa de ser rastreado.**
+**Correção de fundo: trocar cota pré-calculada por orçamento de custo REAL, debitado em tempo real** — o mesmo padrão que `TenantQuotaService`/`quota.consume()` já implementa hoje em `start-ocr.ts`/`run-bedrock-extraction.ts` (reserva de cota por operação, não estimativa mensal). Mecânica:
 
-**Por que isto resolve os 2 achados da Rodada 7 ao mesmo tempo**: como a verificação inteira é pulada (não só o Bedrock), a taxa correta para o cálculo volta a ser o custo médio esperado por verificação completa — R$0,03975 (Textract sempre + Bedrock esperado em 30% dos casos) — e não há mais erro de unidade, porque agora a cota realmente controla esse custo médio, não uma fração dele. E como o Textract também é pulado acima da cota, ele deixa de ser um custo "sempre incorrido e incontrolável" — passa a ser coberto pela mesma garantia.
+1. **Orçamento mensal por assinatura** = Preço × 0,40 (meta de margem ≥60%) — sem depender do número de organizações na fórmula (diferente da Rodada 8): o gasto real de cada canal já escala naturalmente com o uso real, não precisa ser pré-multiplicado por N.
+2. **WhatsApp nunca é bloqueado** (diretriz de Marcelo) — cada mensagem de digest ou bypass é enviada normalmente e debita seu custo REAL (R$0,10) do orçamento da assinatura, mesmo que o saldo fique negativo.
+3. **Textract roda sempre** (custo fixo baixo, R$0,0159/documento, aceito como parte do custo base do produto, nunca gated).
+4. **Bedrock é a válvula de segurança primária**: no momento em que `needsBedrock()` retorna verdadeiro, o sistema checa o saldo REAL restante do orçamento (Preço×0,40 − gasto real de WhatsApp do mês − gasto real de Bedrock do mês) contra o custo REAL de uma chamada (R$0,0795, não a média). Se insuficiente, a chamada é pulada — o campo cai em `PENDING_CONFIRMATION` (candidato do parser determinístico, se houver, continua sendo sugerido; só a etapa de LLM é que não roda).
+5. **Válvula de segurança secundária (rara, só em extremos)**: se mesmo com Bedrock sempre pulado o gasto acumulado de Textract+WhatsApp real do mês ameaçar ultrapassar o orçamento, novos uploads continuam sendo aceitos e armazenados normalmente, mas a extração automática (mesmo o Textract) passa a ser adiada para o próximo ciclo de orçamento — nunca um bloqueio de upload, só um adiamento da automação.
 
-**Garantia matemática por construção (não mais estimativa)**: os 3 custos variáveis do modelo agora têm, cada um, um teto REAL e já aplicado, não apenas estimado:
-1. **Verificações automáticas**: hard-limitadas pela cota abaixo.
-2. **WhatsApp**: hard-limitado pelo digest (seção 3.5) — no máximo 1 mensagem/destinatário/dia, estrutural, não estimativa.
-3. **Storage**: hard-limitado pela cota técnica já implementada (`DEFAULT_STORAGE_QUOTA_BYTES`, D-249, enforcement fail-closed já existe em produção).
+**Por que isto é uma garantia real desta vez**: cada débito é o custo REAL incorrido, checado no momento da decisão, não uma média pré-calculada — o mesmo tipo de erro que a Rodada 8 cometeu (média tratada como teto) não pode se repetir, porque não há mais média nenhuma no caminho crítico, só custo real acumulado. O WhatsApp nunca é bloqueado (cumpre a diretriz de Marcelo à risca, sem "teto assumido" que a Rodada 8 tratou incorretamente como hard); a IA/OCR é a única válvula, e ela reage ao gasto real, não a uma projeção.
 
-Com os 3 hard-limitados, o custo total de uma assinatura no PIOR CASO é, por construção, `Cota×R$0,03975 + N×R$3,00 + N×GB×R$0,122` — exatamente o orçamento definido, nunca mais que isso. **A margem de 60% deixa de ser uma esperança sobre o comportamento do cliente e passa a ser garantida pelo próprio sistema.**
+**Mitigação de UX real, resposta ao achado do Codex de que perder OCR/IA é degradação perceptível, não invisível**: quando o orçamento estiver apertado, priorizar automação pelos requisitos com vencimento mais próximo primeiro — o cliente sente o mínimo de fricção manual exatamente onde o produto mais precisa acertar (prazo perto de vencer), e mais fricção manual só em itens com folga de tempo maior.
 
-```
-Cota(N orgs) = [ Preço × 0,40 − N × R$3,00 (teto WhatsApp/digest) − N × GB_do_tier × R$0,122 ] ÷ R$0,03975
-```
+**Implicação para os números do Premium, sem alegar mais do que o modelo sustenta**: os 2.000 fornecedores/5 organizações continuam como oferta (D-346: combinação sem equivalente direto entre os concorrentes pesquisados) — mas, ao contrário da Rodada 8, **não alegamos que a experiência de automação fica "intacta"**: em uso agressivo, uma fração real dos documentos vai exigir preenchimento manual (o orçamento de custo real vai sinalizar isso objetivamente, mês a mês, em vez de uma cota fixa arbitrária). Isso é comunicado como tradeoff consciente — capacidade rastreada nunca cai, mas a promessa de "toda leitura é automática" não se sustenta em uso extremo, e não deveria ser prometida dessa forma no marketing.
 
-| Plano | Cota com 1 organização | Cota com o máximo de organizações do plano |
-|---|---:|---:|
-| Essencial (máx. 1 org) | ~503 verificações/mês | (mesmo, só tem 1) |
-| Profissional (máx. 2 orgs) | ~869 verificações/mês | ~732 verificações/mês (2 orgs) |
-| Premium (máx. 5 orgs) | ~1.279 verificações/mês | ~364 verificações/mês (5 orgs) |
-
-**O que isto significa para os números incluídos no Premium (resposta direta ao objetivo de ganhar mercado)**: **não é preciso reduzir os 2.000 fornecedores nem as 5 organizações incluídas** — esses números continuam sendo o diferencial competitivo (D-346: nenhum concorrente pesquisado chega perto dessa combinação de preço+capacidade). O que muda é que, no uso mais agressivo (5 organizações, muitos documentos por fornecedor), a EXTRAÇÃO AUTOMÁTICA além de ~364 verificações/mês passa a exigir preenchimento manual — a capacidade de rastrear 2.000×5 fornecedores nunca é reduzida, só a automação de leitura de documento acima desse volume. Isto preserva o posicionamento competitivo de preço/capacidade intacto, protegendo a margem só na parte operacional interna que o cliente não vê como "o que eu comprei".
-
-**Implementação simplificada (resolve também o achado técnico do Codex, Rodada 7)**: como a verificação inteira é pulada acima da cota (não uma tentativa parcial de suprimir só uma etapa do pipeline), não há necessidade de tocar `needsBedrock()`/`decide-field-outcome.ts` internamente — o corte acontece ANTES de iniciar a execução do Step Functions de extração para aquele documento, redirecionando direto para entrada manual. Mais simples de implementar corretamente do que a versão anterior (Bedrock-only).
+**Pendência de implementação explícita**: a reserva precisa ser atômica (evitar corrida entre operações concorrentes), e falta decidir se o "orçamento" reseta mensalmente de forma dura ou acumula saldo residual — decisão de produto, não fechada aqui.
 
 ## 4. Comparação direta com a concorrência
 
@@ -275,13 +266,25 @@ Cota(N orgs) = [ Preço × 0,40 − N × R$3,00 (teto WhatsApp/digest) − N × 
 
 ---
 
-## 13. Revisão Claude↔Codex — Rodada 8 (pendente)
+## 13. Revisão Claude↔Codex — Rodada 8 (2026-09-27)
 
-Aguardando resposta do Codex ao redesenho da cota (seção 3.7, agora cobrindo o pipeline inteiro de verificação, não só o Bedrock) — pedido direto de Marcelo para o Claude e o Codex convergirem numa decisão para o Premium, considerando explicitamente o objetivo de ganhar fatia de mercado (preservar os números competitivos de fornecedores/organizações, não reduzi-los).
+**Nota do Codex: design 6,725/10, régua 8,5/10 — não convergido.** Achado central, grave: **a "garantia matemática por construção" da versão anterior estava errada** — R$0,03975 é custo médio esperado (Bedrock em 30% dos casos), não o máximo; se a proporção real de Bedrock for maior num mês, o custo real por verificação sobe para R$0,0954, e a mesma cota custaria bem mais do que o orçamento (margem cairia para ~46%, não 60%). Confirmado também: o teto "R$3/organização" do WhatsApp não é hard de verdade (digest agrega por destinatário, não por organização — Premium tem usuários ilimitados; mensagens de bypass somam sem teto). O Codex confirmou por leitura direta do código que a cota de storage (D-249) É real e fail-closed — essa perna do argumento estava certa.
+
+**Achado de produto real, não só técnico**: perder a leitura automática (Textract+IA) não é "parte interna que o cliente não vê como o que comprou" — é uma degradação de experiência perceptível (o cliente passa a transcrever dados manualmente). O Codex recalculou que, no cenário típico de 5 organizações, a cota da Rodada 8 cobriria só ~55% das verificações mensais reais (não 100% como a linguagem da rodada anterior sugeria) — com a hipótese de múltiplos documentos/fornecedor da Rodada 6, cairia para ~11%. **Isto significa que "preservar a capacidade competitiva intacta" era uma alegação forte demais** — a capacidade rastreada (2.000×5 fornecedores) não muda, mas a experiência de automação em uso pesado, sim.
+
+**Pesquisa competitiva pontual feita pelo Codex nesta rodada** (respondendo ao pedido de Marcelo de aprofundar se necessário): verificou Remindax Premium (US$299/mês, 3.000 itens, 3 empresas, 10 usuários, com add-ons pagos) e VendorJot Scale (US$399/mês, 1.500 fornecedores, 20 usuários, 20 workspaces) diretamente nas páginas oficiais. **Conclusão do Codex**: esses exemplos apoiam a direção de separar capacidade rastreada de consumo operacional (o que a proposta já faz), mas não há necessidade de pesquisa de mercado mais ampla para decidir a direção — a recomendação de manter 2.000 fornecedores/5 organizações como oferta permanece válida, só sem a alegação de que a experiência fica "intacta".
+
+**Correção de fundo proposta na Rodada 9 (seção 3.7 reescrita)**: trocar cota pré-calculada por média por **orçamento de custo real, debitado em tempo real por operação** — o mesmo padrão que `TenantQuotaService`/`quota.consume()` já implementa hoje no código real. Isto elimina estruturalmente o erro "média tratada como máximo", porque não há mais média nenhuma no caminho de decisão, só gasto real acumulado.
+
+**Status**: 8 rodadas completas. Régua estável em 8,5/10 desde a Rodada 3 (6 rodadas seguidas sem 9,0). Rodada 9 (orçamento de custo real) aguarda nova crítica do Codex (seção 14).
+
+## 14. Revisão Claude↔Codex — Rodada 9 (pendente)
+
+Aguardando resposta do Codex ao orçamento de custo real em tempo real (seção 3.7, reescrita) — pedido de Marcelo para convergir numa decisão real.
 
 ---
 
-## 14. Limitações desta proposta
+## 15. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
 - **Política de custo de WhatsApp resolvida via digest (seção 3.5/3.6, Rodada 6)** — não mais uma lacuna aberta. Resíduo: só o cenário sintético extremo de IA/OCR (5 orgs Premium renovando 100% no mesmo mês) segue sem política de fair-use definida.
