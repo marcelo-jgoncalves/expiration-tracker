@@ -87,7 +87,7 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 - E-mail (SES) tem custo desprezível (~US$0,10/1.000) e não entra no total.
 - **Storage na tabela abaixo permanece uma lacuna real, não resolvida (achado do Codex, Rodada 5)**: os valores de storage usados nas linhas de "uso elevado" abaixo assumem a cota CHEIA do tier (pior caso, não uma ocupação realista) — nenhuma premissa de ocupação típica real foi declarada. Isto significa que o storage nas linhas "típico" está subestimado (tratado como ~R$0) sem justificativa, e o impacto real pode ser maior do que a tabela sugere. Não corrigido nesta rodada — registrado explicitamente como pendência, não escondido atrás de uma premissa nova não verificada.
 - **Decisão de desenho nova, fechando um gap real**: Free (R$0 de receita) usa **só e-mail**, nunca WhatsApp — evita expor custo variável de mensagem numa assinatura sem receita nenhuma. Não estava explícito antes.
-- **Margem-alvo proposta (nova, respondendo ao achado do Codex de que nenhuma foi definida)**: ≥60% no cenário típico, tolerável (não necessariamente lucrativo) até o breakeven no cenário de uso elevado de 1 organização — qualquer tier que fique negativo já no cenário elevado de 1 organização (antes de multi-org) é sinalizado como pendência real abaixo, não aceito silenciosamente.
+- **Correção da Rodada 10 (achado real, apontado pelo próprio Marcelo)**: as Rodadas 6-9 usaram uma "margem-alvo de ≥60%" como se fosse um requisito de Marcelo — não era. Marcelo nunca pediu uma margem específica, só que a margem **nunca fique negativa** (evitar prejuízo), com visibilidade/monitoramento antes de chegar lá (seção 3.8). Reservar 60% do preço como orçamento (só 40% disponível para custo) foi uma escolha arbitrária deste relatório, não uma instrução real — e tornou o problema bem mais difícil do que ele é de verdade. **A restrição real, usada a partir daqui, é margem ≥0% (evitar prejuízo), não ≥60%.**
 
 | Tier | Cenário | Fornecedores | Verif./mês | IA/OCR | WhatsApp (com digest) | Storage | Total | Preço | Margem |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -132,6 +132,31 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 **Implicação para os números do Premium, sem alegar mais do que o modelo sustenta**: os 2.000 fornecedores/5 organizações continuam como oferta (D-346: combinação sem equivalente direto entre os concorrentes pesquisados) — mas, ao contrário da Rodada 8, **não alegamos que a experiência de automação fica "intacta"**: em uso agressivo, uma fração real dos documentos vai exigir preenchimento manual (o orçamento de custo real vai sinalizar isso objetivamente, mês a mês, em vez de uma cota fixa arbitrária). Isso é comunicado como tradeoff consciente — capacidade rastreada nunca cai, mas a promessa de "toda leitura é automática" não se sustenta em uso extremo, e não deveria ser prometida dessa forma no marketing.
 
 **Pendência de implementação explícita**: a reserva precisa ser atômica (evitar corrida entre operações concorrentes), e falta decidir se o "orçamento" reseta mensalmente de forma dura ou acumula saldo residual — decisão de produto, não fechada aqui.
+
+### 3.8 Correção da Rodada 10: a meta de 60% nunca foi pedida por Marcelo — recálculo com a restrição real
+
+**Achado do próprio Marcelo, não do Codex**: as fórmulas das Rodadas 6-9 usaram `Preço × 0,40` como orçamento disponível — ou seja, reservavam 60% do preço como "margem-alvo" antes de gastar qualquer coisa. **Marcelo nunca pediu isso.** O pedido real, desde o início desta frente, foi só: **nunca ficar com margem negativa (evitar prejuízo)**, com visibilidade regular para agir antes de chegar lá (a mesma lógica dos limiares de breakeven já definidos antes nesta conversa). Reservar 60% de colchão foi uma escolha arbitrária deste relatório, nunca comunicada como tal até agora — e tornou o problema bem mais severo do que ele é de verdade, ao ponto de gerar o "achado estrutural" da Rodada 9 (WhatsApp sozinho consumindo o orçamento inteiro), que só acontecia porque o orçamento disponível tinha sido artificialmente reduzido a 40% do preço.
+
+**Fórmula corrigida** — restrição real é margem ≥0%, não ≥60%:
+
+```
+Orçamento(mês) = Preço (100%, não 40%) − gasto real de WhatsApp do mês − gasto real de storage do mês
+```
+
+A cota de verificações automáticas (seção 3.7) consome o que sobrar desse orçamento, exatamente como já desenhado — só a base de cálculo muda, de 40% do preço para 100% do preço.
+
+**Recálculo do Premium (5 organizações, o caso mais apertado) com a restrição real**:
+
+| Cenário | WhatsApp | Storage | IA/OCR (cota disponível) | Margem resultante |
+|---|---:|---:|---:|---:|
+| Típico (1 doc/fornecedor), 1 destinatário/org | R$15,00 | R$30,50 | R$26,50 (666,7 verif. — cobre 100% do típico) | **~52%** |
+| Típico (1 doc/fornecedor), 5 destinatários/org (pior caso realista de equipe) | R$75,00 | R$30,50 | R$26,50 (cobre 100%) | **~12%** — positiva |
+| Extremo (5 docs/fornecedor, tudo junto), 1 destinatário/org | R$15,00 | R$30,50 | Cota real-time para em ~2.626 verif. antes de estourar (cenário pede 3.333 — cobre ~79%) | **≥0%** (mecanismo já impede negativo) |
+| Extremo (5 docs/fornecedor, tudo junto), 5 destinatários/org | R$75,00 | R$30,50 | Cota real-time para em ~1.117 verif. antes de estourar (cenário pede 3.333 — cobre ~34%) | **≥0%** (mecanismo já impede negativo) |
+
+**Conclusão corrigida**: com a restrição real (evitar negativo, não manter 60%), **o mecanismo de orçamento de custo real em tempo real (seção 3.7) já entrega o que Marcelo pediu**, inclusive no cenário mais agressivo — porque a válvula de segurança (parar de processar automaticamente antes de estourar o orçamento) é exatamente o que impede a margem negativa, por construção, independente de quão alto o uso fique. **O "achado estrutural" da Rodada 9 não era real — era um artefato da meta de 60% inventada por este relatório.**
+
+**Resíduo genuíno, agora muito mais estreito**: só existe risco real de margem negativa se WhatsApp+storage, SOZINHOS (sem nenhuma verificação automática, cota já zerada), excederem o preço total — o que exigiria algo como 8+ destinatários ativos em média nas 5 organizações do Premium, com armazenamento quase cheio. Isto é um cenário de uso genuinamente incomum (equipes grandes operando um Premium no limite simultâneo de tudo), não um risco de lançamento — mas vale monitorar via os limiares de breakeven já definidos, exatamente como Marcelo pediu antes nesta conversa.
 
 ## 4. Comparação direta com a concorrência
 
@@ -290,7 +315,13 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 ---
 
-## 15. Limitações desta proposta
+## 15. Revisão Claude↔Codex — Rodada 10 (pendente)
+
+Aguardando resposta do Codex à correção da restrição de margem (seção 3.8) — Marcelo apontou diretamente que a meta de 60% usada nas Rodadas 6-9 nunca foi pedida por ele; a restrição real é só evitar margem negativa.
+
+---
+
+## 16. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
 - **Política de custo de WhatsApp resolvida via digest (seção 3.5/3.6, Rodada 6)** — não mais uma lacuna aberta. Resíduo: só o cenário sintético extremo de IA/OCR (5 orgs Premium renovando 100% no mesmo mês) segue sem política de fair-use definida.
