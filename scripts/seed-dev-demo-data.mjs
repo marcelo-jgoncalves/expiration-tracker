@@ -397,6 +397,13 @@ async function phase4(browser, state) {
         "reservar arquivo",
       );
       const fileSpec = filesRes.files[0];
+      // Bug found by this exact run (2026-09-27): `reserveFiles()`'s response has no version
+      // field (its shape is only `{ files }`), but the Update it performs server-side DOES bump
+      // the DocumentVersion's OCC version by exactly 1 (occ.ts's `#version = #version + :one`
+      // convention, unconditional on every successful conditioned write) - forgetting to advance
+      // the local `expectedVersion` here made every `commit` call below fail with a real 409
+      // ("DocumentVersion was concurrently modified") despite nothing actually racing.
+      expectedVersion += 1;
 
       // Real PUT to the presigned S3 URL, exactly like the browser would, using fetch from
       // Node directly (no page.evaluate needed - S3 has its own CORS/auth via the presigned URL,
