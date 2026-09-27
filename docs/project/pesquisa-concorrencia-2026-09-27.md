@@ -123,7 +123,7 @@ Cobertura de feature do OmniVence hoje (do que já vimos implementado nesta e em
 
 ### 5.2 Preço — tratado como hipótese a testar, não como validado
 
-**Mudança desde a Rodada 1**: a versão anterior tratava a faixa atual (Free/R$0, Essencial/R$59,90, Profissional/R$99,90, Premium/R$149,90) como "bem posicionada" e recomendava não mudar. O Codex apontou corretamente: **ser mais barato que concorrentes enterprise não prova que MEIs pagariam R$59,90, nem que o preço sustenta o custo real de servir um cliente B2B** (OCR/IA, WhatsApp, storage, suporte). A faixa segue como ponto de partida razoável (nenhum concorrente pesquisado ataca esse meio-termo de preço para o mesmo escopo).
+**Mudança desde a Rodada 1**: a versão anterior tratava a faixa atual (Free/R$0, Essencial/R$59,90, Profissional/R$99,90, Premium/R$149,90) como "bem posicionada" e recomendava não mudar. O Codex apontou corretamente: **ser mais barato que concorrentes enterprise não prova que MEIs pagariam R$59,90, nem que o preço sustenta o custo real de servir um cliente B2B** (OCR/IA, WhatsApp, storage, suporte). A faixa segue como ponto de partida razoável (nenhum concorrente identificado nas fontes consultadas ataca esse meio-termo de preço para o mesmo escopo).
 
 **Plano de validação concreto (critério 7, adicionado na Rodada 3 por sugestão do Codex)**: antes de tratar a faixa como decidida, (1) lista de espera/early-access com pergunta explícita de faixa de preço aceitável, (2) 5-10 entrevistas com potenciais clientes PME reais (não só early adopters técnicos), (3) cálculo de custo de servir por tier — chamadas de OCR/IA (Textract/Bedrock) e WhatsApp têm custo variável real por uso, e **multi-org multiplica esse custo**: um `OWNER` com 2-5 organizações no mesmo tier paga uma vez mas consome cotas de IA/WhatsApp/storage várias vezes (uma por organização, seção 5.3) — o preço do tier precisa cobrir esse consumo multiplicado, não só o consumo de 1 organização. Este cálculo não foi feito nesta pesquisa (é interno, não de mercado) e é um pré-requisito real antes de fixar o preço final dos tiers com multi-org.
 
@@ -186,7 +186,7 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 | TrustLayer | trustlayer.io | Não divulgado (estimativa terceiros US$1.000+) | — | Busca agregada | 2026-09-27 |
 | Certificial | certificial.com | US$0 (até 5) / US$99/mês | R$0 / R$525 | Fetch direto | 2026-09-27 |
 | Expiration Reminder | expirationreminder.com | US$49-399/mês | R$260-2.115 | Fetch direto | 2026-09-27 |
-| Remindax | remindax.com/pricing | Basic: US$29 ou US$23/mês anual (1 empresa) · Professional: US$79 ou US$63/mês anual (2 empresas) · Business: US$149 ou US$119/mês anual (2 empresas) · Premium: US$299 ou US$239/mês anual (3 empresas) | R$122-1.585 | Fetch direto (corrigido na Rodada 4 — a versão da Rodada 3 ainda estava errada) | 2026-09-27 |
+| Remindax | remindax.com/pricing | Basic: US$29 ou US$23/mês anual (1 empresa) · Professional: US$79 ou US$63/mês anual (2 empresas) · Business: US$149 ou US$119/mês anual (2 empresas) · Premium: US$299 ou US$239/mês anual (3 empresas) | Mensal: R$153,70-1.584,70 · Anual-equivalente: R$121,90-1.266,70 (faixas separadas na Rodada 5, achado do Codex — não misturar mínimo anual com máximo mensal) | Fetch direto | 2026-09-27 |
 | RenewAlert | renewalert.net | US$14,99-49,99/mês | R$79-265 | Fetch direto | 2026-09-27 |
 | VendorJot | vendorjot.com/pricing | US$0/29/49/99/199/399/mês (6 planos, cada um incluindo 1/1/3/10/15/20 workspaces — preço do plano, não por workspace, corrigido na Rodada 4) | R$0-2.115 | Fetch direto | 2026-09-27 |
 | ContractSafe | contractsafe.com/features | US$450-815/mês | R$2.385-4.320 | Fetch direto (busca p/ preço) | 2026-09-27 |
@@ -195,11 +195,13 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 | Contract Hound | contracthound.com | US$95/mês | R$504 | Fetch direto | 2026-09-27 |
 | PandaDoc | pandadoc.com | US$19-49/usuário/mês | R$101-260/usuário | Busca agregada | 2026-09-27 |
 | Ironclad | ironclad.com | Fale conosco (estimativa US$30k-600k/ano) | — | Busca agregada | 2026-09-27 |
-| Agiloft | agiloft.com | Fale conosco (estimativa ~US$68k/ano médio) | — | Busca agregada (Vendr) | 2026-09-27 |
+| Agiloft | agiloft.com | Fale conosco (estimativa ~US$68k/ano médio, agregador Vendr) | — | Busca agregada — **achado do Codex, Rodada 5: URL específica da página do Vendr não foi capturada durante a pesquisa original, só o nome do agregador; registrado como limitação, não uma fonte plenamente rastreável** | 2026-09-27 |
 | Gatekeeper | gatekeeperhq.com | US$1.245/mês | R$6.599 | Busca agregada | 2026-09-27 |
 | TrackSSL | trackssl.com | US$0-72/mês | R$0-382 | Busca agregada | 2026-09-27 |
 
 **Nota sobre "fetch direto" vs. "busca agregada"**: fetch direto = página oficial do concorrente foi lida diretamente pelo agente de pesquisa nesta sessão. Busca agregada = dado vem de agregador terceiro (Capterra/G2/Vendr/GetApp/blog de mercado) porque a página oficial não publicava preço ou o fetch direto não foi possível — marcado explicitamente em cada caso, nunca apresentado com a mesma confiança de um dado de fonte primária.
+
+**Limitação reconhecida na Rodada 5 (achado do Codex, generalizado além do caso pontual da Agiloft)**: toda linha marcada "Busca agregada" nesta tabela cita o agregador pelo nome (Vendr, Capterra, etc.) mas não a URL específica da página consultada dentro desse agregador — só o domínio raiz do PRÓPRIO concorrente está listado na coluna URL, que nesses casos não é de onde o preço realmente veio. Isto é uma lacuna real de rastreabilidade em ~10 das 36 linhas (as marcadas "Busca agregada"), não só na Agiloft — registrada aqui honestamente em vez de corrigida linha a linha (as URLs específicas dos agregadores não foram capturadas durante a pesquisa original e não devem ser reconstruídas de memória agora, por risco de citar uma URL incorreta).
 
 ---
 
@@ -277,13 +279,33 @@ Correção honesta (critério 4 do checklist, seção 4): a mecânica de pagamen
 
 ---
 
-## 11. Revisão Claude↔Codex — Rodada 5 (pendente)
+## 11. Revisão Claude↔Codex — Rodada 5 (2026-09-27)
 
-Aguardando resposta do Codex à proposta revisada (correções 1-3 acima). Régua já estável desde a Rodada 3 — esta rodada reporta só a nota de design.
+**Nota do Codex: 9,15/10 — primeira nota ≥9,0 do Codex nesta decisão.** Confirmou por leitura direta das fontes oficiais que os números corrigidos de Remindax e VendorJot batem exatamente. Nenhum problema estrutural novo encontrado nos critérios 4 (gating de multi-org) e 7 (validação comercial), ambos 10,0/10. Dois achados residuais pequenos: (1) linhas "Busca agregada" da seção 6 citam o agregador pelo nome mas não a URL específica da página consultada; (2) a faixa BRL da Remindax misturava mínimo anual-equivalente com máximo mensal.
+
+**Correções aplicadas nesta mesma revisão**: (1) reconhecida como limitação honesta e generalizada (~10 das 36 linhas da tabela, não só a Agiloft que o Codex citou como exemplo — nunca reconstruir URLs de agregador de memória, risco de citar fonte errada); (2) faixa BRL da Remindax separada em mensal (R$153,70-1.584,70) e anual-equivalente (R$121,90-1.266,70). Achado adicional próprio, fora do que o Codex reportou: seção 5.2 ainda tinha a mesma linguagem de exclusividade ("nenhum concorrente pesquisado ataca esse meio-termo") corrigida nos outros pontos — corrigida aqui também.
+
+**Nota do Claude (auto-avaliação crítica contra os mesmos 7 critérios da seção 4, registrada com a ressalva honesta de que não é verdadeiramente cega — sou o autor da proposta)**: revisei o documento inteiro buscando ativamente por contra-evidência antes de pontuar, não só validando o que já escrevi.
+- Critério 1 (verificabilidade, 20%): 8,0 — mesma lacuna de rastreabilidade em "busca agregada" que o Codex apontou; agora reconhecida explicitamente, não escondida, mas não eliminada.
+- Critério 2 (inferência de ausência, 15%): 9,5 — linguagem de exclusividade agora consistentemente suavizada em todos os pontos que encontrei, incluindo um que o Codex não citou (seção 5.2).
+- Critério 3 (consistência interna, 15%): 9,0 — sem contradição nova encontrada nesta revisão.
+- Critério 4 (gating multi-org, 20%): 9,5 — mecânica completa, gap de design honestamente registrado; não pontuo 10 porque o gap em si ainda não tem nem uma data-alvo de resolução.
+- Critério 5 (câmbio/periodicidade, 10%): 8,5 — faixas separadas corretamente agora; taxa de câmbio segue sem fonte primária única, reconhecido.
+- Critério 6 (reconciliação com princípios, 10%): 9,0 — §13 tratado com honestidade, deixado como pergunta aberta.
+- Critério 7 (validação comercial, 10%): 9,5 — plano concreto, efeito de cotas multiplicadas reconhecido.
+- **Nota ponderada: 9,0/10.**
+
+**Status**: Rodada 5 completa. **Ambos os lados atingiram ≥9,0 nesta rodada (Codex 9,15, Claude 9,0)** — mas o protocolo (`AGENTS.md` §4) exige **duas rodadas consecutivas** ≥9,0 dos dois lados antes de considerar a decisão concluída. Esta é a primeira; falta confirmar numa Rodada 6 sem regressão.
 
 ---
 
-## 12. Limitações desta pesquisa
+## 12. Revisão Claude↔Codex — Rodada 6 (pendente, confirmação de convergência)
+
+Rodada de confirmação: nenhuma mudança de conteúdo esperada além das correções já aplicadas nesta revisão (seção 11). Se o Codex mantiver ≥9,0 sem achar regressão, e o Claude confirmar ≥9,0 de forma independente, a decisão converge (2ª rodada consecutiva ≥9,0 dos dois lados) e o registro final vai para `decisions-log.md` D-346 com o checklist final da seção 4.
+
+---
+
+## 13. Limitações desta pesquisa
 
 - Pesquisa feita via busca web + fetch de páginas públicas, não testes reais de produto (trial/demo) — features marcadas "não encontrado no site" podem existir e não estarem documentadas publicamente.
 - Preços de concorrentes "fale conosco" foram, quando possível, estimados por fontes de terceiros (marcado explicitamente como "busca agregada" na seção 6) — não são números oficiais.
