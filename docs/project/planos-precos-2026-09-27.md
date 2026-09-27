@@ -278,9 +278,15 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Status**: 8 rodadas completas. Régua estável em 8,5/10 desde a Rodada 3 (6 rodadas seguidas sem 9,0). Rodada 9 (orçamento de custo real) aguarda nova crítica do Codex (seção 14).
 
-## 14. Revisão Claude↔Codex — Rodada 9 (pendente)
+## 14. Revisão Claude↔Codex — Rodada 9 (2026-09-27) — achado estrutural, não mais um erro de engenharia
 
-Aguardando resposta do Codex ao orçamento de custo real em tempo real (seção 3.7, reescrita) — pedido de Marcelo para convergir numa decisão real.
+**Nota do Codex: design 7,125/10, régua 8,5/10 — não convergido, mas pela primeira vez o motivo não é um erro corrigível.** Achado central desta rodada, direto e definitivo: **como o WhatsApp nunca pode ser bloqueado (diretriz explícita de Marcelo) e o custo real dele não tem teto genuíno (destinatários múltiplos, mensagens de bypass), nenhum desenho consegue GARANTIR a margem de 60% enquanto essa regra for absoluta.** Exemplo concreto do Codex: Premium tem orçamento de R$59,96 (40% de R$149,90); 600 mensagens de WhatsApp a R$0,10 já custam R$60,00 — **o orçamento inteiro consumido só pelo WhatsApp, antes de qualquer IA/OCR entrar na conta.** A cota de IA/OCR (seção 3.7) protege corretamente a fatia de custo que ELA controla — mas não pode proteger a fatia que Marcelo pediu para nunca ser controlada.
+
+**Isto não é um bug a corrigir com mais uma rodada — é uma tensão real entre dois pedidos legítimos**: (1) nunca bloquear informação que chega ao cliente (WhatsApp), e (2) garantir que a margem nunca fica negativa. As duas coisas juntas, ao mesmo tempo, de forma absoluta, não são simultaneamente possíveis — uma tem que ceder, ainda que só um pouco. Achados menores, também reais, do Codex: os custos unitários de Textract/Bedrock usados no modelo (R$0,0159/documento, R$0,0795/chamada) são eles próprios estimativas com premissa de câmbio/páginas/tokens fixas, não valores medidos; o Free (preço R$0) precisa de uma exceção explícita já que `Preço×0,40=0` zeraria toda automação por definição; a válvula secundária (adiar Textract) e a primária (pular Bedrock) precisam consultar o MESMO saldo, não saldos parciais diferentes como a versão desta rodada tinha.
+
+**Recomendação do Codex, que aceito**: trocar a linguagem de "garantia de margem" por **"meta de margem com exposição residual de WhatsApp explicitamente aceita e monitorada"** — não contraria a diretriz de Marcelo, só é honesto sobre o que é tecnicamente possível. Os 2.000 fornecedores/5 organizações do Premium não precisam ser reabertos por causa deste achado especificamente.
+
+**Status**: 9 rodadas completas. Este é o primeiro achado da série que não se resolve com mais precisão técnica — precisa de uma decisão de Marcelo entre: (a) aceitar a exposição residual do WhatsApp como risco monitorado (usando os limiares de breakeven já calculados nesta conversa como gatilho de alerta/ação, não como garantia), ou (b) introduzir uma cobrança de excedente específica para WhatsApp acima de um teto generoso (mensagem continua sendo enviada sempre — nunca bloqueada — só o excedente é cobrado à parte, o que é diferente de "limitar quantidade").
 
 ---
 
