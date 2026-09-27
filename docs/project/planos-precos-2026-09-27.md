@@ -10,7 +10,7 @@
 
 Não é uma decisão do zero. Três fontes internas já existentes restringem o desenho:
 
-1. **`docs/architecture/roadmap-evolution/02-market-research.md`** (pesquisa de mercado anterior, arquitetura): o eixo de billing dominante do mercado inteiro é **fornecedor/item rastreado (`TrackedSubject`), nunca usuário/assento** — "nenhum concorrente pesquisado cobra flat fee ou só por usuário". Já parcialmente implementado: `src/modules/subject/domain/entitlement.ts` tem `activeTrackedSubjectsLimit` com default 25 (citando o precedente real da bcs, "25 vendors grátis, sem cartão").
+1. **`docs/architecture/roadmap-evolution/02-market-research.md`** (pesquisa de mercado anterior, arquitetura): o eixo de billing dominante do mercado inteiro é **fornecedor/item rastreado (`TrackedSubject`)**, nunca cobrança por assento avulso — "nenhum concorrente pesquisado cobra flat fee ou só por usuário" (isto não significa "nunca incluir números diferentes de usuário por tier", só "nunca vender assento avulso como unidade de cobrança" — ver a qualificação completa na seção 1 abaixo, achado do Codex, Rodada 3/4). Já parcialmente implementado: `src/modules/subject/domain/entitlement.ts` tem `activeTrackedSubjectsLimit` com default 25 (citando o precedente real da bcs, "25 vendors grátis, sem cartão").
 2. **`docs/architecture/reviews/storage-quota-scoping/market-research-storage-limits-2026-09-09.md`** (pesquisa de mercado dedicada a storage): produtos estruturalmente parecidos com o OmniVence (compliance por fornecedor, não lembrete simples) tratam storage como **não-diferencial, frequentemente ilimitado** — o valor cobrado está no volume de fornecedores rastreados, nunca em bytes. O default técnico já implementado (`DEFAULT_STORAGE_QUOTA_BYTES`, `src/modules/document-archive/domain/storage-quota.ts`) é 8GB, flat, sem variação por plano.
 3. **D-345/D-346** (`decisions-log.md`, `docs/project/pesquisa-concorrencia-2026-09-27.md`): multi-organização por dono, gated por plano (decidido, não implementado); pricing atual já ~2,5-10x mais barato que qualquer concorrente comparável em BRL; Remindax é o precedente mais próximo de "número de organizações como alavanca de tier" (1/2/2/3 empresas por tier pago) e de "compra avulsa de organização extra sem subir de tier inteiro" — mecânica de pagador/downgrade/transferência ainda não resolvida tecnicamente (D-346 seção 5.3), registrada aqui de novo como pendência, não fingida como resolvida.
 
@@ -69,19 +69,29 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Ainda não resolvido**: cota mensal formal de chamadas de IA/OCR por tier e regra de excedente (bloquear? cobrar por unidade extra? degradar para fila?) — precisa de uma rodada dedicada com dados reais de consumo. A estimativa abaixo serve só para checar plausibilidade da faixa de preço, não substitui essa rodada.
 
-**Premissas explícitas (achado do Codex, Rodada 3: a estimativa anterior não tinha premissas reproduzíveis nem cobria cenário de uso elevado — corrigido)**:
-- Cada fornecedor com requisito ativo gera, em média, 1 verificação de documento a cada 6 meses (renovação típica) — cenário típico. Cenário de uso elevado: todos os fornecedores incluídos no tier renovam no mesmo mês (pico realista de fim de período fiscal/trimestre).
-- Cada verificação = 1 chamada Textract (documento de ~2 páginas) + Bedrock como fallback em ~30% dos casos (baixa confiança).
-- Lembretes: até 3 por requisito antes do vencimento (30/15/7 dias) — e-mail sem custo variável relevante (SES, ~US$0,10/1.000); WhatsApp **cobrado por mensagem entregue, não por conversa** (achado do Codex, Rodada 3 — corrigido; modelo por conversa da versão anterior estava errado), ~R$0,10/mensagem de utilidade.
-- Preços unitários: Textract ~US$1,50/1.000 páginas · Bedrock fallback ~US$0,015/chamada · WhatsApp ~R$0,10/mensagem · storage ~US$0,023/GB/mês (irrelevante na escala 8-50GB).
+**Premissas explícitas, recalculadas com cuidado na Rodada 4 (achado real do Codex, Rodada 4: a versão anterior tinha erro aritmético — o cenário típico do Essencial deveria dar ~R$0,27+R$2,00, não R$0,70+R$12-18; refeito passo a passo abaixo, verificável)**:
+- Verificações/mês = (fornecedores incluídos × % ativos) ÷ 6 — cenário típico assume 40% ativos, renovação a cada 6 meses. Cenário de uso elevado assume 100% ativos renovando no mesmo mês (pico de fim de período).
+- Custo por verificação = Textract (2 páginas × US$1,50/1.000 = US$0,003) + Bedrock fallback esperado (30% × US$0,015 = US$0,0045) = **US$0,0075/verificação**.
+- WhatsApp: 3 mensagens por verificação (lembretes 30/15/7 dias) × R$0,10/mensagem entregue (modelo real de cobrança, corrigido na R3) = **R$0,30/verificação**.
+- Câmbio de referência: US$1 = R$5,30 (mesma taxa ilustrativa de D-346, seção 6). Storage: US$0,023/GB/mês.
+- E-mail (SES) tem custo desprezível (~US$0,10/1.000) e não entra no total.
+- **Decisão de desenho nova, fechando um gap real**: Free (R$0 de receita) usa **só e-mail**, nunca WhatsApp — evita expor custo variável de mensagem numa assinatura sem receita nenhuma. Não estava explícito antes.
+- **Margem-alvo proposta (nova, respondendo ao achado do Codex de que nenhuma foi definida)**: ≥60% no cenário típico, tolerável (não necessariamente lucrativo) até o breakeven no cenário de uso elevado de 1 organização — qualquer tier que fique negativo já no cenário elevado de 1 organização (antes de multi-org) é sinalizado como pendência real abaixo, não aceito silenciosamente.
 
-| Tier | Cenário | Fornecedores considerados | IA/OCR estimado | WhatsApp estimado | Custo variável total | Preço | Margem estimada |
-|---|---|---:|---:|---:|---:|---:|---:|
-| Essencial | Típico (40% ativos) | 100 | ~R$0,70 | ~R$12-18 | ~R$13-19 | R$59,90 | ~68-78% |
-| Essencial | Uso elevado (pico, 100% ativos) | 100 | ~R$4 | ~R$30 | ~R$34 | R$59,90 | ~43% |
-| Profissional | Uso elevado, 1 organização | 500 | ~R$20 | ~R$150 | ~R$170 | R$99,90 | **Negativo** |
-| Profissional | Uso elevado, agregado 2 organizações | 1.000 | ~R$40 | ~R$300 | ~R$340 | R$99,90 | **Negativo, bem pior** |
-| Premium | Uso elevado, 1 organização | 2.000 | ~R$80 | ~R$600 | ~R$680 | R$149,90 | **Negativo** |
+| Tier | Cenário | Fornecedores | Verif./mês | IA/OCR | WhatsApp | Storage | Total | Preço | Margem |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Free | Típico (40% ativos) | 25 | 1,7 | R$0,07 | R$0 (sem WhatsApp) | ~R$0 | R$0,07 | R$0 | Custo puro (loss-leader por desenho) |
+| Free | Elevado (100% ativos) | 25 | 25 | R$1,00 | R$0 | ~R$0 | R$1,00 | R$0 | Custo puro (loss-leader por desenho) |
+| Essencial | Típico (40% ativos) | 100 | 6,7 | R$0,27 | R$2,00 | ~R$0 | R$2,27 | R$59,90 | **~96%** |
+| Essencial | Elevado (100% ativos) | 100 | 100 | R$3,98 | R$30,00 | ~R$0 | R$33,98 | R$59,90 | **~43%** |
+| Profissional | Típico, 1 org (40% ativos) | 500 | 33,3 | R$1,32 | R$10,00 | ~R$0 | R$11,32 | R$99,90 | **~89%** |
+| Profissional | Elevado, 1 org (100% ativos) | 500 | 500 | R$19,88 | R$150,00 | ~R$0 | R$169,88 | R$99,90 | **Negativa (~-70%)** |
+| Profissional | Elevado, agregado 2 orgs | 1.000 | 1.000 | R$39,75 | R$300,00 | ~R$0 | R$339,75 | R$99,90 | **Negativa, bem pior** |
+| Premium | Típico, 1 org (40% ativos) | 2.000 | 133,3 | R$5,30 | R$40,00 | ~R$0,32 | R$45,62 | R$149,90 | **~70%** |
+| Premium | Elevado, 1 org (100% ativos) | 2.000 | 2.000 | R$79,50 | R$600,00 | ~R$6,10 (50GB) | R$685,60 | R$149,90 | **Negativa (~-357%)** |
+| Premium | Elevado, agregado 5 orgs | 10.000 | 10.000 | R$397,50 | R$3.000,00 | ~R$30,48 (250GB) | R$3.427,98 | R$149,90 | **Negativa, catastrófica** |
+
+**Achado real (confirmado com a matemática corrigida)**: no cenário típico, todos os tiers pagos ficam com margem saudável (89-96%) — a estimativa anterior, com erro aritmético, subestimava essa margem e por isso escondia o quão bom o cenário típico realmente é. **O problema real está isolado ao cenário de uso elevado**: Profissional já fica negativo com 1 única organização no pico (antes de qualquer multi-org), e Premium fica negativo com folga ainda maior. A causa raiz continua sendo volume de mensagens WhatsApp por fornecedor incluído (não IA/OCR, que é sempre pequeno, nem storage, que só importa no agregado de 5 organizações). **Pendência real de produto, não resolvida aqui**: definir uma cota de mensagens WhatsApp por tier (separada da contagem de fornecedores) ou um mecanismo de digest (1 mensagem consolidada em vez de 3 por requisito) antes de tratar os números de fornecedores incluídos em Profissional/Premium como finais.
 
 **Achado real (não estava na versão anterior)**: o risco de margem negativa em uso elevado **não é exclusivo do Premium** — já aparece no Profissional com uma única organização em pico de renovação, muito antes de considerar o agregado multi-org. A causa raiz é o volume de mensagens WhatsApp por fornecedor incluído, não o número de organizações. **Isto é uma estimativa ilustrativa com premissas explícitas, não uma análise de consumo real validada** — mas já é suficiente para dizer que **os números de fornecedores incluídos em Profissional/Premium não podem ser considerados finais sem antes decidir uma política de limite/cobrança de WhatsApp separada da contagem de fornecedores** (ex.: cota de mensagens/mês por tier, digest em vez de 3 mensagens separadas, ou add-on pago de WhatsApp acima de um teto). Isto é uma pendência real de produto, não resolvida aqui.
 
@@ -162,13 +172,26 @@ Números (1/1/2/5) mantidos de D-346 seção 5.3. **A mecânica de pagador/downg
 
 **Status**: Rodada 3 completa, não convergida. Rodada 4 (correções acima) aguarda nova crítica do Codex (seção 9).
 
-## 9. Revisão Claude↔Codex — Rodada 4 (pendente)
+## 9. Revisão Claude↔Codex — Rodada 4 (2026-09-27)
 
-Aguardando resposta do Codex à proposta revisada (seções 1/3.1/3.5/5).
+**Nota do Codex: design 7,0/10, régua 8,5/10 (âncora do critério 1 confirmada genuinamente mais forte, mas ainda ambígua sobre se "reconhecer o déficit" basta).** Achado grave: **erro aritmético real na estimativa** — o cenário típico do Essencial deveria dar ~R$0,27 (IA/OCR) + R$2,00 (WhatsApp) pelas próprias premissas declaradas, não R$0,70/R$12-18 como a Rodada 3 apresentava. Também: cobertura incompleta (Free ausente, faltavam cenários típicos de Profissional/Premium e o agregado de 5 organizações do Premium), custo de storage descartado sem checar o número (250GB agregado ≈ R$30/mês, relevante), e nova repetição do padrão "seção de revisão descreve mais do que o corpo do documento entrega".
+
+**Corrigido nesta rodada (seção 3.5, reconstruída por completo)**:
+1. Matemática refeita passo a passo, verificável — o cenário típico na verdade é muito mais saudável do que a versão com erro sugeria (89-96% de margem nos 3 tiers pagos, não 43-78%).
+2. Cobertura completa: Free (com decisão nova de desenho — só e-mail, nunca WhatsApp, evita custo variável numa assinatura sem receita) + cenário típico E elevado para os 4 tiers + agregado multi-org para Profissional (2 orgs) e Premium (5 orgs) + storage incluído no total.
+3. Margem-alvo proposta explicitamente (≥60% típico, tolerável até breakeven em uso elevado de 1 organização) — antes ausente.
+4. **Achado real confirmado com os números corretos**: o problema de margem negativa em uso elevado é real e isolado — Profissional já fica negativo com 1 organização no pico (~-70%), Premium também (~-357% com 1 org, catastrófico no agregado de 5). Causa raiz: volume de mensagens WhatsApp por fornecedor incluído. Pendência de produto não resolvida aqui: cota de WhatsApp por tier ou mecanismo de digest antes de tratar os números de fornecedores como finais.
+5. "Nunca usuário/assento" (seção 1, citação da pesquisa externa) recebeu a mesma qualificação já aplicada à "Consequência de desenho" — evita a leitura de que a tabela de planos (que diferencia por usuários incluídos) contradiz a pesquisa.
+
+**Status**: Rodada 4 completa, não convergida. Rodada 5 (seção 3.5 reconstruída) aguarda nova crítica do Codex (seção 10).
+
+## 10. Revisão Claude↔Codex — Rodada 5 (pendente)
+
+Aguardando resposta do Codex à estimativa de custo reconstruída (seção 3.5) e à checagem de que nenhuma seção de revisão anterior descreve mais do que o documento realmente entrega.
 
 ---
 
-## 10. Limitações desta proposta
+## 11. Limitações desta proposta
 
 - Os números de fornecedores incluídos por tier pago (100/500/2.000) não têm precedente de mercado direto, diferente do eixo em si (validado 2x).
 - Cota de IA/OCR mensal e política de excedente **ainda não definidas com precisão** — só uma estimativa de ordem de grandeza foi feita, não uma cota formal com regra de bloqueio/cobrança.
