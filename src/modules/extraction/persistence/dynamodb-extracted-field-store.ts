@@ -9,7 +9,7 @@ import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
-import { buildVersionedCreate, buildVersionedUpdate, buildVersionConditionCheck, isTransactionCanceled } from "../../../shared/dynamodb/occ.js";
+import { buildVersionedCreate, buildVersionedUpdate, buildVersionConditionCheck, isTransactionCanceled, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 import { mapDynamoError } from "../../../shared/dynamodb/sdk-errors.js";
 import { appendToTransaction } from "../../../shared/outbox/outbox.js";
@@ -226,7 +226,20 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
       }),
     };
 
-    const runGuard = buildVersionConditionCheck({ tableName: this.tableName, key: input.runKey, expectedVersion: input.runExpectedVersion });
+    // D-349 achado real (Codex, docs/architecture/reviews/p0-screen-a12-ocr-drift-scoping/):
+    // sem o `extra: { versionId }` abaixo, esta condição só provava que a ExtractionRun não tinha
+    // mudado de VERSÃO (OCC) - nunca que ela pertence à MESMA DocumentVersion sendo confirmada. Um
+    // runId de uma versão A do documento podia, em tese, ser combinado com o seq de uma versão B
+    // do mesmo documento, desde que os dois números de versão OCC lidos ainda batessem - OCC prova
+    // concorrência, nunca pertencimento. `versionId` é a identidade imutável real de
+    // `DocumentVersion` (`extraction-run.ts`'s doc comment) - amarrar os dois na MESMA
+    // ConditionExpression fecha essa checagem atomicamente, no servidor, antes de confirmar.
+    const runGuard = buildVersionConditionCheck({
+      tableName: this.tableName,
+      key: input.runKey,
+      expectedVersion: input.runExpectedVersion,
+      extra: { versionId: input.documentVersionVersionId },
+    });
 
     const versionSet: Record<string, unknown> = input.effect.kind === "SET" ? { validUntil: input.effect.validUntil } : {};
     const versionUpdate = {
@@ -269,7 +282,18 @@ export class DynamoDbExtractedFieldStore implements ExtractedFieldStore {
       await this.client.send(new TransactWriteCommand({ TransactItems: transactItems as unknown as TransactWriteCommandInput["TransactItems"] }));
       return "COMMITTED";
     } catch (err) {
-      if (isTransactionCanceled(err)) return "VERSION_CONFLICT";
+      if (isTransactionCanceled(err)) {
+        // Índice 1 é sempre `runGuard` neste array (fieldUpdate=0, runGuard=1, versionUpdate=2,
+        // outbox opcional depois) - nunca colapsar "a transação cancelou" em "a versão do campo
+        // está desatualizada" sem checar o índice específico (mesma disciplina de
+        // `getCancellationReasonCodes` já usada em change-membership-role.ts/transfer-ownership.ts).
+        // Cobre tanto OCC stale quanto pertencimento errado (versionId não bate) - a
+        // ConditionExpression combinada não distingue as duas causas, e não precisa: ambas
+        // significam "esta execução não é uma base válida para confirmar ESTA versão agora".
+        const reasons = getCancellationReasonCodes(err);
+        if (reasons?.[1] === "ConditionalCheckFailed") return "RUN_VERSION_MISMATCH";
+        return "VERSION_CONFLICT";
+      }
       throw mapDynamoError(err, "ExtractedFieldStore.confirmFieldForDocumentArchive");
     }
   }

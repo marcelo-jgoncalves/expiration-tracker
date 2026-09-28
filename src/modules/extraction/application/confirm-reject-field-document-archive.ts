@@ -27,7 +27,7 @@
  * slice); this file establishes the mechanism whose shape D-193 item 4/9 fixes.
  */
 import { createHash } from "node:crypto";
-import { BusinessRuleError, ConflictError, NotFoundError } from "../../../shared/errors/app-error.js";
+import { BusinessRuleError, ConflictError, ExtractionRunVersionMismatchError, NotFoundError } from "../../../shared/errors/app-error.js";
 import { authorize, authorizedTenantId, type AuthorizedTenantId } from "../../identity/domain/authorization.js";
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import { IdempotencyStore } from "../../../shared/idempotency/idempotency.js";
@@ -198,8 +198,14 @@ async function doConfirmFieldForDocumentArchive(
     now,
   });
 
+  if (outcome === "RUN_VERSION_MISMATCH") {
+    // D-349: the run's OCC version is stale, OR (the real bug this closes) it belongs to a
+    // DIFFERENT DocumentVersion than params.seq/documentVersionKey resolve to - never conflated
+    // with the generic field/documentVersion ConflictError below.
+    throw new ExtractionRunVersionMismatchError(undefined, { documentId: params.documentId, runId: params.runId, fieldName: params.fieldName, seq: params.seq });
+  }
   if (outcome === "VERSION_CONFLICT") {
-    throw new ConflictError("Version conflict while confirming field — one of run/documentVersion/field changed concurrently.", {
+    throw new ConflictError("Version conflict while confirming field — one of documentVersion/field changed concurrently.", {
       documentId: params.documentId,
       runId: params.runId,
       fieldName: params.fieldName,

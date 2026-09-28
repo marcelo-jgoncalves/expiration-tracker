@@ -126,7 +126,11 @@ export interface ExtractedFieldStore {
   rejectFieldForDocumentArchive(input: RejectFieldForDocumentArchiveInput): Promise<FieldTransitionResult>;
 }
 
-export type FieldTransitionResult = "COMMITTED" | "VERSION_CONFLICT";
+/** D-349: `RUN_VERSION_MISMATCH` is returned ONLY by `confirmFieldForDocumentArchive` - the
+ * `ExtractionRun` guard's `ConditionExpression` failed specifically (not the `ExtractedField` or
+ * `DocumentVersion` guards), meaning the run's OCC version is stale OR it does not belong to the
+ * `DocumentVersion` being confirmed (`versionId` mismatch) - see that method's doc comment. */
+export type FieldTransitionResult = "COMMITTED" | "VERSION_CONFLICT" | "RUN_VERSION_MISMATCH";
 
 export interface ConfirmFieldInput {
   fieldKey: EntityKey;
@@ -176,8 +180,12 @@ export interface ConfirmFieldForDocumentArchiveInput {
   documentVersionKey: EntityKey;
   documentVersionTenantId: string;
   documentVersionExpectedVersion: number;
-  /** D-193 item 6/9: see `CommitDocumentVersionUpdate.versionId`'s doc comment — same discovery-
-   * hint role in the conditional outbox event's `data`. */
+  /** D-193 item 6/9: discovery-hint role in the conditional outbox event's `data` (same as
+   * `CommitDocumentVersionUpdate.versionId`). **Also, since D-349**, the value the persistence
+   * layer's `runGuard` `ConditionCheck` compares against `ExtractionRun.versionId` — the atomic,
+   * server-side proof that the run being confirmed actually belongs to THIS `DocumentVersion`,
+   * not just that nobody changed it concurrently (OCC alone cannot prove that - see
+   * `dynamodb-extracted-field-store.ts#confirmFieldForDocumentArchive`'s doc comment). */
   documentVersionVersionId: string;
   /** Computed by `planDocumentVersionValidityEffect` — the ONE planner both this manual path and
    * the pipeline's auto-confirm path call, so both apply the identical effect. */
