@@ -137,6 +137,16 @@ export function compareExtractorsStage(input: ValidationContext): ValidationCont
   const deterministicByName = new Map((input.extractedFields ?? []).map((f) => [f.fieldName, f]));
   const bedrockByName = new Map((input.bedrockFields ?? []).map((f) => [f.fieldName, f]));
 
+  // D-347 §3.7 real-time budget review finding (Codex R1): `input.needsBedrock === true` with
+  // ZERO Bedrock candidates for the whole run means Bedrock was judged necessary (low/no
+  // deterministic confidence, or - the case this specifically protects - real OCR ambiguity
+  // decide-bedrock.ts's rule (c)) but never actually ran/contributed, whether because there was
+  // no OCR artifact OR because run-bedrock-extraction.ts's cost budget was exhausted. A single
+  // confident-looking deterministic candidate for an AMBIGUOUS field is exactly what
+  // `decideFieldOutcome`'s SINGLE_SOURCE-confidence check cannot see (the parser picked ONE of
+  // 2+ real candidates confidently) - never let that field silently auto-CONFIRM.
+  const bedrockNeededButAbsent = input.needsBedrock === true && (input.bedrockFields ?? []).length === 0;
+
   const comparedFields = schema.map((field) => {
     const candidates: SourceCandidate[] = [];
     const det = deterministicByName.get(field.fieldName);
@@ -145,10 +155,14 @@ export function compareExtractorsStage(input: ValidationContext): ValidationCont
     if (brk) candidates.push({ source: brk.source, value: brk.candidateValue, confidence: brk.confidence, valid: brk.valid ?? false });
 
     const result = compareExtractors(candidates);
+    // Downgrading SINGLE_SOURCE to MISMATCH forces decideFieldOutcome's existing
+    // "2+ sources disagreeing is never auto-resolved" rule - a zero-candidate SINGLE_SOURCE was
+    // always going to PENDING_CONFIRMATION anyway (no behavior change for that sub-case).
+    const agreement = bedrockNeededButAbsent && result.agreement === "SINGLE_SOURCE" && result.candidateValue !== undefined ? "MISMATCH" : result.agreement;
     return {
       fieldName: field.fieldName,
       valueType: field.valueType,
-      agreement: result.agreement,
+      agreement,
       sources: result.sources,
       candidateValue: result.candidateValue,
       confidence: result.confidence,

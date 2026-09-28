@@ -39,6 +39,7 @@ import type { BedrockExtractionRequest, BedrockExtractionResult } from "../../..
 import type { FeatureFlags, FeatureFlagsReader } from "../../../src/modules/extraction/ports/feature-flags-reader.js";
 import { InMemoryIdentityStore } from "../identity/in-memory-store.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
+import { automationBudgetWindow, AUTOMATION_BUDGET_WINDOW_SECONDS, BEDROCK_COST_CENTS } from "../../../src/modules/extraction/domain/automation-budget.js";
 
 /** W3-07 fence (D-068/D-069 follow-up): quota.consume() now requires a TenantLifecycleRecord
  * to exist for the tenant ("t1" throughout this file's baseInput()). Synchronous helper (the
@@ -82,6 +83,21 @@ class FakeBedrockClient implements BedrockClient {
   }
 }
 
+/** Distinct outcome per call, in order - for `callAttempts > 1` tests where the first attempt(s)
+ * must genuinely fail (a real, billable Converse call that just didn't produce a usable
+ * tool-call) before a later one succeeds. */
+class SequencedFakeBedrockClient implements BedrockClient {
+  calls: BedrockExtractionRequest[] = [];
+  private i = 0;
+  constructor(private readonly outcomes: Array<BedrockExtractionResult | Error>) {}
+  async extract(request: BedrockExtractionRequest): Promise<BedrockExtractionResult> {
+    this.calls.push(request);
+    const outcome = this.outcomes[this.i++]!;
+    if (outcome instanceof Error) throw outcome;
+    return outcome;
+  }
+}
+
 function baseInput(overrides: Partial<RunBedrockExtractionInput> = {}): RunBedrockExtractionInput {
   return {
     tenantId: "t1",
@@ -104,7 +120,7 @@ describe("runBedrockExtraction", () => {
   it("happy path: calls Bedrock with only the artifact ref, shapes the result for item 7", async () => {
     const bedrock = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.92 }] });
     const output = await runBedrockExtraction(
-      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock },
+      { featureFlags: new FakeFeatureFlagsReader(), quota: new TenantQuotaService(seededIdentityStore(), "MainTable"), bedrock, bedrockCostCentsPerCall: BEDROCK_COST_CENTS },
       baseInput(),
     );
     expect(bedrock.calls).toHaveLength(1);
@@ -154,12 +170,14 @@ describe("runBedrockExtraction", () => {
     const bedrock = new FakeBedrockClient(undefined, new BedrockExtractionFailedError("boom"));
     const store = seededIdentityStore();
     const quota = new TenantQuotaService(store, "MainTable");
-    await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, callAttempts: 1 }, baseInput())).rejects.toBeInstanceOf(BedrockExtractionFailedError);
+    await expect(
+      runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, callAttempts: 1, bedrockCostCentsPerCall: BEDROCK_COST_CENTS }, baseInput()),
+    ).rejects.toBeInstanceOf(BedrockExtractionFailedError);
 
     // Compensation proves the reservation was released: a fresh call for the SAME run must be
     // able to reserve again (would throw QuotaExceededError if the release above hadn't run).
     const bedrock2 = new FakeBedrockClient({ fields: [] });
-    await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock2 }, baseInput())).resolves.toBeDefined();
+    await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock2, bedrockCostCentsPerCall: BEDROCK_COST_CENTS }, baseInput())).resolves.toBeDefined();
   });
 
   it("14th adversarial case (cost-abuse): a retried/duplicate execution for the same run reserves against its own prior AI_CALL/BEDROCK window, never a second unrelated reservation", async () => {
@@ -169,7 +187,7 @@ describe("runBedrockExtraction", () => {
     const quota = new TenantQuotaService(store, "MainTable");
 
     const bedrock1 = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] });
-    await runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock1 }, baseInput());
+    await runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock1, bedrockCostCentsPerCall: BEDROCK_COST_CENTS }, baseInput());
     expect(bedrock1.calls).toHaveLength(1);
 
     // A second, independent invocation for the identical runId - the quota reservation already
@@ -178,7 +196,7 @@ describe("runBedrockExtraction", () => {
     // as a NEW quota grant - QuotaExceededError against the run's own prior reservation is
     // swallowed exactly once per attempt, same as start-ocr.ts's documented contract.
     const bedrock2 = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] });
-    await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock2 }, baseInput())).resolves.toBeDefined();
+    await expect(runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock2, bedrockCostCentsPerCall: BEDROCK_COST_CENTS }, baseInput())).resolves.toBeDefined();
     // The key point of the cost-abuse case: this is still exactly ONE real Bedrock call per
     // invocation of the function (the quota mechanism doesn't cause N calls) - the actual
     // system-level dedup guarantee (never re-entering RunBedrock at all for a truly unchanged
@@ -187,5 +205,157 @@ describe("runBedrockExtraction", () => {
     // this test documents that this function's own quota bookkeeping does not add a SEPARATE
     // way to bypass that dedup by calling Bedrock N times per "retry".
     expect(bedrock2.calls).toHaveLength(1);
+  });
+
+  it("Codex R3 finding (ALTO): never calls Bedrock when no cost-per-call is confirmed for the configured model - fails closed, degrades, releases the AI_CALL reservation", async () => {
+    const store = seededIdentityStore();
+    const quota = new TenantQuotaService(store, "MainTable");
+    const bedrock = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] });
+
+    // bedrockCostCentsPerCall deliberately omitted - same placeholder-not-selected state
+    // bedrock-extraction-task-handler.ts defaults to when BEDROCK_COST_CENTS_PER_CALL isn't set.
+    const output = await runBedrockExtraction({ featureFlags: new FakeFeatureFlagsReader(), quota, bedrock }, baseInput());
+
+    expect(bedrock.calls).toHaveLength(0);
+    expect(output.bedrockFields).toEqual([]);
+    // AI_CALL reservation released, not left dangling.
+    await expect(quota.consume({ tenantId: "t1", quotaType: "AI_CALL", window: "run_x|BEDROCK", limit: 1, windowSeconds: 7 * 24 * 60 * 60 })).resolves.toBeUndefined();
+    // No AUTOMATION_COST_CENTS row was ever created - never even attempts to debit an unconfirmed cost.
+    const record = await store.get<{ PK: string; SK: string }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${automationBudgetWindow(new Date().toISOString())}` });
+    expect(record).toBeUndefined();
+  });
+
+  describe("D-347 §3.7 real-time automation cost budget", () => {
+    const FIXED_NOW = "2026-09-27T12:00:00.000Z";
+    const fixedNow = () => FIXED_NOW;
+
+    it("degrades gracefully (zero fields, never throws) when the tenant's cycle budget is already exhausted, and compensates the AI_CALL reservation it no longer needs", async () => {
+      const store = seededIdentityStore();
+      const quota = new TenantQuotaService(store, "MainTable");
+      // Pre-exhaust the budget for a DIFFERENT run in the same cycle (same tenant, same
+      // calendar-month window key the function itself computes from `now` - a real prior
+      // spend, not this test's own run).
+      await quota.consume({
+        tenantId: "t1",
+        quotaType: "AUTOMATION_COST_CENTS",
+        window: automationBudgetWindow(FIXED_NOW),
+        limit: BEDROCK_COST_CENTS,
+        windowSeconds: 30 * 24 * 60 * 60,
+        amount: BEDROCK_COST_CENTS,
+      });
+
+      const bedrock = new FakeBedrockClient({ fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] });
+      const output = await runBedrockExtraction(
+        { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, automationBudgetCentsPerCycle: BEDROCK_COST_CENTS, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: fixedNow },
+        baseInput(),
+      );
+
+      expect(bedrock.calls).toHaveLength(0);
+      expect(output.bedrockFields).toEqual([]);
+      expect(output.correlationId).toBe("corr-1");
+
+      // The AI_CALL reservation for THIS run must have been released, not left dangling - a
+      // fresh attempt of the same run (e.g. once the tenant's next cycle resets the budget)
+      // must be able to reserve AI_CALL again rather than finding a phantom lock.
+      await expect(quota.consume({ tenantId: "t1", quotaType: "AI_CALL", window: "run_x|BEDROCK", limit: 1, windowSeconds: 7 * 24 * 60 * 60 })).resolves.toBeUndefined();
+    });
+
+    it("debits the real per-call cost from the shared cycle budget, degrading only once accumulated spend would exceed it", async () => {
+      // Budget one cent short of covering TWO real calls - the first call fits, the second
+      // would cross the budget and must degrade, proving this is a real accumulating balance
+      // across runs, never a per-run reservation that resets (unlike AI_CALL's idempotency-lock
+      // semantics).
+      const budget = BEDROCK_COST_CENTS * 2 - 1;
+      const store = seededIdentityStore();
+      const quota = new TenantQuotaService(store, "MainTable");
+
+      const bedrock1 = new FakeBedrockClient({ fields: [] });
+      await runBedrockExtraction(
+        { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock1, automationBudgetCentsPerCycle: budget, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: fixedNow },
+        baseInput({ runId: "run_y" }),
+      );
+      expect(bedrock1.calls).toHaveLength(1);
+
+      const bedrock2 = new FakeBedrockClient({ fields: [] });
+      const output2 = await runBedrockExtraction(
+        { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrock2, automationBudgetCentsPerCycle: budget, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: fixedNow },
+        baseInput({ runId: "run_z" }),
+      );
+      expect(bedrock2.calls).toHaveLength(0);
+      expect(output2.bedrockFields).toEqual([]);
+    });
+
+    it("Codex R2 finding (ALTO, test gap from R1): a release() computed against a NEW cycle's clock never decrements the PREVIOUS cycle's real row - actually exercises release(), not just the key strings", async () => {
+      const store = seededIdentityStore();
+      const quota = new TenantQuotaService(store, "MainTable");
+      const septemberNow = () => "2026-09-27T23:00:00.000Z";
+      const octoberNow = () => "2026-10-01T00:05:00.000Z";
+      const septemberWindow = automationBudgetWindow(septemberNow());
+      const octoberWindow = automationBudgetWindow(octoberNow());
+      expect(septemberWindow).not.toBe(octoberWindow);
+
+      // September: one real, successful debit - establishes the September row's balance.
+      const bedrockSept = new FakeBedrockClient({ fields: [] });
+      await runBedrockExtraction(
+        { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock: bedrockSept, automationBudgetCentsPerCycle: 100, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: septemberNow },
+        baseInput({ runId: "run_sept" }),
+      );
+      const beforeRelease = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${septemberWindow}` });
+      expect(beforeRelease?.count).toBe(BEDROCK_COST_CENTS);
+
+      // The exact scenario Codex described: a caller running under OCTOBER's clock (e.g. a
+      // delayed retry of a run that started in September) calls release() for what IT believes
+      // is "this cycle's" reservation - directly exercising TenantQuotaService.release(), not
+      // just comparing key strings.
+      await quota.release({ tenantId: "t1", quotaType: "AUTOMATION_COST_CENTS", window: octoberWindow, windowSeconds: AUTOMATION_BUDGET_WINDOW_SECONDS, amount: BEDROCK_COST_CENTS });
+
+      // September's real balance must be completely untouched - the release() above targeted a
+      // structurally different row (no October record even exists yet, so it was a genuine
+      // no-op), never in-place-rolled-over September's count down.
+      const afterRelease = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${septemberWindow}` });
+      expect(afterRelease?.count).toBe(BEDROCK_COST_CENTS);
+      const octoberRecord = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${octoberWindow}` });
+      expect(octoberRecord).toBeUndefined();
+    });
+
+    it("Codex R1 finding (ALTO): with callAttempts > 1, EACH real attempt is billed separately, and a failed-then-succeeded run is never refunded for the failed attempt's real spend", async () => {
+      const store = seededIdentityStore();
+      const quota = new TenantQuotaService(store, "MainTable");
+      // First attempt "fails" (e.g. malformed tool-call downstream of a real, billable Converse
+      // call), second attempt succeeds - both are genuine attempts and must both be billed.
+      const bedrock = new SequencedFakeBedrockClient([new Error("malformed tool call"), { fields: [{ fieldName: "expirationDate", value: "2027-03-31", confidence: 0.9 }] }]);
+
+      const output = await runBedrockExtraction(
+        { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, callAttempts: 2, automationBudgetCentsPerCycle: 100, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: fixedNow },
+        baseInput(),
+      );
+      expect(bedrock.calls).toHaveLength(2);
+      expect(output.bedrockFields).toHaveLength(1);
+
+      const record = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${automationBudgetWindow(FIXED_NOW)}` });
+      // 2 real attempts, each billed - NOT just 1, and NOT refunded despite the run ultimately
+      // succeeding on retry (the first attempt's real spend is never given back).
+      expect(record?.count).toBe(BEDROCK_COST_CENTS * 2);
+    });
+
+    it("Codex R1 finding (ALTO, retry+refund half): on ULTIMATE failure after multiple real attempts, only the AI_CALL reservation is released - the cost-budget debits for every real attempt stay spent", async () => {
+      const store = seededIdentityStore();
+      const quota = new TenantQuotaService(store, "MainTable");
+      const bedrock = new SequencedFakeBedrockClient([new Error("boom 1"), new Error("boom 2")]);
+
+      await expect(
+        runBedrockExtraction(
+          { featureFlags: new FakeFeatureFlagsReader(), quota, bedrock, callAttempts: 2, automationBudgetCentsPerCycle: 100, bedrockCostCentsPerCall: BEDROCK_COST_CENTS, now: fixedNow },
+          baseInput(),
+        ),
+      ).rejects.toBeInstanceOf(BedrockExtractionFailedError);
+
+      const record = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#t1#QUOTA", SK: `TYPE#AUTOMATION_COST_CENTS#${automationBudgetWindow(FIXED_NOW)}` });
+      expect(record?.count).toBe(BEDROCK_COST_CENTS * 2); // both real attempts stay billed, never refunded.
+
+      // AI_CALL reservation, unlike the cost debit, IS released - a fresh attempt of the same
+      // run must be able to reserve it again.
+      await expect(quota.consume({ tenantId: "t1", quotaType: "AI_CALL", window: "run_x|BEDROCK", limit: 1, windowSeconds: 7 * 24 * 60 * 60 })).resolves.toBeUndefined();
+    });
   });
 });
