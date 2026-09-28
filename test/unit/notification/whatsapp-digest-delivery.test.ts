@@ -177,6 +177,60 @@ describe("processWhatsAppDigestDelivery (D-347 §3.5)", () => {
     expect(entry?.status).toBe("SENT");
   });
 
+  it("Round 3 Codex review: a genuine TransactionConflict finalizing the entry after a successful send is NEVER swallowed as success - it propagates so the caller retries", async () => {
+    const command = makeCommand();
+    await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")]);
+    const realTransactWrite = store.transactWrite.bind(store);
+    let callCount = 0;
+    store.transactWrite = async (writeEntries) => {
+      callCount += 1;
+      // Call 1 = tryFencedSendingClaim's FLUSHED->SENDING claim. Call 2 = finalizeEntry's
+      // SENDING->SENT + resolution write - the one this test targets.
+      if (callCount === 2) {
+        throw { name: "TransactionCanceledException", message: "TransactionConflict", CancellationReasons: writeEntries.map(() => ({ Code: "TransactionConflict" })) };
+      }
+      return realTransactWrite(writeEntries);
+    };
+
+    // The external send already happened (provider.sendCalls will show it) - but the write that
+    // was supposed to persist that outcome failed for real. The bug this guards against: the
+    // OLD code swallowed this and returned SENT with the entry still stuck at SENDING and no
+    // resolution recorded - a silently lost outcome.
+    await expect(processWhatsAppDigestDelivery(deps, command)).rejects.toBeTruthy();
+    expect(provider.sendCalls).toHaveLength(1);
+
+    const entry = await store.get<DigestEntry>(digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW));
+    expect(entry?.status).toBe("SENDING"); // never silently marked SENT without the write landing
+    expect(entry?.resolution).toBeUndefined();
+  });
+
+  it("Round 3 Codex review: a genuine TransactionConflict marking one attempt during a resolution replay is NEVER swallowed as complete - it propagates so the caller retries", async () => {
+    const command = makeCommand();
+    await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")], {
+      status: "SENT",
+      resolution: { eligibleRefs: command.items, eligibleAttemptStatus: "ACCEPTED", excludedRefs: [], excludedAttemptStatus: "FAILED_TERMINAL", providerMessageId: "wamid.replay" },
+    });
+    const realTransactWrite = store.transactWrite.bind(store);
+    let callCount = 0;
+    store.transactWrite = async (writeEntries) => {
+      callCount += 1;
+      // The entry is already SENT (no claim/finalize writes this time) - call 1 is the FIRST
+      // attempt's own markAttemptsForRefs write.
+      if (callCount === 1) {
+        throw { name: "TransactionCanceledException", message: "TransactionConflict", CancellationReasons: writeEntries.map(() => ({ Code: "TransactionConflict" })) };
+      }
+      return realTransactWrite(writeEntries);
+    };
+
+    await expect(processWhatsAppDigestDelivery(deps, command)).rejects.toBeTruthy();
+    expect(provider.sendCalls).toHaveLength(0); // never re-sent - the entry was already SENT
+
+    // The bug this guards against: the OLD code swallowed the conflict and returned
+    // SKIPPED_RESOLVED as if the replay had completed, leaving this attempt DIGESTED forever.
+    const attempt1 = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-1", 1, "attempt-1"));
+    expect(attempt1?.status).toBe("DIGESTED");
+  });
+
   it("records the OTHER eligible attempts as digest siblings on the primary attempt's lookup row, for webhook fan-out", async () => {
     const command = makeCommand();
     await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")]);

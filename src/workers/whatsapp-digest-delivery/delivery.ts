@@ -19,7 +19,7 @@
  * written atomically with the terminal status transition and REPLAYED (never re-sent) by any
  * later invocation that finds the entry already resolved.
  */
-import { buildVersionedUpdate, isTransactionCanceled, isConditionalCheckFailed } from "../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate, isTransactionCanceled, isConditionalCheckFailed, getCancellationReasonCodes } from "../../shared/dynamodb/occ.js";
 import { executeTenantBusinessMutation } from "../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { itemKey, type ExpirationItem } from "../../modules/expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
@@ -212,6 +212,24 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
   return { kind: "SENT", providerMessageId: sendResult.providerMessageId, itemCount: eligible.length };
 }
 
+/**
+ * Round 3 Codex review: every catch block in this file used to treat ANY
+ * `TransactionCanceledException` as "safe to skip, someone else already applied this" - but only
+ * a PROVEN `ConditionalCheckFailed` actually demonstrates that (the version check lost because
+ * the row is already at a newer state). A bare `TransactionConflict` (real DynamoDB contention,
+ * e.g. two invocations racing this exact write) proves nothing was persisted by anyone - treating
+ * it the same way silently discarded the write and returned a success-shaped outcome
+ * (`SKIPPED_RESOLVED`/`RECONCILED_UNKNOWN`/`SENT`) the caller/handler never retries. Every
+ * transaction in this file has EXACTLY ONE `Update` entry, so checking reason index 0 is
+ * sufficient - anything that isn't a proven ConditionalCheckFailed is rethrown, propagating to the
+ * handler's outer catch, which DOES push a batch item failure and lets SQS redeliver.
+ */
+function isProvenConditionalCheckFailure(err: unknown): boolean {
+  if (isConditionalCheckFailed(err)) return true;
+  if (!isTransactionCanceled(err)) return false;
+  return getCancellationReasonCodes(err)?.[0] === "ConditionalCheckFailed";
+}
+
 async function tryConditionalEntryUpdate(deps: WhatsAppDigestDeliveryDeps, entry: DigestEntry, set: Record<string, unknown>, now: string): Promise<boolean> {
   try {
     await deps.store.transactWrite([
@@ -219,7 +237,7 @@ async function tryConditionalEntryUpdate(deps: WhatsAppDigestDeliveryDeps, entry
     ]);
     return true;
   } catch (err) {
-    if (isTransactionCanceled(err) || isConditionalCheckFailed(err)) return false;
+    if (isProvenConditionalCheckFailure(err)) return false;
     throw err;
   }
 }
@@ -248,7 +266,7 @@ async function tryFencedSendingClaim(
     return "CLAIMED";
   } catch (err) {
     if (err instanceof Error && err.name === "TenantNotActiveError") return "TENANT_NOT_ACTIVE";
-    if (isTransactionCanceled(err) || isConditionalCheckFailed(err)) return "LOST_RACE";
+    if (isProvenConditionalCheckFailure(err)) return "LOST_RACE";
     throw err;
   }
 }
@@ -274,7 +292,7 @@ async function resolveEntryStatus(deps: WhatsAppDigestDeliveryDeps, claimedEntry
       },
     ]);
   } catch (err) {
-    if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
+    if (!isProvenConditionalCheckFailure(err)) throw err;
   }
 }
 
@@ -298,7 +316,7 @@ async function finalizeEntry(deps: WhatsAppDigestDeliveryDeps, claimedEntry: Dig
       },
     ]);
   } catch (err) {
-    if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
+    if (!isProvenConditionalCheckFailure(err)) throw err;
   }
 }
 
@@ -343,7 +361,7 @@ async function markAttemptsForRefs(deps: WhatsAppDigestDeliveryDeps, tenantId: s
         },
       ]);
     } catch (err) {
-      if (!isTransactionCanceled(err)) throw err;
+      if (!isProvenConditionalCheckFailure(err)) throw err;
     }
   }
 }
