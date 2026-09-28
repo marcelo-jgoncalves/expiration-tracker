@@ -112,7 +112,43 @@
   flex: 0 0 5rem;
 }
 
+/* D-350: fades in after a short delay (never flashes for a near-instant load) and never pops in
+   abruptly for a genuinely slow one. `fill-mode: both` keeps it invisible (opacity 0) during the
+   delay itself. */
 .ui-inline-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   color: var(--color-text-secondary);
   padding: var(--space-5) 0;
+  animation: ui-fade-in var(--duration-default) var(--easing-standard) 150ms both;
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Same two-tone ring pattern established products (Linear/Stripe/GitHub) use - a calm, familiar
+   shape rather than a novelty animation, consistent with the "Operational Calm" direction
+   (design-system.md). Track uses the same subtle border color the skeleton bars already use;
+   only the arc uses the brand accent. */
+.ui-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2.5px solid var(--color-border-subtle);
+  border-top-color: var(--color-action-primary);
+  animation: ui-spin 0.7s linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
