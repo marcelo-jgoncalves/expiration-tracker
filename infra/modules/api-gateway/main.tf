@@ -402,6 +402,8 @@ locals {
     # already has full read/write table access), no new Lambda/infra needed.
     confirm_field = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" }
     reject_field  = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" }
+    # D-349: the AI-disclosure read contract - same Lambda/integration, no new infra.
+    get_extractions = { method = "GET", path = "/items/{itemId}/documents/{documentId}/extractions" }
   }
 }
 
@@ -485,8 +487,11 @@ locals {
     list_members      = { method = "GET", path = "/organizations/members" }
     list_invitations  = { method = "GET", path = "/organizations/invitations" }
     change_role       = { method = "PUT", path = "/organizations/members/{userId}/role" }
-    remove_member     = { method = "DELETE", path = "/organizations/members/{userId}" }
-    leave             = { method = "POST", path = "/organizations/members/leave" }
+    # D-348: same "route added in the same commit as the handler" discipline as
+    # close_organization/cancel_organization_closure below - D-117/D-120 bug-class.
+    transfer_ownership = { method = "POST", path = "/organizations/members/{userId}/transfer-ownership" }
+    remove_member      = { method = "DELETE", path = "/organizations/members/{userId}" }
+    leave              = { method = "POST", path = "/organizations/members/leave" }
     # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same handler/Lambda, new route.
     update_settings = { method = "PATCH", path = "/organizations/settings" }
     # W3-07 (D-124): CloseOrganizationService's trigger - starts the real tenant purge. Same
@@ -684,6 +689,11 @@ locals {
     claim_review   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/claim" }
     accept_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/accept" }
     reject_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/reject" }
+    # D-349: the AI-disclosure read contract + the confirm/reject routes for a service that has
+    # existed since D-193 but was never reachable over HTTP - same Lambda/integration.
+    get_extractions = { method = "GET", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions" }
+    confirm_field   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm" }
+    reject_field    = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject" }
 
     # D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same Lambda, subject-scoped routes.
     create_requirement = { method = "POST", path = "/document-archive/requirements" }

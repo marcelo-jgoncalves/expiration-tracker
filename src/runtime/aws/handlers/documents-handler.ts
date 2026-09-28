@@ -3,7 +3,12 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructured
 import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildDocumentHttpDeps } from "../composition/document.js";
-import { buildFieldConfirmationDeps } from "../composition/extraction.js";
+import {
+  buildFieldConfirmationDeps,
+  buildFieldConfirmationDepsForDocumentArchive,
+  buildExtractionDisclosureDepsForItem,
+  buildExtractionDisclosureDepsForDocumentArchive,
+} from "../composition/extraction.js";
 import {
   handleReserveUpload,
   handleDeleteDocument,
@@ -12,7 +17,12 @@ import {
   handleDownloadDocument,
   type DocumentHttpDeps,
 } from "../../../modules/document/http/document-handlers.js";
-import { handleConfirmField, handleRejectField, type ExtractionHttpDeps } from "../../../modules/extraction/http/extraction-handlers.js";
+import {
+  handleConfirmField,
+  handleRejectField,
+  handleGetExtractionDisclosureForItem,
+  type ExtractionHttpDeps,
+} from "../../../modules/extraction/http/extraction-handlers.js";
 import { extractClaims, parseBody, toApiGatewayResult } from "../http-adapter.js";
 import { toAppError, ValidationError } from "../../../shared/errors/app-error.js";
 import { runWithContext } from "../../../shared/observability/context.js";
@@ -29,7 +39,20 @@ const deps: DocumentHttpDeps = { resolver, documents, deletion, quota };
 // documents* API Gateway route group and Lambda (documents_handler already has full
 // tenant_facing_read_write_policy_json on the table - no new IAM needed) - never a separate
 // Lambda for two routes this narrow.
-const extractionDeps: ExtractionHttpDeps = { resolver, quota, fields: buildFieldConfirmationDeps(client, tableName) };
+// D-349: ExtractionHttpDeps bundles both modules' confirm/read deps (same "one deps object per
+// module, not per-route" convention membership-handlers.ts's MembershipHttpDeps already uses) -
+// this Lambda only ever dispatches the A07 (document-module) routes below, but every field here
+// is cheap in-memory wiring (no I/O at construction time), so building all four costs nothing
+// real even though document-archive's confirm/reject/read routes are dispatched by a different
+// Lambda (document-archive-handler.ts).
+const extractionDeps: ExtractionHttpDeps = {
+  resolver,
+  quota,
+  fields: buildFieldConfirmationDeps(client, tableName),
+  fieldsDocumentArchive: buildFieldConfirmationDepsForDocumentArchive(client, tableName),
+  disclosureForItem: buildExtractionDisclosureDepsForItem(client, tableName),
+  disclosureForDocumentArchive: buildExtractionDisclosureDepsForDocumentArchive(client, tableName),
+};
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyStructuredResultV2> {
   return runWithContext({ correlationId: event.requestContext.requestId }, () => handleDocumentsRoute(event));
@@ -53,6 +76,8 @@ async function handleDocumentsRoute(event: APIGatewayProxyEventV2WithJWTAuthoriz
           return await handleDownloadDocument(deps, base);
         case "DELETE /items/{itemId}/documents/{documentId}":
           return await handleDeleteDocument(deps, base);
+        case "GET /items/{itemId}/documents/{documentId}/extractions":
+          return await handleGetExtractionDisclosureForItem(extractionDeps, base);
         case "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm":
           return await handleConfirmField(extractionDeps, { ...base, body: parseBody(event) });
         case "POST /items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject":

@@ -1,0 +1,31 @@
+/* D-349 — AI-disclosure panel, shared between A07 and A12. Design-system tokens only, no new
+   visual language. */
+
+.extraction-disclosure {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.extraction-disclosure__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--font-size-200);
+}
+
+.extraction-disclosure__field-name {
+  font-weight: var(--font-weight-semibold);
+}
+
+.extraction-disclosure__value {
+  color: var(--color-text-secondary);
+}
+
+.extraction-disclosure__provenance {
+  font-size: var(--font-size-100);
+}

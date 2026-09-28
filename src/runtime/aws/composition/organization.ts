@@ -12,6 +12,7 @@ import { AcceptInvitationService } from "../../../modules/organization/applicati
 import { MembershipInviteRateLimiter } from "../../../modules/organization/application/membership-invite-rate-limiter.js";
 import { ListMembersService, ListInvitationsService } from "../../../modules/organization/application/list-membership.js";
 import { ChangeMembershipRoleService } from "../../../modules/organization/application/change-membership-role.js";
+import { TransferOwnershipService } from "../../../modules/organization/application/transfer-ownership.js";
 import { RemoveMembershipService } from "../../../modules/organization/application/remove-membership.js";
 import { LeaveOrganizationService } from "../../../modules/organization/application/leave-organization.js";
 import { UpdateOrganizationSettingsService } from "../../../modules/organization/application/update-organization-settings.js";
@@ -267,6 +268,7 @@ export function buildMembershipDeps(
   const listMembers = new ListMembersService(organizations, globalUsers);
   const listInvitations = new ListInvitationsService(organizations);
   const changeRole = new ChangeMembershipRoleService(organizations, tableName, ids);
+  const transferOwnership = new TransferOwnershipService(organizations, tableName, ids, globalUsers);
   // D-194 Fatia 2: each raw port is wrapped with its OWN 5s deadline + SecureLogger event -
   // RemoveMembershipService/LeaveOrganizationService then run both wrapped calls in `Promise.all`
   // (see those files), so the pair still bounds to ~5s total (parallel, not additive) while the
@@ -321,6 +323,7 @@ export function buildMembershipDeps(
     listMembers,
     listInvitations,
     changeRole,
+    transferOwnership,
     removeMembership,
     leaveOrganization,
     updateSettings,

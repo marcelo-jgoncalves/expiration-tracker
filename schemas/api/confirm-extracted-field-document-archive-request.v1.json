@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/confirm-extracted-field-document-archive-request.v1.json",
+  "title": "ConfirmExtractedFieldDocumentArchiveRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm request body (D-193 item 4/9, D-349). document-archive's counterpart of confirm-extracted-field-request.v1.json — expectedDocumentVersionVersion replaces expectedItemVersion since this module has no ExpirationItem concept.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedDocumentVersionVersion", "expectedRunVersion", "expectedFieldVersion", "confirmedValue"],
+  "properties": {
+    "expectedDocumentVersionVersion": { "type": "integer", "minimum": 1 },
+    "expectedRunVersion": { "type": "integer", "minimum": 1 },
+    "expectedFieldVersion": { "type": "integer", "minimum": 1 },
+    "confirmedValue": { "type": "string", "minLength": 1, "maxLength": 500 }
+  }
+}

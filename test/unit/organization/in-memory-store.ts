@@ -11,8 +11,8 @@ import type { EntityKey, Gsi4QueryInput, OrganizationStore, TransactWriteEntry }
  * do DynamoDB, só o suficiente para simular os writers reais deste módulo em teste unitário.
  *
  * Operadores de condição suportados: `attribute_not_exists(x)`, `attribute_exists(x)`,
- * `x = :v`, `x > :v`, combinados com `AND`/`OR` (sem parênteses aninhados — nenhum writer real
- * produz isso hoje). Operadores de update: `SET x = :v`, `SET x = if_not_exists(x, :v)`,
+ * `x = :v`, `x <> :v`, `x > :v`, combinados com `AND`/`OR` (sem parênteses aninhados — nenhum
+ * writer real produz isso hoje). Operadores de update: `SET x = :v`, `SET x = if_not_exists(x, :v)`,
  * `SET x = x + :v`, `SET x = x - :v`, e um `REMOVE x[, y...]` opcional após o `SET` (D-157,
  * `accept-invitation.ts` limpa `removedAt` ao reativar uma Membership `REMOVED`).
  */
@@ -63,6 +63,15 @@ export class InMemoryOrganizationStore implements OrganizationStore {
       const left = item?.[this.resolveName(gt[1]!, names)];
       const right = this.resolveValue(gt[2]!, values);
       return (left as string | number) > (right as string | number);
+    }
+    // D-348 (transfer-ownership.ts): `#role <> :owner` - checked BEFORE the `=` regex below,
+    // since "<>" contains no literal "=" character and would otherwise fall through to the
+    // unsupported-clause error.
+    const neq = /^(\S+)\s*<>\s*(\S+)$/.exec(trimmed);
+    if (neq) {
+      const left = item?.[this.resolveName(neq[1]!, names)];
+      const right = this.resolveValue(neq[2]!, values);
+      return left !== right;
     }
     const eq = /^(\S+)\s*=\s*(\S+)$/.exec(trimmed);
     if (eq) {

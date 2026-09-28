@@ -140,7 +140,7 @@ export function AppShell() {
   ];
   function navigation(mobile = false) {
     return <nav className="app-shell__nav" id={mobile ? "mobile-navigation" : undefined} aria-label="Navegação principal">
-      <NavLink to={orgPath("/overview")} className="app-shell__wordmark"><img src="/brand/omnivence.png" alt="OmniVence — Gestão inteligente de vencimentos" /></NavLink>
+      <NavLink to={orgPath("/overview")} className="app-shell__wordmark"><img src="/brand/omnivence-stacked.png" alt="OmniVence — Gestão inteligente de vencimentos" /></NavLink>
       {mobile && <button className="app-shell__close" aria-label="Fechar menu" onClick={() => setMenuOpen(false)}><X aria-hidden="true" /></button>}
       {groups.map(group => <div className="app-shell__group" key={group.label}>
         <p className="app-shell__group-label">{group.label}</p>

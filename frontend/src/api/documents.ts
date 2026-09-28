@@ -8,7 +8,7 @@
  * spec calls out explicitly.
  */
 import { apiClient } from "./apiClient.js";
-import type { DocumentDownloadResponse, DocumentResponse, DocumentsListResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
+import type { DocumentDownloadResponse, DocumentResponse, DocumentsListResponse, ExtractionDisclosureResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
 
 export function listDocuments(itemId: string, options?: { signal?: AbortSignal }): Promise<DocumentsListResponse> {
   return apiClient.get<DocumentsListResponse>(`/items/${encodeURIComponent(itemId)}/documents`, { signal: options?.signal });
@@ -16,6 +16,12 @@ export function listDocuments(itemId: string, options?: { signal?: AbortSignal }
 
 export function getDocument(itemId: string, documentId: string, options?: { signal?: AbortSignal }): Promise<DocumentResponse> {
   return apiClient.get<DocumentResponse>(`/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}`, { signal: options?.signal });
+}
+
+/** D-349 - the AI-disclosure read for A07. `disclosure` is `null` (never a 404) when extraction
+ * hasn't produced a run yet for this document's current version. */
+export function getDocumentExtraction(itemId: string, documentId: string, options?: { signal?: AbortSignal }): Promise<ExtractionDisclosureResponse> {
+  return apiClient.get<ExtractionDisclosureResponse>(`/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}/extractions`, { signal: options?.signal });
 }
 
 export function reserveDocumentUpload(itemId: string, input: ReserveUploadInput, idempotencyKey: string): Promise<ReserveUploadResult> {

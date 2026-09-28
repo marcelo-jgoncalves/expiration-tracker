@@ -475,6 +475,55 @@ export interface DocumentResponse {
   document: ItemDocument;
 }
 
+/**
+ * D-349 (`docs/architecture/reviews/p0-screen-a12-ocr-drift-scoping/`) - the AI-disclosure read
+ * contract shared by A07 (`GET /items/{itemId}/documents/{documentId}/extractions`) and A12
+ * (`GET /document-archive/documents/{documentId}/versions/{seq}/extractions`). Mirrors
+ * `src/modules/extraction/domain/extracted-field.ts`'s `ExtractedField` exactly, minus internal
+ * key fields (PK/SK/tenantId/etc.) the backend's `presentField()` projector never sends.
+ */
+export type ExtractedFieldValueType = "DATE" | "STRING" | "NUMBER";
+/** Which extractor(s) produced a candidate - drives the provenance label (never a generic
+ * "gerado por IA" for every suggestion; a `DETERMINISTIC_PARSER`-only field is presented as
+ * "extraído automaticamente", not attributed to AI). */
+export type ExtractionSource = "DETERMINISTIC_PARSER" | "TEXTRACT" | "BEDROCK";
+/** `MISMATCH` covers both "two sources disagreed" AND "Bedrock was needed but produced no
+ * candidate" - the UI never asserts a disagreement that may not have occurred (D-349 achado). */
+export type ExtractionAgreement = "SINGLE_SOURCE" | "MATCH" | "MISMATCH";
+export type ExtractedFieldState = "PENDING_CONFIRMATION" | "CONFIRMED" | "REJECTED";
+
+export interface DisclosedExtractedField {
+  fieldName: string;
+  valueType: ExtractedFieldValueType;
+  /** Absent when the pipeline produced no candidate at all (a real, named state - never rendered
+   * as "Sugerido" with nothing to show). */
+  candidateValue?: string;
+  confidence?: number;
+  sources: ExtractionSource[];
+  agreement: ExtractionAgreement;
+  state: ExtractedFieldState;
+  confirmedValue?: string;
+  /** The fixed sentinel `"SYSTEM_AUTO_CONFIRM"` for the pipeline's own auto-confirm decision -
+   * never a fabricated human name for it - or a real userId for a manual confirmation. */
+  confirmedBy?: string;
+  confirmedAt?: string;
+  version: number;
+}
+
+export interface ExtractionDisclosure {
+  runId: string;
+  runStatus: string;
+  /** One entry per field the pipeline's schema defines that has a row - a field with no row yet
+   * (run just started) is simply absent, never a fabricated placeholder. */
+  fields: DisclosedExtractedField[];
+}
+
+/** `disclosure` is `null` (never a 404/error) when extraction hasn't produced a run yet for this
+ * document's current version - a normal, expected state. */
+export interface ExtractionDisclosureResponse {
+  disclosure: ExtractionDisclosure | null;
+}
+
 /** D-313 (2026-09-21) - GET /items/{itemId}/documents/{documentId}/download response. Never file
  * bytes themselves, only a freshly minted presigned S3 URL - same shape as document-archive's
  * dossier-export download route. */

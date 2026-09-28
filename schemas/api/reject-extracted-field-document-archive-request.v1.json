@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/reject-extracted-field-document-archive-request.v1.json",
+  "title": "RejectExtractedFieldDocumentArchiveRequest v1",
+  "description": "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject request body (D-193 item 4/9, D-349) — never touches DocumentVersion, only ExtractedField/ExtractionRun.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedRunVersion", "expectedFieldVersion"],
+  "properties": {
+    "expectedRunVersion": { "type": "integer", "minimum": 1 },
+    "expectedFieldVersion": { "type": "integer", "minimum": 1 },
+    "correctionReason": { "type": "string", "maxLength": 1000 }
+  }
+}

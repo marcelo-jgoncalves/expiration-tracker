@@ -327,6 +327,19 @@ states, connections (entry points / links to-from), responsive treatment.
   "Documents Collection" screen. G2 (§9) closed the narrower A13 review-queue listing route
   (D-248); a general `listDocuments`/`searchDocuments` route for a standalone collection screen
   was explicitly out of scope for that fix and still does not exist.
+- **Drift correction (D-348-adjacent, 2026-09-28, found while answering "where can AI be used?")**:
+  D-193 (implemented before this plan's 2026-09-09 date, `decisions-log.md`) already wired the same
+  IA/OCR extraction pipeline (`ExtractedField`, Textract/Bedrock) to `document-archive` —
+  `start-extraction-run-for-document-archive.ts` fires automatically after a `DocumentVersion`
+  file's malware scan clears, and `confirm-reject-field-document-archive.ts` is the confirm/reject
+  service equivalent to A07's `extraction:confirm`. This plan never listed those fields for A12 —
+  documented here for completeness. **No HTTP read/confirm route exists yet for this in A12** (the
+  service is internal-only); the disclosure UI itself is also unimplemented in both A07 and A12
+  today — see `docs/architecture/reviews/p0-screen-a12-ocr-drift-scoping/estado-final-consolidado.md`
+  for the converged design (component shared with A07, provenance-by-`sources` presentation, and a
+  blocking requirement to validate `run.versionId === version.versionId` server-side before any
+  confirmation is exposed over HTTP — `confirmFieldForDocumentArchive` today checks OCC/concurrency
+  but not that ownership).
 - **Data**: `Document` (Subject, DocumentType, ACTIVE/ARCHIVED, `hasValidity`, current accepted
   version, custom metadata); each `DocumentVersion` (sequence, status DRAFT/RECEIVED/
   UNDER_REVIEW/ACCEPTED/REJECTED/SUPERSEDED/WITHDRAWN, origin, issued/valid dates, reviewer,

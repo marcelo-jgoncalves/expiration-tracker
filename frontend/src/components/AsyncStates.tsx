@@ -17,10 +17,21 @@ import type { ReactNode } from "react";
 import { Button } from "./ui/Button.js";
 import "./AsyncStates.css";
 
+/**
+ * D-350 (achado real de Marcelo, 2026-09-28: "telas que ficam um pouco carregando" precisavam de
+ * "uma animação profissional") — antes disto, `InitialLoading` era só texto estático ("Carregando…"),
+ * usado em 25 telas, sem nenhum indicador visual de que o sistema está trabalhando. O spinner some
+ * por 150ms antes de aparecer (`animation-delay`, `fill-mode: both`) - o mesmo truque que
+ * Linear/Stripe/GitHub usam para nunca piscar num carregamento quase instantâneo, só aparecendo
+ * (com fade suave, nunca um "pop" abrupto) quando a espera é longa o bastante para o usuário
+ * realmente perceber. `prefers-reduced-motion: reduce` já neutraliza toda duração de animação
+ * globalmente (`styles/base.css`), então nenhum tratamento extra é necessário aqui.
+ */
 export function InitialLoading({ label = "Carregando…" }: { label?: string }) {
   return (
     <div className="ui-inline-loading" role="status" aria-live="polite">
-      {label}
+      <span className="ui-spinner" aria-hidden="true" />
+      <span>{label}</span>
     </div>
   );
 }

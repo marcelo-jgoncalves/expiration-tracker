@@ -43,6 +43,11 @@ export const queryKeys = {
      * document's whole lifecycle is scoped to exactly one item, same convention as
      * `subjects.requirements`/`subjects.submissions` below. */
     documents: (organizationId: string, itemId: string) => ["org", organizationId, "items", "documents", itemId] as const,
+    /** D-349 - the AI-disclosure read, `GET .../documents/{documentId}/extractions`. One key per
+     * (org, item, document) - independent of the `documents` list key above so a confirm/reject
+     * only needs to invalidate the one document's disclosure, never the whole attachment list. */
+    documentExtraction: (organizationId: string, itemId: string, documentId: string) =>
+      ["org", organizationId, "items", "documents", "extractions", itemId, documentId] as const,
     /** A06 (Block 2 D-258) - item->policy discovery, `GET /items/{itemId}/reminder-policy`. */
     reminderPolicy: (organizationId: string, itemId: string) => ["org", organizationId, "items", "reminderPolicy", itemId] as const,
   },
@@ -89,6 +94,10 @@ export const queryKeys = {
      * `currentVersionId`. */
     document: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "detail", documentId] as const,
     documentVersions: (organizationId: string, documentId: string) => ["org", organizationId, "documentArchive", "documents", "versions", documentId] as const,
+    /** D-349 - the AI-disclosure read, `GET .../versions/{seq}/extractions`. One key per (org,
+     * document, seq) - a given version's extraction never changes for a DIFFERENT seq. */
+    documentVersionExtraction: (organizationId: string, documentId: string, seq: number) =>
+      ["org", organizationId, "documentArchive", "documents", "versions", "extractions", documentId, seq] as const,
     /** A14 (Block 6, D-2xx) - the two panels of "Solicitações e recorrência" are independent
      * queries/keys, same discipline as `document`/`documentVersions` above - a series mutation
      * (create/cancel/materialize/recipient) never needs to invalidate the requests list, and

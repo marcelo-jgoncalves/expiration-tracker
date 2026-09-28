@@ -11,6 +11,7 @@ import {
   handleListMembers,
   handleListInvitations,
   handleChangeMembershipRole,
+  handleTransferOwnership,
   handleRemoveMembership,
   handleLeaveOrganization,
   type MembershipHttpDeps,
@@ -78,6 +79,8 @@ async function handleMembershipsRoute(event: APIGatewayProxyEventV2WithJWTAuthor
           return await handleListInvitations(deps, base);
         case "PUT /organizations/members/{userId}/role":
           return await handleChangeMembershipRole(deps, { ...base, body: parseBody(event) });
+        case "POST /organizations/members/{userId}/transfer-ownership":
+          return await handleTransferOwnership(deps, { ...base, body: parseBody(event) });
         case "DELETE /organizations/members/{userId}":
           return await handleRemoveMembership(deps, base);
         case "POST /organizations/members/leave":

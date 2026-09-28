@@ -5,11 +5,11 @@
  * org-scoped hook in this codebase uses.
  */
 import { useQuery } from "@tanstack/react-query";
-import { getDocument, listDocumentVersions } from "../api/documentArchive.js";
+import { getDocument, listDocumentVersions, getDocumentVersionExtraction } from "../api/documentArchive.js";
 import { queryKeys } from "../api/queryKeys.js";
 import { retryPolicyFor } from "../api/retryPolicy.js";
 import { STALE_TIME } from "../lib/queryConfig.js";
-import type { DocumentArchiveDocument, DocumentArchiveVersion } from "../api/types.js";
+import type { DocumentArchiveDocument, DocumentArchiveVersion, ExtractionDisclosureResponse } from "../api/types.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
 
 // PERF-10: OPERATIONAL - document metadata/version history changes with routine review activity.
@@ -30,6 +30,19 @@ export function useDocumentVersions(documentId: string) {
     queryKey: queryKeys.documentArchive.documentVersions(organizationId ?? "", documentId),
     queryFn: ({ signal }) => listDocumentVersions(documentId, { signal }),
     enabled: Boolean(organizationId) && !switching && Boolean(documentId),
+    retry: retryPolicyFor("safe-read"),
+    staleTime: STALE_TIME.OPERATIONAL,
+  });
+}
+
+/** D-349 - A12's AI-disclosure read, one query per (documentId, seq) - a version's extraction
+ * result never changes for a different seq, so no cross-version cache collision risk. */
+export function useDocumentVersionExtraction(documentId: string, seq: number) {
+  const { organizationId, switching } = useActiveOrganization();
+  return useQuery<ExtractionDisclosureResponse, unknown>({
+    queryKey: queryKeys.documentArchive.documentVersionExtraction(organizationId ?? "", documentId, seq),
+    queryFn: ({ signal }) => getDocumentVersionExtraction(documentId, seq, { signal }),
+    enabled: Boolean(organizationId) && !switching && Boolean(documentId) && seq > 0,
     retry: retryPolicyFor("safe-read"),
     staleTime: STALE_TIME.OPERATIONAL,
   });
