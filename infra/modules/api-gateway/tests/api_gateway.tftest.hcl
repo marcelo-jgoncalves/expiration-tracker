@@ -337,8 +337,18 @@ run "jwt_authorizer_attached_to_every_route" {
   }
 
   assert {
-    condition     = length(aws_apigatewayv2_route.memberships) == 10
-    error_message = "Expected exactly 10 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, remove_member, leave, update_settings, close_organization, cancel_organization_closure)"
+    condition     = length(aws_apigatewayv2_route.memberships) == 11
+    error_message = "Expected exactly 11 memberships routes (invite, revoke_invitation, list_members, list_invitations, change_role, transfer_ownership, remove_member, leave, update_settings, close_organization, cancel_organization_closure)"
+  }
+
+  # D-348: same discipline as the close/cancel-close assertions below - the handler dispatch was
+  # added in the same commit (memberships-handler.ts), so is the route (D-117/D-120 bug class).
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.memberships : r.route_key],
+      "POST /organizations/members/{userId}/transfer-ownership",
+    )
+    error_message = "POST /organizations/members/{userId}/transfer-ownership route must exist - TransferOwnershipService is unreachable without it (D-117/D-120 bug class)"
   }
 
   # W3-07 (D-124): the organization-closure route. This assertion exists specifically because

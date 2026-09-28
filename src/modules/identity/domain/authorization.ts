@@ -64,6 +64,13 @@ export type Action =
   | "membership:role-change"
   | "membership:remove"
   | "membership:leave"
+  // D-348 (organization-ownership-transfer-scoping, 5-round Claude<->Codex protocol): OWNER_ROLES
+  // only, same tier as organization:close/organization:cancel-close - the highest-irreversibility
+  // actions in this system are consistently OWNER-only, never paritary with ADMIN
+  // (membership:role-change above). The service itself additionally requires the CALLER be the
+  // specific OWNER Membership being relinquished (never another OWNER acting on their behalf) -
+  // that check lives in TransferOwnershipService, this matrix only gates who may attempt it.
+  | "membership:transfer-ownership"
   // Wave B2B-10 (Tenant-aware Frontend): Organization.displayName/timezone. OWNER_ROLES, same
   // tier as "tenant:configure-document-request-delivery" above — workspace identity/settings
   // that reads externally (invitation emails, guest-facing name) is consistently kept OWNER-only
@@ -312,6 +319,7 @@ const ACTION_ROLES: Record<Action, ReadonlySet<Role>> = {
   "membership:role-change": ADMIN_ROLES,
   "membership:remove": ADMIN_ROLES,
   "membership:leave": READ_ONLY_ROLES,
+  "membership:transfer-ownership": OWNER_ROLES,
   "organization:update-settings": OWNER_ROLES,
   "organization:close": OWNER_ROLES,
   "organization:cancel-close": OWNER_ROLES,

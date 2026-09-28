@@ -15,6 +15,7 @@ import type { CreateInvitationInput, CreateInvitationService } from "../applicat
 import type { RevokeInvitationService } from "../application/revoke-invitation.js";
 import type { ListMembersService, ListInvitationsService } from "../application/list-membership.js";
 import type { ChangeMembershipRoleService } from "../application/change-membership-role.js";
+import type { TransferOwnershipService } from "../application/transfer-ownership.js";
 import type { RemoveMembershipService } from "../application/remove-membership.js";
 import type { LeaveOrganizationService } from "../application/leave-organization.js";
 import type { MembershipRole } from "../domain/membership.js";
@@ -41,6 +42,7 @@ export interface MembershipHttpDeps {
   listMembers: ListMembersService;
   listInvitations: ListInvitationsService;
   changeRole: ChangeMembershipRoleService;
+  transferOwnership: TransferOwnershipService;
   removeMembership: RemoveMembershipService;
   leaveOrganization: LeaveOrganizationService;
 }
@@ -98,6 +100,7 @@ function requireExpectedVersion(req: HttpRequest): number {
 
 const CREATE_INVITATION_SCHEMA_ID = "https://expiration-tracker/schemas/api/create-invitation-request.v1.json";
 const CHANGE_MEMBERSHIP_ROLE_SCHEMA_ID = "https://expiration-tracker/schemas/api/change-membership-role-request.v1.json";
+const TRANSFER_OWNERSHIP_SCHEMA_ID = "https://expiration-tracker/schemas/api/transfer-ownership-request.v1.json";
 
 function validateAgainstSchema(schemaId: string, body: unknown): void {
   const { valid, errors } = defaultSchemaRegistry.validate(schemaId, body);
@@ -159,6 +162,21 @@ export async function handleChangeMembershipRole(deps: MembershipHttpDeps, req: 
     const expectedVersion = requireExpectedVersion(req);
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     await deps.changeRole.changeRole(context, targetUserId, req.body.role, expectedVersion);
+    return { statusCode: 204, body: {} };
+  });
+}
+
+export async function handleTransferOwnership(deps: MembershipHttpDeps, req: HttpRequest<{ expectedCallerVersion: number }>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const targetUserId = requireUserIdParam(req);
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(TRANSFER_OWNERSHIP_SCHEMA_ID, req.body);
+    // Target's version follows the same If-Match/expectedVersion convention every other
+    // membership mutation route already uses; the caller's OWN expected version has no header
+    // precedent to reuse (there is no "target resource" for it), so it travels in the body.
+    const expectedTargetVersion = requireExpectedVersion(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await deps.transferOwnership.transfer(context, targetUserId, req.body.expectedCallerVersion, expectedTargetVersion);
     return { statusCode: 204, body: {} };
   });
 }

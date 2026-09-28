@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://expiration-tracker/schemas/api/transfer-ownership-request.v1.json",
+  "title": "TransferOwnershipRequest v1",
+  "description": "POST /organizations/members/{userId}/transfer-ownership request body (src/modules/organization/application/transfer-ownership.ts). D-348. The target's expected version travels in the If-Match header/expectedVersion query param, same convention as change-membership-role/remove-membership; only the caller's own expected version needs a body field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expectedCallerVersion"],
+  "properties": {
+    "expectedCallerVersion": { "type": "integer", "minimum": 1 }
+  }
+}

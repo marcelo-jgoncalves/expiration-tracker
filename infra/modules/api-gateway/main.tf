@@ -485,8 +485,11 @@ locals {
     list_members      = { method = "GET", path = "/organizations/members" }
     list_invitations  = { method = "GET", path = "/organizations/invitations" }
     change_role       = { method = "PUT", path = "/organizations/members/{userId}/role" }
-    remove_member     = { method = "DELETE", path = "/organizations/members/{userId}" }
-    leave             = { method = "POST", path = "/organizations/members/leave" }
+    # D-348: same "route added in the same commit as the handler" discipline as
+    # close_organization/cancel_organization_closure below - D-117/D-120 bug-class.
+    transfer_ownership = { method = "POST", path = "/organizations/members/{userId}/transfer-ownership" }
+    remove_member      = { method = "DELETE", path = "/organizations/members/{userId}" }
+    leave              = { method = "POST", path = "/organizations/members/leave" }
     # Wave B2B-10 (Tenant-aware Frontend, "settings" scope item) - same handler/Lambda, new route.
     update_settings = { method = "PATCH", path = "/organizations/settings" }
     # W3-07 (D-124): CloseOrganizationService's trigger - starts the real tenant purge. Same

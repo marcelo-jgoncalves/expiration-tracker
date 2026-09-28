@@ -1182,6 +1182,17 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid transfer-ownership-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/transfer-ownership-request.v1.json", { expectedCallerVersion: 3 });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a transfer-ownership-request.v1 missing expectedCallerVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/transfer-ownership-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid accept-invitation-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/accept-invitation-request.v1.json", { token: "abcdef0123456789abcdef0123456789.abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" });
     expect(errors).toEqual([]);

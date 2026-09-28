@@ -588,6 +588,54 @@ export class DossierTooLargeError extends AppError {
   }
 }
 
+/** D-348 (`docs/architecture/reviews/organization-ownership-transfer-scoping/`): a
+ * `TransferOwnershipService.transfer()` call named itself as the target — transferring
+ * titularidade to oneself is nonsensical, not a conflict to retry. */
+export class SelfOwnershipTransferError extends AppError {
+  constructor(message = "You cannot transfer ownership to yourself.", details?: Record<string, unknown>) {
+    super({ code: "SELF_OWNERSHIP_TRANSFER", category: "VALIDATION", message, retryable: false, details });
+    this.name = "SelfOwnershipTransferError";
+  }
+}
+
+/** D-348: the transfer target is already an ACTIVE `OWNER` — this operation swaps who holds the
+ * seat, it does not solve "I want fewer OWNERs" (that's `ChangeMembershipRoleService`/
+ * `RemoveMembershipService`). Distinct from `LastOwnerError`, which protects the opposite edge
+ * (the LAST owner being demoted/removed). */
+export class OwnershipTransferTargetAlreadyOwnerError extends AppError {
+  constructor(message = "This member is already an OWNER - use role change or removal instead of transfer.", details?: Record<string, unknown>) {
+    super({ code: "OWNERSHIP_TRANSFER_TARGET_ALREADY_OWNER", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "OwnershipTransferTargetAlreadyOwnerError";
+  }
+}
+
+/** D-348: the transfer target has an ACTIVE `Membership` but its `GlobalUser.identityStatus` is
+ * not `ACTIVE` (suspended or absent) - mirrors the same double-check
+ * `resolve-request-context.ts`/`resolveWorkingOrganization` already require for any authenticated
+ * session, checked proactively here so a transfer never hands the OWNER seat to an identity that
+ * cannot currently use it. */
+export class OwnershipTransferTargetIneligibleError extends AppError {
+  constructor(message = "This member's account is not currently active and cannot receive ownership.", details?: Record<string, unknown>) {
+    super({ code: "OWNERSHIP_TRANSFER_TARGET_INELIGIBLE", category: "BUSINESS_RULE", message, retryable: false, details });
+    this.name = "OwnershipTransferTargetIneligibleError";
+  }
+}
+
+/** D-349 (`docs/architecture/reviews/p0-screen-a12-ocr-drift-scoping/`): the `ExtractionRun`
+ * being confirmed against a `document-archive` `DocumentVersion` does not belong to that version
+ * (`ExtractionRun.versionId !== DocumentVersion.versionId`), or its OCC version is stale - the
+ * server-side `runGuard` `ConditionCheck` in `confirmFieldForDocumentArchive` combines both
+ * checks in one `ConditionExpression`, so this error covers either cause; both mean "this run is
+ * not a valid basis to confirm this version right now." Distinct from the generic `ConflictError`
+ * used for a stale `ExtractedField`/`DocumentVersion` version specifically, so a caller can tell
+ * "reload the field" apart from "the run/version pairing itself is wrong." */
+export class ExtractionRunVersionMismatchError extends AppError {
+  constructor(message = "This extraction run does not match the current document version, or is out of date.", details?: Record<string, unknown>) {
+    super({ code: "EXTRACTION_RUN_VERSION_MISMATCH", category: "CONFLICT", message, retryable: false, details });
+    this.name = "ExtractionRunVersionMismatchError";
+  }
+}
+
 /** Normalizes any thrown value into an AppError, for boundaries (handlers, workers). */
 export function toAppError(err: unknown): AppError {
   if (err instanceof AppError) {

@@ -17,7 +17,13 @@ export type MembershipAuditAction =
   | "INVITATION_REVOKED"
   | "ROLE_CHANGED"
   | "MEMBER_REMOVED"
-  | "MEMBER_LEFT";
+  | "MEMBER_LEFT"
+  // D-348 (organization-ownership-transfer-scoping): distinct from ROLE_CHANGED on purpose - a
+  // coupled atomic swap of two Memberships is one coordinated operation, not two independent role
+  // decisions, and deserves its own higher-visibility audit action. Always written in a PAIR (one
+  // event per Membership affected), same correlationId, `changes.direction` = "RELINQUISHED" |
+  // "RECEIVED".
+  | "OWNERSHIP_TRANSFERRED";
 export type MembershipAuditResourceType = "Membership" | "Invitation";
 
 export interface MembershipAuditEvent extends EntityKey {

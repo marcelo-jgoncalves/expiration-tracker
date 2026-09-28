@@ -87,6 +87,10 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "GET", pathTemplate: "/organizations/members" },
   { method: "GET", pathTemplate: "/organizations/invitations" },
   { method: "PUT", pathTemplate: "/organizations/members/{userId}/role" },
+  // D-348: must be allowlisted here AND routed in infra/modules/api-gateway/main.tf AND
+  // dispatched in memberships-handler.ts - same 3-place wiring discipline as every other route
+  // in this file (D-117/D-120 bug class if any one is missing).
+  { method: "POST", pathTemplate: "/organizations/members/{userId}/transfer-ownership" },
   { method: "DELETE", pathTemplate: "/organizations/members/{userId}" },
   { method: "POST", pathTemplate: "/organizations/members/leave" },
   // Wave B2B-10 (Tenant-aware Frontend, "settings" scope item).

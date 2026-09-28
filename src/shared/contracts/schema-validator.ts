@@ -62,6 +62,7 @@ import rejectExtractedFieldRequestV1 from "../../../schemas/api/reject-extracted
 // Wave B2B-8 (D-099).
 import createInvitationRequestV1 from "../../../schemas/api/create-invitation-request.v1.json";
 import changeMembershipRoleRequestV1 from "../../../schemas/api/change-membership-role-request.v1.json";
+import transferOwnershipRequestV1 from "../../../schemas/api/transfer-ownership-request.v1.json";
 import acceptInvitationRequestV1 from "../../../schemas/api/accept-invitation-request.v1.json";
 // D-143 Nucleus 1 (Document Archive domain).
 import docarchiveCreateRequestV1 from "../../../schemas/api/docarchive-create-request.v1.json";
@@ -225,6 +226,7 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   rejectExtractedFieldRequestV1,
   createInvitationRequestV1,
   changeMembershipRoleRequestV1,
+  transferOwnershipRequestV1,
   acceptInvitationRequestV1,
   docarchiveCreateRequestV1,
   docarchiveReserveUploadRequestV1,
