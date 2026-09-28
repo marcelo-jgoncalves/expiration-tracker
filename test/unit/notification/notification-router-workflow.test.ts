@@ -350,6 +350,34 @@ describe("routeNotificationIntent", () => {
     expect(unchangedEntry?.items).toHaveLength(MAX_DIGEST_ITEMS); // never grown past the cap
   });
 
+  // Round 2 Codex review: a real DynamoDB TransactWriteItems conflict between two concurrent
+  // intents contending for the SAME DigestEntry can surface as `TransactionConflict`, not just
+  // `ConditionalCheckFailed` - the digest-entry-index check must catch that reason too, or the
+  // whole transaction's failure gets swallowed as an idempotent duplicate and returns ROUTED with
+  // nothing actually written (the intent then stuck PENDING forever, nothing left to retry it).
+  it("a TransactionConflict reason (not ConditionalCheckFailed) at the digest entry's own index still returns RETRY, never a silent no-write ROUTED", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+
+    const realTransactWrite = store.transactWrite.bind(store);
+    store.transactWrite = async (writeEntries) => {
+      // entries[0]=intent update, [1]=attempt Put, [2]=lookup Put, [3]=digest entry write.
+      throw { name: "TransactionCanceledException", message: "TransactionConflict", CancellationReasons: writeEntries.map((_, i) => ({ Code: i === 3 ? "TransactionConflict" : "None" })) };
+    };
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "RETRY", cause: "DIGEST_ENTRY_VERSION_CONFLICT" });
+    store.transactWrite = realTransactWrite;
+
+    const unchangedIntent = await store.get<NotificationIntent>({ PK: intent.PK, SK: intent.SK });
+    expect(unchangedIntent?.status).toBe("PENDING"); // nothing was written - safe to retry from scratch
+  });
+
   it("WHATSAPP requested but kill switch off (deps.whatsappChannelEnabled left false/default) -> CANCELLED CHANNEL_UNAVAILABLE, no attempt/outbox created", async () => {
     await seed({
       entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } }, // entitled, but kill switch is the gate under test

@@ -14,11 +14,22 @@
  * worker still re-reads each referenced `ExpirationItem` fresh (never trusts anything beyond
  * id/version from here), same "recipients re-resolved fresh, item content re-resolved fresh"
  * split `ReportSubscriptionDeliveryWorker`/`WhatsAppDeliveryWorker` already establish.
+ *
+ * Round 2 Codex review (D-347 §3.5): a digest window's own `flushAt` is a fixed UTC instant with
+ * no awareness of the recipient's quiet hours - a window opened mid-afternoon would otherwise
+ * send at ~00:20 UTC regardless of the recipient's configured `NotificationPreferences.quietHours`.
+ * Applied HERE, at claim time (not at delivery time), because it composes naturally with the
+ * existing GSI8-requeue mechanism: if the recipient is currently within quiet hours, this tick
+ * reschedules the window's OWN `flushAt`/GSI8 pointer forward to the quiet-hours end instant
+ * (same versioned-Update mechanism the claim itself already uses) and skips claiming it this
+ * round - no new infrastructure, no SQS-level delay tricks, self-heals on the next poll.
  */
 import { buildVersionedUpdate, isTransactionCanceled } from "../../shared/dynamodb/occ.js";
 import { appendToTransaction, type DynamoTransactPutEntry } from "../../shared/outbox/outbox.js";
 import type { DomainEvent } from "../../shared/contracts/events.js";
-import { digestEntryKey, type DigestEntry } from "../../modules/notification/domain/digest-entry.js";
+import { digestEntryGsi8Keys, digestEntryKey, type DigestEntry } from "../../modules/notification/domain/digest-entry.js";
+import { notificationPreferencesKey, type NotificationPreferences } from "../../modules/notification/domain/notification-preferences.js";
+import { computeDeliverNotBefore } from "../../modules/notification/application/quiet-hours.js";
 import type { NotificationStore } from "../../modules/notification/ports/notification-store.js";
 import type { WhatsAppDigestCandidateSource } from "./candidate-source.js";
 
@@ -40,6 +51,10 @@ export interface WhatsAppDigestFlushTickResult {
    * creation, never recomputed) or the window was already FLUSHED by a concurrent tick.
    * Defensive only, same posture as `scheduled-reports/scheduler.ts`'s own `skippedNotDue`. */
   skippedNotDue: number;
+  /** The recipient is currently within their configured quiet hours - this window's own
+   * `flushAt`/GSI8 pointer was rescheduled forward to the quiet-hours end instant instead of
+   * being claimed; the next tick after that instant will pick it up normally. */
+  skippedQuietHours: number;
   failed: { tenantId: string; recipientUserId: string; error: unknown }[];
   oldestCandidateAgeSeconds: number | undefined;
 }
@@ -50,7 +65,7 @@ export interface WhatsAppDigestFlushTickResult {
 const MAX_PAGES = 25;
 
 export async function runWhatsAppDigestFlushTick(deps: WhatsAppDigestFlushDeps): Promise<WhatsAppDigestFlushTickResult> {
-  const result: WhatsAppDigestFlushTickResult = { scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, failed: [], oldestCandidateAgeSeconds: undefined };
+  const result: WhatsAppDigestFlushTickResult = { scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: undefined };
   const nowIso = deps.now();
   const nowMs = Date.parse(nowIso);
 
@@ -69,6 +84,14 @@ export async function runWhatsAppDigestFlushTick(deps: WhatsAppDigestFlushDeps):
         const entry = await deps.store.get<DigestEntry>(digestEntryKey(candidate.tenantId, candidate.recipientUserId, "WHATSAPP", candidate.windowDate));
         if (!entry || entry.status !== "OPEN" || Date.parse(entry.flushAt) >= nowMs) {
           result.skippedNotDue += 1;
+          continue;
+        }
+
+        const preferences = await deps.store.get<NotificationPreferences>(notificationPreferencesKey(entry.tenantId, entry.recipientUserId));
+        const deferUntil = preferences?.quietHours ? computeDeliverNotBefore(nowIso, preferences.quietHours) : undefined;
+        if (deferUntil) {
+          await rescheduleForQuietHours(deps, entry, deferUntil, nowIso);
+          result.skippedQuietHours += 1;
           continue;
         }
 
@@ -117,6 +140,29 @@ export async function runWhatsAppDigestFlushTick(deps: WhatsAppDigestFlushDeps):
   }
 
   return result;
+}
+
+/** Best-effort: pushes `entry`'s own `flushAt`/GSI8 pointer forward to `deferUntil` (the
+ * recipient's quiet-hours end instant), OCC-conditioned on the exact version this tick read -
+ * a concurrent claim/reschedule racing this one is a safe no-op (whichever wins is a fine
+ * outcome), never a failure to retry. */
+async function rescheduleForQuietHours(deps: WhatsAppDigestFlushDeps, entry: DigestEntry, deferUntil: string, now: string): Promise<void> {
+  try {
+    await deps.store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: digestEntryKey(entry.tenantId, entry.recipientUserId, "WHATSAPP", entry.windowDate),
+          tenantId: entry.tenantId,
+          expectedVersion: entry.version,
+          now,
+          set: { flushAt: deferUntil, ...digestEntryGsi8Keys({ tenantId: entry.tenantId, recipientUserId: entry.recipientUserId, flushAt: deferUntil }) },
+        }),
+      },
+    ]);
+  } catch (err) {
+    if (!isTransactionCanceled(err)) throw err;
+  }
 }
 
 /** Pure alarm decision, mirrors `scheduled-reports/scheduler.ts`'s `shouldAlarmScheduledReports`

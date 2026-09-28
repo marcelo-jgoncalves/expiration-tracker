@@ -9,22 +9,22 @@
  * eligible item in the window (unlike `whatsapp-delivery-workflow.ts`'s per-attempt sends, there
  * is no per-item send to fail independently here).
  *
- * Round 1 Codex review (D-347 §3.5) found the first version had no admission/lease at all: a
- * redelivered SQS message (at-least-once, always possible) sent the message TWICE, and a
- * retryable-failure-then-successful-retry sequence left the attempts permanently recorded as
- * failed. `DigestEntry.status` now carries the SAME PREPARED->SUBMITTING->resolved lease
- * discipline `NotificationAttempt`/`decideSendAction` already establish, applied once per window
- * instead of once per attempt (`digest-entry.ts`'s own doc comment on `DigestEntryStatus`) — this
- * worker re-reads the `DigestEntry` FIRST and admits FLUSHED->SENDING (fenced against tenant
- * lifecycle, same `executeTenantBusinessMutation` lane the immediate WhatsApp send already uses)
- * before ever calling the provider.
+ * Round 1 Codex review found the first version had no admission/lease at all (redelivery sent
+ * twice). Round 2 found the FIX still had two gaps: (a) `markAttemptsForRefs` only accepted
+ * `DIGESTED`, so a retryable-failure-then-successful-retry left attempts stuck at
+ * `FAILED_RETRYABLE` forever; (b) the entry moved to a terminal status (SENT/FAILED/UNKNOWN)
+ * BEFORE the per-attempt updates, so a crash in between orphaned unmarked attempts with no way to
+ * recover (redelivery found the entry already terminal and exited immediately). Both fixed by
+ * `DigestEntry.resolution` (`digest-entry.ts`) — the durable, replayable record of the outcome,
+ * written atomically with the terminal status transition and REPLAYED (never re-sent) by any
+ * later invocation that finds the entry already resolved.
  */
 import { buildVersionedUpdate, isTransactionCanceled, isConditionalCheckFailed } from "../../shared/dynamodb/occ.js";
 import { executeTenantBusinessMutation } from "../../shared/tenant-lifecycle/tenant-business-mutation.js";
 import { itemKey, type ExpirationItem } from "../../modules/expiration/domain/expiration-item.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../modules/identity/domain/authorization.js";
 import { notificationAttemptKey, notificationAttemptLookupKey, type NotificationAttempt, type NotificationAttemptLookup, type NotificationAttemptStatus } from "../../modules/notification/domain/notification-attempt.js";
-import { digestEntryKey, type DigestEntry, type DigestEntryItem } from "../../modules/notification/domain/digest-entry.js";
+import { digestEntryKey, type DigestEntry, type DigestEntryItem, type DigestEntryResolution } from "../../modules/notification/domain/digest-entry.js";
 import type { NotificationStore } from "../../modules/notification/ports/notification-store.js";
 import type { WhatsAppProviderAdapter, WhatsAppSendResult } from "../../modules/notification/ports/whatsapp-provider.js";
 import { WhatsAppSendError } from "../../modules/notification/ports/whatsapp-provider.js";
@@ -61,6 +61,9 @@ export interface WhatsAppDigestDeliveryDeps {
 
 export type WhatsAppDigestDeliveryOutcome =
   | { kind: "SKIPPED_NO_ENTRY" }
+  // Round 2 Codex review: a crashed invocation's SENDING lease can outlive the queue's own
+  // visibility timeout - a redelivery landing here must be retried again (never silently
+  // dropped) until the lease actually expires and gets reconciled to UNKNOWN.
   | { kind: "SKIPPED_IN_PROGRESS" }
   | { kind: "SKIPPED_RESOLVED" }
   | { kind: "SKIPPED_NOT_DUE" }
@@ -86,6 +89,10 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
   if (!entry) return { kind: "SKIPPED_NO_ENTRY" };
 
   if (entry.status === "SENT" || entry.status === "FAILED" || entry.status === "UNKNOWN") {
+    // Resumable completion sweep (Round 2 Codex review) - `entry.resolution` is the durable
+    // record of the decision already made; replaying it is always safe (read-only data, never a
+    // second external call) and completes any attempt a prior crashed invocation left unmarked.
+    if (entry.resolution) await applyResolution(deps, command.tenantId, entry.resolution, now);
     return { kind: "SKIPPED_RESOLVED" };
   }
 
@@ -95,8 +102,9 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
     }
     // Lease expired without resolution (worker crashed/timed out mid-send) - never resend
     // blindly, same posture NotificationAttemptStatus.UNKNOWN/decideSendAction already establish.
-    const reconciled = await tryConditionalEntryUpdate(deps, entry, { status: "UNKNOWN" }, now);
-    if (reconciled) await markAttempts(deps, command, "UNKNOWN", now);
+    const resolution: DigestEntryResolution = { eligibleRefs: command.items, eligibleAttemptStatus: "UNKNOWN", excludedRefs: [], excludedAttemptStatus: "UNKNOWN" };
+    const reconciled = await tryConditionalEntryUpdate(deps, entry, { status: "UNKNOWN", resolution }, now);
+    if (reconciled) await applyResolution(deps, command.tenantId, resolution, now);
     return { kind: "RECONCILED_UNKNOWN" };
   }
 
@@ -119,31 +127,31 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
     if (item && item.status === "ACTIVE") eligible.push({ ref, item });
     else excludedRefs.push(ref);
   }
-  // Round 1 Codex review: an item dropped from the rendered content must never share the SAME
-  // ACCEPTED/providerMessageId as the items actually sent - it never appeared in the message.
-  if (excludedRefs.length > 0) await markAttemptsForRefs(deps, command.tenantId, excludedRefs, "FAILED_TERMINAL", now);
 
   if (eligible.length === 0) {
-    await resolveEntry(deps, claimedEntry, "FAILED", now);
+    const resolution: DigestEntryResolution = { eligibleRefs: [], eligibleAttemptStatus: "FAILED_TERMINAL", excludedRefs, excludedAttemptStatus: "FAILED_TERMINAL" };
+    await finalizeEntry(deps, claimedEntry, "FAILED", resolution, now);
+    await applyResolution(deps, command.tenantId, resolution, now);
     return { kind: "SKIPPED_NO_ELIGIBLE_ITEMS" };
   }
   const eligibleRefs = eligible.map((e) => e.ref);
 
   const to = await deps.resolveRecipientPhone({ tenantId: command.tenantId, userId: command.recipientUserId });
   if (!to) {
-    await resolveEntry(deps, claimedEntry, "FAILED", now);
-    await markAttemptsForRefs(deps, command.tenantId, eligibleRefs, "FAILED_TERMINAL", now);
+    const resolution: DigestEntryResolution = { eligibleRefs, eligibleAttemptStatus: "FAILED_TERMINAL", excludedRefs, excludedAttemptStatus: "FAILED_TERMINAL" };
+    await finalizeEntry(deps, claimedEntry, "FAILED", resolution, now);
+    await applyResolution(deps, command.tenantId, resolution, now);
     return { kind: "SKIPPED_NO_PHONE" };
   }
 
   // D-8: same "admit before the external call" discipline whatsapp-delivery-workflow.ts already
   // follows. Unlike the eligibility/phone checks above (conclusively terminal), a quota refusal
   // is retryable - the rolling 24h window means a later attempt can genuinely succeed - so the
-  // entry goes back to FLUSHED (never FAILED) and this outcome must be reported as a batch
-  // failure by the handler so SQS redelivers it.
+  // entry goes back to FLUSHED (never a terminal status, no `resolution` recorded) and this
+  // outcome must be reported as a batch failure by the handler so SQS redelivers it.
   const quota = await checkAndRecordWhatsAppPortfolioQuota({ store: deps.store, tierLimit: deps.portfolioQuotaTierLimit, now: deps.now }, to);
   if (!quota.allowed) {
-    await resolveEntry(deps, claimedEntry, "FLUSHED", now, { dropLease: true });
+    await resolveEntryStatus(deps, claimedEntry, "FLUSHED", now, { dropLease: true });
     await markAttemptsForRefs(deps, command.tenantId, eligibleRefs, "FAILED_RETRYABLE", now);
     return { kind: "SKIPPED_PORTFOLIO_QUOTA" };
   }
@@ -180,15 +188,27 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
     const failureKind = err instanceof WhatsAppSendError ? err.kind : "AMBIGUOUS";
     const nextAttemptStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "FAILURE", failureKind });
     const retryable = failureKind === "CONCLUSIVE_RETRYABLE";
-    const nextEntryStatus = retryable ? "FLUSHED" : failureKind === "CONCLUSIVE_TERMINAL" ? "FAILED" : "UNKNOWN";
-    await resolveEntry(deps, claimedEntry, nextEntryStatus, now, { dropLease: retryable });
-    await markAttemptsForRefs(deps, command.tenantId, eligibleRefs, nextAttemptStatus, now);
-    return { kind: "SEND_FAILED", retryable };
+    if (retryable) {
+      // Retryable regresses to FLUSHED, same as the quota-refusal path above - no `resolution`
+      // recorded (nothing is final yet), attempts marked FAILED_RETRYABLE only for visibility; a
+      // later successful retry's own resolution overwrites this via markAttemptsForRefs' allowed-
+      // source-status check (Round 2 Codex review: it must accept FAILED_RETRYABLE, not just
+      // DIGESTED, or a successful retry can never un-stick an attempt this branch just marked).
+      await resolveEntryStatus(deps, claimedEntry, "FLUSHED", now, { dropLease: true });
+      await markAttemptsForRefs(deps, command.tenantId, eligibleRefs, nextAttemptStatus, now);
+      return { kind: "SEND_FAILED", retryable: true };
+    }
+    const nextEntryStatus = failureKind === "CONCLUSIVE_TERMINAL" ? "FAILED" : "UNKNOWN";
+    const resolution: DigestEntryResolution = { eligibleRefs, eligibleAttemptStatus: nextAttemptStatus, excludedRefs, excludedAttemptStatus: "FAILED_TERMINAL" };
+    await finalizeEntry(deps, claimedEntry, nextEntryStatus, resolution, now);
+    await applyResolution(deps, command.tenantId, resolution, now);
+    return { kind: "SEND_FAILED", retryable: false };
   }
 
-  await resolveEntry(deps, claimedEntry, "SENT", now);
   const nextAttemptStatus = nextWhatsAppStatusAfterSendAttempt({ kind: "ACCEPTED", providerMessageId: sendResult.providerMessageId });
-  await markAttemptsForRefs(deps, command.tenantId, eligibleRefs, nextAttemptStatus, now, sendResult.providerMessageId);
+  const resolution: DigestEntryResolution = { eligibleRefs, eligibleAttemptStatus: nextAttemptStatus, excludedRefs, excludedAttemptStatus: "FAILED_TERMINAL", providerMessageId: sendResult.providerMessageId };
+  await finalizeEntry(deps, claimedEntry, "SENT", resolution, now);
+  await applyResolution(deps, command.tenantId, resolution, now);
   return { kind: "SENT", providerMessageId: sendResult.providerMessageId, itemCount: eligible.length };
 }
 
@@ -233,13 +253,12 @@ async function tryFencedSendingClaim(
   }
 }
 
-/** Best-effort resolution of the SENDING lease - conditioned on the exact version this worker's
- * own claim advanced it to, so a lease-expiry reconciliation racing this same resolution can
- * never clobber it (whichever wins is the correct terminal state; the loser's write is a safe
- * no-op). `dropLease` removes `leaseExpiresAt` when returning to a non-SENDING status (FLUSHED
- * for a retryable failure) - leaving a stale lease behind would make a LATER claim attempt
- * miscompute its own expiry comparison against the WRONG lease. */
-async function resolveEntry(deps: WhatsAppDigestDeliveryDeps, claimedEntry: DigestEntry, status: DigestEntry["status"], now: string, options?: { dropLease?: boolean }): Promise<void> {
+/** Best-effort transition to a NON-terminal status (FLUSHED, for a retryable outcome) - no
+ * `resolution` involved, since nothing is final yet. Conditioned on the exact version this
+ * worker's own claim advanced it to. `dropLease` removes `leaseExpiresAt` - leaving a stale lease
+ * behind would make a LATER claim attempt miscompute its own expiry comparison against the WRONG
+ * lease. */
+async function resolveEntryStatus(deps: WhatsAppDigestDeliveryDeps, claimedEntry: DigestEntry, status: DigestEntry["status"], now: string, options?: { dropLease?: boolean }): Promise<void> {
   try {
     await deps.store.transactWrite([
       {
@@ -259,18 +278,57 @@ async function resolveEntry(deps: WhatsAppDigestDeliveryDeps, claimedEntry: Dige
   }
 }
 
+/** Transition to a TERMINAL status (SENT/FAILED/UNKNOWN), writing `resolution` in the SAME
+ * versioned Update - Round 2 Codex review's fix for orphaned attempts: this write is the durable
+ * decision record `applyResolution` replays on any later invocation, so a crash between this call
+ * and that one never loses the outcome, only delays completing it. */
+async function finalizeEntry(deps: WhatsAppDigestDeliveryDeps, claimedEntry: DigestEntry, status: DigestEntry["status"], resolution: DigestEntryResolution, now: string): Promise<void> {
+  try {
+    await deps.store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: { PK: claimedEntry.PK, SK: claimedEntry.SK },
+          tenantId: claimedEntry.tenantId,
+          expectedVersion: claimedEntry.version,
+          now,
+          set: { status, resolution },
+          remove: ["leaseExpiresAt"],
+        }),
+      },
+    ]);
+  } catch (err) {
+    if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
+  }
+}
+
+/** Replays a `DigestEntryResolution` against every attempt it references - safe to call any
+ * number of times (read-only data, `markAttemptsForRefs`' own allowed-source-status check makes
+ * each individual attempt update idempotent). */
+async function applyResolution(deps: WhatsAppDigestDeliveryDeps, tenantId: string, resolution: DigestEntryResolution, now: string): Promise<void> {
+  if (resolution.eligibleRefs.length > 0) await markAttemptsForRefs(deps, tenantId, resolution.eligibleRefs, resolution.eligibleAttemptStatus, now, resolution.providerMessageId);
+  if (resolution.excludedRefs.length > 0) await markAttemptsForRefs(deps, tenantId, resolution.excludedRefs, resolution.excludedAttemptStatus, now);
+}
+
+/** States this worker itself may have left an attempt at, from which a LATER call of this same
+ * worker (a retry, or a resumable-completion replay) is allowed to advance it further. Anything
+ * else (ACCEPTED/DELIVERED/BOUNCED/COMPLAINED/FAILED_TERMINAL/UNKNOWN) is already resolved -
+ * possibly advanced further still by a webhook callback in the meantime - and must never be
+ * overwritten by this worker again. Round 2 Codex review: the original guard only accepted
+ * DIGESTED, which permanently stranded an attempt at FAILED_RETRYABLE even after a subsequent
+ * send genuinely succeeded. */
+const ATTEMPT_STATUSES_THIS_WORKER_MAY_OVERWRITE: readonly NotificationAttemptStatus[] = ["DIGESTED", "FAILED_RETRYABLE"];
+
 /** Best-effort per-attempt update (same "never let one failed row corrupt the batch" posture as
- * `whatsapp-delivery-workflow.ts`'s own `forceUpdateAttemptStatus`), conditioned on the attempt
- * still being DIGESTED — a redelivered SQS message (at-least-once) that finds attempts already
- * resolved is a safe no-op, never a double transition. `attemptNumber` is always 1: every
- * DIGESTED attempt is created exactly once, by `notification-router-workflow.ts`'s
+ * `whatsapp-delivery-workflow.ts`'s own `forceUpdateAttemptStatus`). `attemptNumber` is always 1:
+ * every DIGESTED attempt is created exactly once, by `notification-router-workflow.ts`'s
  * `applyRoutedDecision`, which never redrives (same invariant every other attempt in this router
  * already relies on). */
 async function markAttemptsForRefs(deps: WhatsAppDigestDeliveryDeps, tenantId: string, refs: DigestEntryItem[], status: NotificationAttemptStatus, now: string, providerMessageId?: string): Promise<void> {
   for (const ref of refs) {
     const key = notificationAttemptKey(tenantId, ref.intentId, 1, ref.attemptId);
     const attempt = await deps.store.get<NotificationAttempt>(key, true);
-    if (!attempt || attempt.status !== "DIGESTED") continue;
+    if (!attempt || !ATTEMPT_STATUSES_THIS_WORKER_MAY_OVERWRITE.includes(attempt.status)) continue;
     try {
       await deps.store.transactWrite([
         {
@@ -288,8 +346,4 @@ async function markAttemptsForRefs(deps: WhatsAppDigestDeliveryDeps, tenantId: s
       if (!isTransactionCanceled(err)) throw err;
     }
   }
-}
-
-async function markAttempts(deps: WhatsAppDigestDeliveryDeps, command: WhatsAppDigestDeliverCommand, status: NotificationAttemptStatus, now: string): Promise<void> {
-  await markAttemptsForRefs(deps, command.tenantId, command.items, status, now);
 }

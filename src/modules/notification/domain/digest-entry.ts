@@ -14,6 +14,7 @@
  * on an already-passed `windowDate` again.
  */
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
+import type { NotificationAttemptStatus } from "./notification-attempt.js";
 
 export type DigestChannel = "WHATSAPP";
 
@@ -80,6 +81,16 @@ export interface DigestEntry extends EntityKey {
    * `NotificationAttempt.leaseExpiresAt`, bounding how long a crashed delivery invocation can
    * block a retry before `decideDigestDeliveryAction` reconciles it to UNKNOWN. */
   leaseExpiresAt?: string;
+  /** Round 2 Codex review (D-347 §3.5): set ATOMICALLY with the transition into a terminal
+   * status (SENT/FAILED/UNKNOWN), in the SAME write - the durable, authoritative record of
+   * which refs were eligible/excluded and what status/providerMessageId apply. A crash between
+   * this write and the per-attempt `NotificationAttempt` updates it implies must not orphan the
+   * unmarked ones forever: `whatsapp-digest-delivery/delivery.ts` re-reads this on every
+   * invocation that finds the entry already terminal and REPLAYS it (safe - it is read-only data
+   * from here on, never a second external call) against any attempt still `DIGESTED`/
+   * `FAILED_RETRYABLE`. Absent while `status` is `OPEN`/`FLUSHED`/`SENDING` (nothing to replay
+   * yet). */
+  resolution?: DigestEntryResolution;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -89,6 +100,14 @@ export interface DigestEntry extends EntityKey {
    * `NotificationAttempt`, deliberately untouched, no TTL). Set once at creation from
    * `windowDate`, never recomputed. */
   purgeAfterTtl: number;
+}
+
+export interface DigestEntryResolution {
+  eligibleRefs: DigestEntryItem[];
+  eligibleAttemptStatus: NotificationAttemptStatus;
+  excludedRefs: DigestEntryItem[];
+  excludedAttemptStatus: NotificationAttemptStatus;
+  providerMessageId?: string;
 }
 
 export function digestEntryKey(tenantId: string, recipientUserId: string, channel: DigestChannel, windowDate: string): { PK: string; SK: "META" } {

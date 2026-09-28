@@ -103,36 +103,38 @@ export async function processWhatsAppWebhook(deps: WhatsAppWebhookWorkflowDeps, 
   await annotateInboxTenant(deps, inboxKey, event.wabaId, tenantId, attemptId, intentId, now);
 
   const application = decideWhatsAppCallbackApplication(attempt.status, event.statusType);
-  if (!application.apply) {
-    await markInboxProcessed(deps, inboxKey, event.wabaId, now);
-    return { kind: "NO_OP_PRECEDENCE" };
+  if (application.apply) {
+    try {
+      await deps.store.transactWrite([
+        {
+          Update: buildVersionedUpdate({
+            tableName: deps.tableName,
+            key: { PK: attempt.PK, SK: attempt.SK },
+            tenantId,
+            expectedVersion: attempt.version,
+            now,
+            set: { status: application.nextStatus, lastProviderEventAt: event.occurredAt },
+          }),
+        },
+      ]);
+    } catch (err) {
+      if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
+      // Lost a race against another (higher-precedence) callback applying concurrently - not a
+      // failure, the winning transition already reflects the correct monotonic state.
+    }
   }
 
-  try {
-    await deps.store.transactWrite([
-      {
-        Update: buildVersionedUpdate({
-          tableName: deps.tableName,
-          key: { PK: attempt.PK, SK: attempt.SK },
-          tenantId,
-          expectedVersion: attempt.version,
-          now,
-          set: { status: application.nextStatus, lastProviderEventAt: event.occurredAt },
-        }),
-      },
-    ]);
-  } catch (err) {
-    if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
-    // Lost a race against another (higher-precedence) callback applying concurrently - not a
-    // failure, the winning transition already reflects the correct monotonic state.
-  }
-
-  // D-347 §3.5: a WhatsApp digest's ONE external message covers N attempts, correlated here only
-  // via this ONE (the "representative" attempt's) lookup row - fan the SAME transition out to
-  // every sibling `whatsapp-digest-delivery/delivery.ts` recorded on it. Best-effort per sibling,
-  // same "one bad row never corrupts the others" posture the primary attempt's own catch above
-  // already uses - each sibling independently re-derives its own precedence decision rather than
-  // blindly copying `application.nextStatus` (a sibling could be at a different current status).
+  // D-347 §3.5 (Round 2 Codex review): a WhatsApp digest's ONE external message covers N
+  // attempts, correlated here only via this ONE (the "representative" attempt's) lookup row -
+  // fan the SAME event out to every sibling `whatsapp-digest-delivery/delivery.ts` recorded on
+  // it. Deliberately UNCONDITIONAL on `application.apply` above (Round 2 finding: the original
+  // code returned NO_OP_PRECEDENCE and skipped this block whenever the REPRESENTATIVE attempt's
+  // own precedence didn't advance, even when a SIBLING legitimately would - e.g. representative
+  // already DELIVERED from an earlier event, sibling still ACCEPTED, this READ event should still
+  // advance the sibling to DELIVERED). Each sibling independently re-derives its OWN precedence
+  // decision (`applySiblingTransition`'s own `decideWhatsAppCallbackApplication` call) - never
+  // blindly copying `application.nextStatus`, since a sibling can be at a different current status
+  // than the representative.
   if (lookup.digestSiblingAttempts && lookup.digestSiblingAttempts.length > 0) {
     for (const sibling of lookup.digestSiblingAttempts) {
       await applySiblingTransition(deps, tenantId, sibling, event, now);
@@ -140,7 +142,7 @@ export async function processWhatsAppWebhook(deps: WhatsAppWebhookWorkflowDeps, 
   }
 
   await markInboxProcessed(deps, inboxKey, event.wabaId, now);
-  return { kind: "APPLIED", nextStatus: application.nextStatus };
+  return application.apply ? { kind: "APPLIED", nextStatus: application.nextStatus } : { kind: "NO_OP_PRECEDENCE" };
 }
 
 async function applySiblingTransition(

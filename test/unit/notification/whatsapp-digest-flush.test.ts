@@ -4,6 +4,7 @@ import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { digestEntryGsi8Keys, digestEntryKey, digestEntryPurgeAfterTtl, digestFlushAtIso, type DigestEntry } from "../../../src/modules/notification/domain/digest-entry.js";
 import type { WhatsAppDigestGsi8Candidate, WhatsAppDigestGsi8Page, WhatsAppDigestCandidateSource } from "../../../src/workers/whatsapp-digest-flush/candidate-source.js";
 import { buildVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
+import { notificationPreferencesKey, type NotificationPreferences } from "../../../src/modules/notification/domain/notification-preferences.js";
 
 const TABLE = "test-table";
 const TENANT = "tenant-1";
@@ -69,13 +70,42 @@ function makeDeps(store: InMemoryNotificationStore) {
 }
 
 describe("runWhatsAppDigestFlushTick (D-347 §3.5)", () => {
+  it("Round 2 Codex review: a recipient currently within quiet hours has the window's flushAt/GSI8 pointer rescheduled forward instead of being claimed", async () => {
+    const entry = makeEntry();
+    const store = new InMemoryNotificationStore();
+    for (const item of seed(entry)) await store.putIfAbsent(item);
+    const preferences: NotificationPreferences = {
+      ...notificationPreferencesKey(TENANT, RECIPIENT),
+      entityType: "NotificationPreferences",
+      tenantId: TENANT,
+      userId: RECIPIENT,
+      emailEnabled: true,
+      locale: "pt-BR",
+      quietHours: { enabled: true, startLocal: "20:00", endLocal: "08:00", timeZone: "UTC" }, // NOW (00:30 UTC) falls inside this overnight window
+      consentSource: "ONBOARDING",
+      version: 1,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    await store.putIfAbsent(preferences);
+
+    const result = await runWhatsAppDigestFlushTick(makeDeps(store));
+    expect(result).toEqual({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 1, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
+
+    const updated = await store.get<DigestEntry>(digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW));
+    expect(updated?.status).toBe("OPEN"); // never claimed
+    expect(updated?.flushAt).toBe("2026-09-10T08:00:00.000Z"); // quiet hours end
+    expect((updated as unknown as Record<string, unknown>)["GSI8SK"]).toBe(`2026-09-10T08:00:00.000Z#TENANT#${TENANT}#${RECIPIENT}`);
+    expect(store.allItems().some((i) => i["entityType"] === "OutboxEvent")).toBe(false);
+  });
+
   it("claims a due DigestEntry: marks it FLUSHED, drops its GSI8 pointer, writes a durable outbox event", async () => {
     const entry = makeEntry();
     const store = new InMemoryNotificationStore();
     for (const item of seed(entry)) await store.putIfAbsent(item);
 
     const result = await runWhatsAppDigestFlushTick(makeDeps(store));
-    expect(result).toEqual({ scanned: 1, claimed: 1, skippedConcurrentlyModified: 0, skippedNotDue: 0, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
+    expect(result).toEqual({ scanned: 1, claimed: 1, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
 
     const updated = await store.get<DigestEntry>(digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW));
     expect(updated?.status).toBe("FLUSHED");
@@ -100,7 +130,7 @@ describe("runWhatsAppDigestFlushTick (D-347 §3.5)", () => {
     for (const item of seed(entry)) await store.putIfAbsent(item);
 
     const result = await runWhatsAppDigestFlushTick(makeDeps(store));
-    expect(result).toEqual({ scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, failed: [], oldestCandidateAgeSeconds: undefined });
+    expect(result).toEqual({ scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: undefined });
   });
 
   it("skips (never throws) a window concurrently claimed by another tick since the GSI8 query observed it", async () => {
@@ -118,7 +148,7 @@ describe("runWhatsAppDigestFlushTick (D-347 §3.5)", () => {
     };
 
     const result = await runWhatsAppDigestFlushTick(makeDeps(store));
-    expect(result).toEqual({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 1, skippedNotDue: 0, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
+    expect(result).toEqual({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 1, skippedNotDue: 0, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
   });
 
   it("skips a candidate already FLUSHED by a concurrent claim between the query and this worker's fresh read, never double-claiming it", async () => {
@@ -146,7 +176,7 @@ describe("runWhatsAppDigestFlushTick (D-347 §3.5)", () => {
     };
 
     const result = await runWhatsAppDigestFlushTick({ ...makeDeps(store), candidates: staleCandidates });
-    expect(result).toEqual({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 1, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
+    expect(result).toEqual({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 1, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: expect.any(Number) });
     const updated = await store.get<DigestEntry>(digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW));
     expect(updated?.version).toBe(2); // never clobbered by the stale candidate.
   });
@@ -154,10 +184,10 @@ describe("runWhatsAppDigestFlushTick (D-347 §3.5)", () => {
 
 describe("shouldAlarmWhatsAppDigestFlush", () => {
   it("alarms when any window failed to claim", () => {
-    expect(shouldAlarmWhatsAppDigestFlush({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, failed: [{ tenantId: "t", recipientUserId: "r", error: new Error("x") }], oldestCandidateAgeSeconds: undefined }).alarm).toBe(true);
+    expect(shouldAlarmWhatsAppDigestFlush({ scanned: 1, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 0, failed: [{ tenantId: "t", recipientUserId: "r", error: new Error("x") }], oldestCandidateAgeSeconds: undefined }).alarm).toBe(true);
   });
 
   it("never alarms on a clean tick", () => {
-    expect(shouldAlarmWhatsAppDigestFlush({ scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, failed: [], oldestCandidateAgeSeconds: undefined }).alarm).toBe(false);
+    expect(shouldAlarmWhatsAppDigestFlush({ scanned: 0, claimed: 0, skippedConcurrentlyModified: 0, skippedNotDue: 0, skippedQuietHours: 0, failed: [], oldestCandidateAgeSeconds: undefined }).alarm).toBe(false);
   });
 });

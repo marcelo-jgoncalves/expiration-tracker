@@ -200,6 +200,44 @@ describe("processWhatsAppDigestDelivery (D-347 §3.5)", () => {
     expect(provider.sendCalls).toHaveLength(1);
   });
 
+  it("a retryable failure followed by a successful retry ends with the attempt ACCEPTED, never stuck at FAILED_RETRYABLE", async () => {
+    const command = makeCommand();
+    provider.error = new WhatsAppSendError("rate limited", "CONCLUSIVE_RETRYABLE");
+    await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")]);
+
+    const first = await processWhatsAppDigestDelivery(deps, command);
+    expect(first).toEqual({ kind: "SEND_FAILED", retryable: true });
+    const afterFirst = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-1", 1, "attempt-1"));
+    expect(afterFirst?.status).toBe("FAILED_RETRYABLE");
+
+    // Real bug found in Round 2 Codex review: the guard used to only accept DIGESTED, so this
+    // second, now-successful call could never un-stick an attempt this worker itself had just
+    // marked FAILED_RETRYABLE.
+    provider.error = undefined;
+    const second = await processWhatsAppDigestDelivery(deps, command);
+    expect(second.kind).toBe("SENT");
+    const afterSecond = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-1", 1, "attempt-1"));
+    expect(afterSecond?.status).toBe("ACCEPTED");
+  });
+
+  it("a crash between resolving the entry SENT and marking its attempts is resumable - a later call replays the recorded resolution, never resending", async () => {
+    const command = makeCommand();
+    await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")], {
+      status: "SENT",
+      resolution: { eligibleRefs: command.items, eligibleAttemptStatus: "ACCEPTED", excludedRefs: [], excludedAttemptStatus: "FAILED_TERMINAL", providerMessageId: "wamid.crash" },
+    });
+
+    const outcome = await processWhatsAppDigestDelivery(deps, command);
+    expect(outcome).toEqual({ kind: "SKIPPED_RESOLVED" });
+    expect(provider.sendCalls).toHaveLength(0); // never re-sent - the entry was already SENT
+
+    const attempt1 = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-1", 1, "attempt-1"));
+    const attempt2 = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"));
+    expect(attempt1?.status).toBe("ACCEPTED");
+    expect(attempt1?.providerMessageId).toBe("wamid.crash");
+    expect(attempt2?.status).toBe("ACCEPTED");
+  });
+
   it("a concurrent invocation finds the entry already SENDING (lease not expired) and backs off without sending", async () => {
     const command = makeCommand();
     await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")], {

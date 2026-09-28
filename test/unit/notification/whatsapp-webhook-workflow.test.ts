@@ -84,6 +84,23 @@ describe("processWhatsAppWebhook (D-197 fatia 3/5, D-7 - account-scoped WebhookI
     expect(sibling?.status).toBe("DELIVERED");
   });
 
+  it("Round 2 Codex review: a sibling still advances even when the REPRESENTATIVE is already at a higher precedence than this event", async () => {
+    // Representative already DELIVERED (further along than this READ event would move an
+    // ACCEPTED attempt) - decideWhatsAppCallbackApplication won't apply anything to it, but the
+    // sibling (still ACCEPTED) should still advance to DELIVERED from the SAME event.
+    const siblingAttempt: NotificationAttempt = { ...makeAttempt(), intentId: "intent-2", attemptId: "attempt-2", ...notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"), status: "ACCEPTED" };
+    await seed(makeAttempt({ status: "DELIVERED" }));
+    await store.putIfAbsent(siblingAttempt);
+    const primaryLookup = buildNotificationAttemptLookup(makeAttempt());
+    await store.update<NotificationAttemptLookup>({ ...primaryLookup, digestSiblingAttempts: [{ intentId: "intent-2", attemptSk: notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2").SK }] });
+
+    const outcome = await processWhatsAppWebhook(deps, makeEvent({ statusType: "READ" }));
+    expect(outcome).toEqual({ kind: "NO_OP_PRECEDENCE" }); // correct for the representative itself
+
+    const sibling = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"));
+    expect(sibling?.status).toBe("DELIVERED"); // but the sibling still advanced from this same event
+  });
+
   it("a sibling attempt at a status where the transition doesn't apply (precedence) is left untouched", async () => {
     const siblingAttempt: NotificationAttempt = { ...makeAttempt(), intentId: "intent-2", attemptId: "attempt-2", ...notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"), status: "FAILED_TERMINAL" };
     await seed(makeAttempt({ status: "ACCEPTED" }));

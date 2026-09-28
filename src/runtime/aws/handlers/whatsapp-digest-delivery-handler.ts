@@ -17,6 +17,7 @@ import { createSecretsManagerClient, loadWhatsAppSecrets } from "../../../module
 import { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { AppConfigFeatureFlagsReader } from "../../../modules/extraction/persistence/appconfig-feature-flags-reader.js";
 import { isWhatsAppDeliveryWorkerEnabled } from "../../../modules/notification/application/whatsapp-activation.js";
+import { defaultSchemaRegistry } from "../../../shared/contracts/schema-validator.js";
 
 const client = createDocumentClient();
 const tableName = process.env["TABLE_NAME"];
@@ -63,25 +64,29 @@ async function getDeps(): Promise<WhatsAppDigestDeliveryDeps> {
 
 const logger = new SecureLogger({ baseContext: { service: "whatsapp-digest-delivery" } });
 
-function isWhatsAppDigestDeliverCommand(message: unknown): message is WhatsAppDigestDeliverCommand {
-  const m = message as Partial<WhatsAppDigestDeliverCommand> | undefined;
-  return typeof m?.tenantId === "string" && typeof m?.recipientUserId === "string" && typeof m?.windowDate === "string" && Array.isArray(m?.items);
-}
+// Round 2 Codex review (D-347 §3.5): the original manual guard only checked
+// `Array.isArray(m?.items)`, letting a malformed element (e.g. `[null]`) through to fail deep
+// inside the claim logic instead of at the boundary - now schema-validated
+// (`notification-whatsapp-digest-deliver.v1.json`), same discipline `whatsapp-delivery-handler.ts`
+// already uses for its own structured command.
+const WHATSAPP_DIGEST_DELIVER_SCHEMA_ID = "https://expiration-tracker/schemas/queues/notification-whatsapp-digest-deliver.v1.json";
 
 export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
-  // Same fail-closed kill-switch discipline as whatsapp-delivery-handler.ts: checked ONCE per
-  // batch, any flags-read error is treated as "disabled" (never "unknown, proceed"). While
-  // disabled, every message in this batch is a logged no-op, NEVER a batch item failure - a kill
-  // switch being off must never look like a processing error to SQS.
+  // Round 2 Codex review: a CONFIRMED-disabled flag (clean read, value is false) is a deliberate
+  // operator decision - safe to drop the batch, same as before. A flags-READ FAILURE is NOT the
+  // same thing - the FLUSHED windows in this batch have no other trigger once their GSI8 pointer
+  // is gone, so silently ACKing them during an AppConfig outage would permanently lose the
+  // schedule. Only a genuine read failure forces the whole batch to be redelivered; a confirmed
+  // "disabled" still drops it without side effect.
   let deliveryEnabled: boolean;
   try {
     const flags = await featureFlagsReader.getFlags();
     deliveryEnabled = isWhatsAppDeliveryWorkerEnabled(flags);
   } catch (err) {
-    logger.error("whatsapp-digest-delivery feature-flags read failed - fail-closed (treating as disabled)", { error: err instanceof Error ? err.message : String(err) });
-    deliveryEnabled = false;
+    logger.error("whatsapp-digest-delivery feature-flags read failed - preserving the batch for redelivery, never silently dropping it", { error: err instanceof Error ? err.message : String(err) });
+    return { batchItemFailures: event.Records.map((record) => ({ itemIdentifier: record.messageId })) };
   }
   if (!deliveryEnabled) {
     logger.info("whatsapp-digest-delivery kill switch off - batch dropped without side effect", { batchSize: event.Records.length });
@@ -94,17 +99,23 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
     await runWithContext({ correlationId: record.messageId }, async () => {
       try {
         const raw = JSON.parse(record.body) as unknown;
-        if (!isWhatsAppDigestDeliverCommand(raw)) {
-          logger.error("whatsapp-digest-delivery malformed message", { messageId: record.messageId });
+        const { valid, errors } = defaultSchemaRegistry.validate(WHATSAPP_DIGEST_DELIVER_SCHEMA_ID, raw);
+        if (!valid) {
+          logger.error("whatsapp-digest-delivery schema-invalid payload", { messageId: record.messageId, errors });
           batchItemFailures.push({ itemIdentifier: record.messageId });
           return;
         }
-        const command: WhatsAppDigestDeliverCommand = { tenantId: raw.tenantId, recipientUserId: raw.recipientUserId, windowDate: raw.windowDate, items: raw.items };
+        const command = raw as WhatsAppDigestDeliverCommand;
 
         await runWithContext({ correlationId: record.messageId, tenantId: command.tenantId }, async () => {
           const outcome = await processWhatsAppDigestDelivery(deps, command);
           logger.info("whatsapp-digest-delivery outcome", { messageId: record.messageId, recipientUserId: command.recipientUserId, windowDate: command.windowDate, outcome: outcome.kind });
-          const needsRedelivery = outcome.kind === "SKIPPED_PORTFOLIO_QUOTA" || (outcome.kind === "SEND_FAILED" && outcome.retryable);
+          // Round 2 Codex review: SKIPPED_IN_PROGRESS must also force redelivery - the SQS
+          // queue's own visibility timeout can be shorter than the SENDING lease, so a crashed
+          // invocation's redelivered message would otherwise be silently ACKed here and the
+          // window would sit unresolved until SOME other message happens to revisit it (which,
+          // for a one-shot digest window, may never happen).
+          const needsRedelivery = outcome.kind === "SKIPPED_PORTFOLIO_QUOTA" || outcome.kind === "SKIPPED_IN_PROGRESS" || (outcome.kind === "SEND_FAILED" && outcome.retryable);
           if (needsRedelivery) {
             batchItemFailures.push({ itemIdentifier: record.messageId });
           }

@@ -23,7 +23,7 @@ import { isTransactionCanceled } from "../ports/notification-store.js";
 import type { TenantManagerLookup } from "../../reminder/ports/tenant-manager-lookup.js";
 import { decideRouting, type RouterDecision } from "./notification-router.js";
 import { correctiveIdempotencyKey } from "./corrective-intent-service.js";
-import { buildVersionedUpdate, isSoleConditionalCancellation } from "../../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
 import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
@@ -456,7 +456,20 @@ async function applyRoutedDecision(
     // stuck PENDING forever with nothing to retry it. RETRY re-runs the whole decision fresh
     // (re-reads the now-current DigestEntry version), same "no write at all, let the caller
     // redeliver" contract the RETRY branch above already documents.
-    if (digestEntryIndex !== undefined && isSoleConditionalCancellation(err, digestEntryIndex)) {
+    //
+    // Round 2 Codex review: this used to call `isSoleConditionalCancellation`, which only
+    // recognizes the `ConditionalCheckFailed` reason - but two concurrent intents genuinely
+    // contending for the SAME DigestEntry (a new contention pattern this feature introduces,
+    // unlike most existing OCC usage in this codebase, which is only ever retried by the SAME
+    // logical operation) can just as plausibly surface as `TransactionConflict`
+    // (docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) -
+    // that reason would have fallen through to the generic `isTransactionCanceled` swallow below
+    // and silently returned ROUTED with nothing written. Checked directly against the raw
+    // per-entry reason codes instead, matching ANY non-"None" reason at the digest entry's own
+    // index (not just ConditionalCheckFailed) while every other entry's reason is "None".
+    const reasonCodes = digestEntryIndex !== undefined ? getCancellationReasonCodes(err) : undefined;
+    const digestEntryIsTheSoleCause = reasonCodes !== undefined && digestEntryIndex !== undefined && reasonCodes[digestEntryIndex] !== "None" && reasonCodes.every((code, i) => i === digestEntryIndex || code === "None");
+    if (digestEntryIsTheSoleCause) {
       return { kind: "RETRY", cause: "DIGEST_ENTRY_VERSION_CONFLICT" };
     }
     if (!isTransactionCanceled(err)) throw err;
