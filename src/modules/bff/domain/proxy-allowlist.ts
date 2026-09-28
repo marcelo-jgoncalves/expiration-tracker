@@ -51,6 +51,9 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "DELETE", pathTemplate: "/items/{itemId}/documents/{documentId}" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" },
   { method: "POST", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" },
+  // D-349: the AI-disclosure read contract - must be allowlisted here AND routed in
+  // infra/modules/api-gateway/main.tf AND dispatched in documents-handler.ts.
+  { method: "GET", pathTemplate: "/items/{itemId}/documents/{documentId}/extractions" },
   { method: "POST", pathTemplate: "/imports" },
   { method: "GET", pathTemplate: "/imports/{jobId}" },
   { method: "POST", pathTemplate: "/imports/{jobId}/commit" },
@@ -115,6 +118,12 @@ export const PROXY_ALLOWLIST: readonly AllowlistedRoute[] = [
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/claim" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/accept" },
   { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/reject" },
+  // D-349: the AI-disclosure read contract + confirm/reject routes for a service that has existed
+  // since D-193 but was never reachable over HTTP - must be allowlisted here AND routed in
+  // infra/modules/api-gateway/main.tf AND dispatched in document-archive-handler.ts.
+  { method: "GET", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/extractions" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm" },
+  { method: "POST", pathTemplate: "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject" },
   // D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same pairing discipline as above.
   { method: "POST", pathTemplate: "/document-archive/requirements" },
   // D-194 Fatia 3 (search/filters).

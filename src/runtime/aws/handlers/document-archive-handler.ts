@@ -9,6 +9,18 @@ import { createDocumentClient } from "../../../shared/dynamodb/client.js";
 import { buildIdentityDeps } from "../composition/identity.js";
 import { buildDocumentArchiveDeps } from "../composition/document-archive.js";
 import {
+  buildFieldConfirmationDeps,
+  buildFieldConfirmationDepsForDocumentArchive,
+  buildExtractionDisclosureDepsForItem,
+  buildExtractionDisclosureDepsForDocumentArchive,
+} from "../composition/extraction.js";
+import {
+  handleGetExtractionDisclosureForDocumentArchive,
+  handleConfirmFieldDocumentArchive,
+  handleRejectFieldDocumentArchive,
+  type ExtractionHttpDeps,
+} from "../../../modules/extraction/http/extraction-handlers.js";
+import {
   handleAcceptVersion,
   handleClaimReview,
   handleCommitUpload,
@@ -89,6 +101,16 @@ if (!shareLinkPepper) throw new Error("DOCARCHIVE_SHARE_LINK_PEPPER env var is r
 const { resolver, quota } = buildIdentityDeps(client, tableName);
 const { documentArchive, recurrence, dossierExportStore, shareLinks } = buildDocumentArchiveDeps(client, tableName, quarantineBucket, reportExportsBucketName, shareLinkPepper);
 const deps: DocumentArchiveHttpDeps = { resolver, documentArchive, recurrence, quota, dossierExportStore, shareLinks };
+// D-349: same module-wide deps bundle convention as documents-handler.ts's identical comment -
+// this Lambda only dispatches the document-archive extraction routes below, cheap to build all four.
+const extractionDeps: ExtractionHttpDeps = {
+  resolver,
+  quota,
+  fields: buildFieldConfirmationDeps(client, tableName),
+  fieldsDocumentArchive: buildFieldConfirmationDepsForDocumentArchive(client, tableName),
+  disclosureForItem: buildExtractionDisclosureDepsForItem(client, tableName),
+  disclosureForDocumentArchive: buildExtractionDisclosureDepsForDocumentArchive(client, tableName),
+};
 
 const NAMESPACE = "ExpirationTracker/DocumentArchive";
 
@@ -114,6 +136,14 @@ async function handleDocumentArchiveRoute(event: APIGatewayProxyEventV2WithJWTAu
           return await handleGetDocument(deps, base);
         case "GET /document-archive/documents/{documentId}/versions":
           return await handleListVersions(deps, base);
+        // D-349: the AI-disclosure read contract + the confirm/reject routes that had a service
+        // since D-193 but were never reachable over HTTP.
+        case "GET /document-archive/documents/{documentId}/versions/{seq}/extractions":
+          return await handleGetExtractionDisclosureForDocumentArchive(extractionDeps, base);
+        case "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm":
+          return await handleConfirmFieldDocumentArchive(extractionDeps, { ...base, body: parseBody(event) });
+        case "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject":
+          return await handleRejectFieldDocumentArchive(extractionDeps, { ...base, body: parseBody(event) });
         case "POST /document-archive/documents/{documentId}/versions":
           return await handleReserveUpload(deps, { ...base, body: parseBody(event) });
         case "POST /document-archive/documents/{documentId}/versions/{seq}/files":

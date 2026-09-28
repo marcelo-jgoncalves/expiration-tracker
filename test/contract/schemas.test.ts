@@ -1193,6 +1193,40 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  it("accepts a valid confirm-extracted-field-document-archive-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/confirm-extracted-field-document-archive-request.v1.json", {
+      expectedDocumentVersionVersion: 1,
+      expectedRunVersion: 1,
+      expectedFieldVersion: 1,
+      confirmedValue: "2027-03-31",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a confirm-extracted-field-document-archive-request.v1 missing confirmedValue", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/confirm-extracted-field-document-archive-request.v1.json", {
+      expectedDocumentVersionVersion: 1,
+      expectedRunVersion: 1,
+      expectedFieldVersion: 1,
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("accepts a valid reject-extracted-field-document-archive-request.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/reject-extracted-field-document-archive-request.v1.json", {
+      expectedRunVersion: 1,
+      expectedFieldVersion: 1,
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a reject-extracted-field-document-archive-request.v1 missing expectedFieldVersion", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/api/reject-extracted-field-document-archive-request.v1.json", { expectedRunVersion: 1 });
+    expect(valid).toBe(false);
+  });
+
   it("accepts a valid accept-invitation-request.v1", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/accept-invitation-request.v1.json", { token: "abcdef0123456789abcdef0123456789.abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" });
     expect(errors).toEqual([]);

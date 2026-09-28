@@ -59,6 +59,8 @@ import importCommitV1 from "../../../schemas/queues/import-commit.v1.json";
 import importMappingRequestV1 from "../../../schemas/api/import-mapping-request.v1.json";
 import confirmExtractedFieldRequestV1 from "../../../schemas/api/confirm-extracted-field-request.v1.json";
 import rejectExtractedFieldRequestV1 from "../../../schemas/api/reject-extracted-field-request.v1.json";
+import confirmExtractedFieldDocumentArchiveRequestV1 from "../../../schemas/api/confirm-extracted-field-document-archive-request.v1.json";
+import rejectExtractedFieldDocumentArchiveRequestV1 from "../../../schemas/api/reject-extracted-field-document-archive-request.v1.json";
 // Wave B2B-8 (D-099).
 import createInvitationRequestV1 from "../../../schemas/api/create-invitation-request.v1.json";
 import changeMembershipRoleRequestV1 from "../../../schemas/api/change-membership-role-request.v1.json";
@@ -224,6 +226,8 @@ export const defaultSchemaRegistry = new SchemaRegistry([
   // M7 verification section for the captured evidence.
   confirmExtractedFieldRequestV1,
   rejectExtractedFieldRequestV1,
+  confirmExtractedFieldDocumentArchiveRequestV1,
+  rejectExtractedFieldDocumentArchiveRequestV1,
   createInvitationRequestV1,
   changeMembershipRoleRequestV1,
   transferOwnershipRequestV1,

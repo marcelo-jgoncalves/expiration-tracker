@@ -11,6 +11,8 @@ import { DynamoDbDocumentArchiveStore } from "../../../modules/document-archive/
 import type { StartExtractionRunForDocumentArchiveDeps } from "../../../modules/extraction/application/start-extraction-run-for-document-archive.js";
 import { IdempotencyStore, transitionIdempotencyStatus, type DynamoLike } from "../../../shared/idempotency/idempotency.js";
 import type { ConfirmRejectFieldDeps } from "../../../modules/extraction/application/confirm-reject-field.js";
+import type { ConfirmRejectFieldDocumentArchiveDeps } from "../../../modules/extraction/application/confirm-reject-field-document-archive.js";
+import type { GetExtractionDisclosureForItemDeps, GetExtractionDisclosureForDocumentArchiveDeps } from "../../../modules/extraction/application/read-extraction-disclosure.js";
 
 export function buildExtractionStarterWorkerDeps(client: DynamoDBDocumentClient, tableName: string, stateMachineArn: string) {
   // DynamoDbDocumentStore already implements DocumentReader's narrow surface (structural
@@ -62,4 +64,37 @@ export function buildFieldConfirmationDeps(client: DynamoDBDocumentClient, table
   const idempotency = new IdempotencyStore(idempotencyAdapter, tableName);
 
   return { documents, items, runs, fields, idempotency, now: () => new Date().toISOString() };
+}
+
+/** D-349: `document-archive`'s confirm/reject field HTTP routes - the service
+ * (`confirmFieldForDocumentArchive`/`rejectFieldForDocumentArchive`) has existed since D-193, but
+ * had no composition wiring because nothing called it over HTTP yet. Reuses `DynamoDbExpirationStore`
+ * purely as the idempotency backing (same opportunistic reuse `buildFieldConfirmationDeps` above
+ * already does) - it's a generic get/putIfAbsent/update/transitionIfStatus adapter over arbitrary
+ * EntityKeys, not a dependency on the `expiration` module's domain; `document-archive` has no
+ * store of its own that implements this full surface yet. */
+export function buildFieldConfirmationDepsForDocumentArchive(client: DynamoDBDocumentClient, tableName: string): ConfirmRejectFieldDocumentArchiveDeps {
+  const archive = new DynamoDbDocumentArchiveStore(client, tableName);
+  const idempotencyBacking = new DynamoDbExpirationStore(client, tableName);
+  const runs = new DynamoDbExtractionRunStore(client, tableName);
+  const fields = new DynamoDbExtractedFieldStore(client, tableName);
+
+  const idempotencyAdapter: DynamoLike = {
+    putIfAbsent: async (item) => ((await idempotencyBacking.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
+    get: (key) => idempotencyBacking.get(key),
+    update: (item) => idempotencyBacking.update(item),
+    transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(idempotencyBacking, tableName, item, expectedStatus),
+  };
+  const idempotency = new IdempotencyStore(idempotencyAdapter, tableName);
+
+  return { archive, runs, fields, idempotency, now: () => new Date().toISOString() };
+}
+
+/** D-349: the shared read contract's composition wiring for both A07 and A12. */
+export function buildExtractionDisclosureDepsForItem(client: DynamoDBDocumentClient, tableName: string): GetExtractionDisclosureForItemDeps {
+  return { documents: new DynamoDbDocumentStore(client, tableName), runs: new DynamoDbExtractionRunStore(client, tableName), fields: new DynamoDbExtractedFieldStore(client, tableName) };
+}
+
+export function buildExtractionDisclosureDepsForDocumentArchive(client: DynamoDBDocumentClient, tableName: string): GetExtractionDisclosureForDocumentArchiveDeps {
+  return { archive: new DynamoDbDocumentArchiveStore(client, tableName), runs: new DynamoDbExtractionRunStore(client, tableName), fields: new DynamoDbExtractedFieldStore(client, tableName) };
 }

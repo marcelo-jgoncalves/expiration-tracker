@@ -281,9 +281,13 @@ run "jwt_authorizer_attached_to_every_route" {
     error_message = "Every /items/{itemId}/documents* route must be JWT-authorized with the shared authorizer"
   }
 
+  # D-349: this assertion was drifted before this change too - it said 6 while the real count was
+  # already 7 (the D-313 `download` route was never reflected here). Fixed to the real count
+  # (8, adding D-349's get_extractions) while already touching this block, rather than leaving a
+  # known-wrong assertion in place.
   assert {
-    condition     = length(aws_apigatewayv2_route.documents) == 6
-    error_message = "Expected exactly 6 /items/{itemId}/documents* routes (reserve upload, list, get, delete, M7 confirm/reject)"
+    condition     = length(aws_apigatewayv2_route.documents) == 8
+    error_message = "Expected exactly 8 /items/{itemId}/documents* routes (reserve upload, list, get, download, delete, M7 confirm/reject, D-349 get_extractions)"
   }
 
   assert {
@@ -302,6 +306,15 @@ run "jwt_authorizer_attached_to_every_route" {
       "GET /items/{itemId}/documents",
     )
     error_message = "GET /items/{itemId}/documents route must exist"
+  }
+
+  # D-349: handler dispatch added in the same commit (documents-handler.ts) - D-117/D-120 discipline.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.documents : r.route_key],
+      "GET /items/{itemId}/documents/{documentId}/extractions",
+    )
+    error_message = "GET /items/{itemId}/documents/{documentId}/extractions route must exist - the AI-disclosure read is unreachable without it (D-117/D-120 bug class)"
   }
 
   assert {
@@ -477,5 +490,32 @@ run "jwt_authorizer_attached_to_every_route" {
       "PUT /document-archive/settings/document-request-delivery",
     )
     error_message = "PUT /document-archive/settings/document-request-delivery route must exist"
+  }
+
+  # D-349: handler dispatch added in the same commit (document-archive-handler.ts) - D-117/D-120
+  # discipline. confirmFieldForDocumentArchive/rejectFieldForDocumentArchive had a service since
+  # D-193 but were unreachable over HTTP until now.
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.document_archive : r.route_key],
+      "GET /document-archive/documents/{documentId}/versions/{seq}/extractions",
+    )
+    error_message = "GET /document-archive/documents/{documentId}/versions/{seq}/extractions route must exist - the AI-disclosure read is unreachable without it (D-117/D-120 bug class)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.document_archive : r.route_key],
+      "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm",
+    )
+    error_message = "POST .../extractions/{runId}/fields/{fieldName}/confirm route must exist - confirmFieldForDocumentArchive is unreachable without it (D-117/D-120 bug class)"
+  }
+
+  assert {
+    condition = contains(
+      [for r in aws_apigatewayv2_route.document_archive : r.route_key],
+      "POST /document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject",
+    )
+    error_message = "POST .../extractions/{runId}/fields/{fieldName}/reject route must exist - rejectFieldForDocumentArchive is unreachable without it (D-117/D-120 bug class)"
   }
 }

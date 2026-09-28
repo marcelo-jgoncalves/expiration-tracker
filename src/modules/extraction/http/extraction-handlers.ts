@@ -12,9 +12,18 @@ import type { RequestContextResolver, ValidatedClaims } from "../../identity/app
 import type { RequestContext } from "../../identity/domain/request-context.js";
 import type { TenantQuotaService } from "../../identity/application/quota.js";
 import { confirmField, rejectField, type ConfirmRejectFieldDeps } from "../application/confirm-reject-field.js";
+import { confirmFieldForDocumentArchive, rejectFieldForDocumentArchive, type ConfirmRejectFieldDocumentArchiveDeps } from "../application/confirm-reject-field-document-archive.js";
+import {
+  getExtractionDisclosureForItem,
+  getExtractionDisclosureForDocumentArchive,
+  type GetExtractionDisclosureForItemDeps,
+  type GetExtractionDisclosureForDocumentArchiveDeps,
+} from "../application/read-extraction-disclosure.js";
 
 const CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/confirm-extracted-field-request.v1.json";
 const REJECT_SCHEMA_ID = "https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json";
+const CONFIRM_DOCUMENT_ARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/confirm-extracted-field-document-archive-request.v1.json";
+const REJECT_DOCUMENT_ARCHIVE_SCHEMA_ID = "https://expiration-tracker/schemas/api/reject-extracted-field-document-archive-request.v1.json";
 
 async function consumeApiRequestQuota(quota: TenantQuotaService, context: RequestContext): Promise<void> {
   await quota.consume({ tenantId: context.tenant.tenantId, quotaType: "API_REQUEST", window: "current", limit: 100, windowSeconds: 60 });
@@ -43,6 +52,9 @@ export interface ExtractionHttpDeps {
   resolver: RequestContextResolver;
   quota: TenantQuotaService;
   fields: ConfirmRejectFieldDeps;
+  fieldsDocumentArchive: ConfirmRejectFieldDocumentArchiveDeps;
+  disclosureForItem: GetExtractionDisclosureForItemDeps;
+  disclosureForDocumentArchive: GetExtractionDisclosureForDocumentArchiveDeps;
 }
 
 const STATUS_BY_CATEGORY: Record<string, number> = {
@@ -122,6 +134,101 @@ export async function handleConfirmField(deps: ExtractionHttpDeps, req: HttpRequ
       expectedRunVersion: req.body.expectedRunVersion,
       expectedFieldVersion: req.body.expectedFieldVersion,
       confirmedValue: req.body.confirmedValue,
+      idempotencyKey,
+    });
+    return { statusCode: 200, body: { field } };
+  });
+}
+
+/** D-349: `GET /items/{itemId}/documents/{documentId}/extractions` - the read contract A07's
+ * disclosure UI needs. Authorization/tenant-scoping happens inside
+ * `getExtractionDisclosureForItem` itself (`document:read`), same as every other read handler in
+ * this codebase. Returns `{ disclosure: null }` (never a 404) when extraction hasn't produced a
+ * run yet for this document's current version - that is a normal, expected state, not an error. */
+export async function handleGetExtractionDisclosureForItem(deps: ExtractionHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const itemId = requirePathParam(req, "itemId");
+    const documentId = requirePathParam(req, "documentId");
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    const disclosure = await getExtractionDisclosureForItem(deps.disclosureForItem, context, itemId, documentId);
+    return { statusCode: 200, body: { disclosure: disclosure ?? null } };
+  });
+}
+
+/** D-349: `GET /document-archive/documents/{documentId}/versions/{seq}/extractions` - A12's
+ * counterpart, same "no run yet is a normal null, never a 404" contract. */
+export async function handleGetExtractionDisclosureForDocumentArchive(deps: ExtractionHttpDeps, req: HttpRequest): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    const documentId = requirePathParam(req, "documentId");
+    const seq = Number(requirePathParam(req, "seq"));
+    if (!Number.isInteger(seq) || seq < 1) throw new ValidationError("Invalid seq path parameter.");
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    const disclosure = await getExtractionDisclosureForDocumentArchive(deps.disclosureForDocumentArchive, context, documentId, seq);
+    return { statusCode: 200, body: { disclosure: disclosure ?? null } };
+  });
+}
+
+interface ConfirmFieldDocumentArchiveBody {
+  expectedDocumentVersionVersion: number;
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  confirmedValue: string;
+}
+
+interface RejectFieldDocumentArchiveBody {
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  correctionReason?: string;
+}
+
+/** D-349 / D-193 item 4/9: `document-archive`'s confirm route - the service
+ * (`confirmFieldForDocumentArchive`) has existed since D-193, but was never reachable over HTTP
+ * until now (Codex's read of the design confirmed this gap explicitly). */
+export async function handleConfirmFieldDocumentArchive(deps: ExtractionHttpDeps, req: HttpRequest<ConfirmFieldDocumentArchiveBody>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(CONFIRM_DOCUMENT_ARCHIVE_SCHEMA_ID, req.body);
+    const documentId = requirePathParam(req, "documentId");
+    const seq = Number(requirePathParam(req, "seq"));
+    if (!Number.isInteger(seq) || seq < 1) throw new ValidationError("Invalid seq path parameter.");
+    const runId = requirePathParam(req, "runId");
+    const fieldName = requirePathParam(req, "fieldName");
+    const idempotencyKey = requireIdempotencyKey(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const field = await confirmFieldForDocumentArchive(deps.fieldsDocumentArchive, context, {
+      documentId,
+      seq,
+      runId,
+      fieldName,
+      expectedDocumentVersionVersion: req.body.expectedDocumentVersionVersion,
+      expectedRunVersion: req.body.expectedRunVersion,
+      expectedFieldVersion: req.body.expectedFieldVersion,
+      confirmedValue: req.body.confirmedValue,
+      correlationId: req.correlationId,
+      idempotencyKey,
+    });
+    return { statusCode: 200, body: { field } };
+  });
+}
+
+export async function handleRejectFieldDocumentArchive(deps: ExtractionHttpDeps, req: HttpRequest<RejectFieldDocumentArchiveBody>): Promise<HttpResponse> {
+  return withErrorMapping(async () => {
+    if (!req.body) throw new ValidationError("Missing request body.");
+    validateAgainstSchema(REJECT_DOCUMENT_ARCHIVE_SCHEMA_ID, req.body);
+    const documentId = requirePathParam(req, "documentId");
+    const runId = requirePathParam(req, "runId");
+    const fieldName = requirePathParam(req, "fieldName");
+    const idempotencyKey = requireIdempotencyKey(req);
+    const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
+    await consumeApiRequestQuota(deps.quota, context);
+    const field = await rejectFieldForDocumentArchive(deps.fieldsDocumentArchive, context, {
+      documentId,
+      runId,
+      fieldName,
+      expectedRunVersion: req.body.expectedRunVersion,
+      expectedFieldVersion: req.body.expectedFieldVersion,
+      correctionReason: req.body.correctionReason,
       idempotencyKey,
     });
     return { statusCode: 200, body: { field } };

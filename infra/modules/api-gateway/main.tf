@@ -402,6 +402,8 @@ locals {
     # already has full read/write table access), no new Lambda/infra needed.
     confirm_field = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/confirm" }
     reject_field  = { method = "POST", path = "/items/{itemId}/documents/{documentId}/extractions/{runId}/fields/{fieldName}/reject" }
+    # D-349: the AI-disclosure read contract - same Lambda/integration, no new infra.
+    get_extractions = { method = "GET", path = "/items/{itemId}/documents/{documentId}/extractions" }
   }
 }
 
@@ -687,6 +689,11 @@ locals {
     claim_review   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/claim" }
     accept_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/accept" }
     reject_version = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/reject" }
+    # D-349: the AI-disclosure read contract + the confirm/reject routes for a service that has
+    # existed since D-193 but was never reachable over HTTP - same Lambda/integration.
+    get_extractions = { method = "GET", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions" }
+    confirm_field   = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/confirm" }
+    reject_field    = { method = "POST", path = "/document-archive/documents/{documentId}/versions/{seq}/extractions/{runId}/fields/{fieldName}/reject" }
 
     # D-143 Nucleus 2, Requirement (Decision 5/D9, D-145) - same Lambda, subject-scoped routes.
     create_requirement = { method = "POST", path = "/document-archive/requirements" }
