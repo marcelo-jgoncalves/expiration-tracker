@@ -3,9 +3,12 @@
  * narrower than the full audited spec (`A07-arquivos-vencimento.md`) for this first landing:
  * covers the two CRITICAL audit fixes in full (RBAC — `document:delete` is ADMIN_ROLES, never
  * MEMBER; the genuinely two-phase upload model — reserve vs. byte transfer, `PENDING_UPLOAD` is
- * NOT "done") plus every real lifecycle state the backend can return. OCR extraction fields
- * (`extraction:confirm`, SUGGESTED vs CONFIRMED) are out of scope for this landing — recorded
- * as pending follow-up (decisions-log D-2xx), not fabricated here.
+ * NOT "done") plus every real lifecycle state the backend can return.
+ *
+ * D-349 (2026-09-28): the AI-disclosure READ is now wired (`ExtractionDisclosure`, shared with
+ * A12) - a CLEAN document shows its extracted field(s) with the real state/provenance/confidence
+ * the backend returns. Confirming/rejecting a suggested value (`extraction:confirm`) is a
+ * separate control, still not built here - the route exists, the interactive UI doesn't yet.
  *
  * `document:read` is READ_ONLY_ROLES (authorization.ts:279, verified directly - NOT the same
  * tier as the spec's looser prose grouping it with `reserve-upload`) - every role can see this
@@ -19,7 +22,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { FileText } from "lucide-react";
 import { useItem } from "../../hooks/useItem.js";
-import { useDocuments } from "../../hooks/useDocuments.js";
+import { useDocuments, useDocumentExtraction } from "../../hooks/useDocuments.js";
 import { useUploadDocument } from "../../hooks/useUploadDocument.js";
 import { useDeleteDocument } from "../../hooks/useDeleteDocument.js";
 import { useDownloadDocument } from "../../hooks/useDownloadDocument.js";
@@ -32,6 +35,7 @@ import { Button } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Dialog } from "../../components/ui/Dialog.js";
+import { ExtractionDisclosure } from "../../components/ExtractionDisclosure.js";
 import type { ItemDocument, MembershipRole } from "../../api/types.js";
 import "./ItemDocuments.css";
 
@@ -98,6 +102,10 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
   const deleteMutation = useDeleteDocument(itemId);
   const downloadMutation = useDownloadDocument(itemId);
   const [confirming, setConfirming] = useState(false);
+  // D-349: extraction only ever runs after the malware scan clears (SCANNING -> CLEAN) - never
+  // query for a document that can't possibly have a run yet, same "CLEAN"-gated discipline the
+  // download button above already follows.
+  const extractionQuery = useDocumentExtraction(itemId, document.status === "CLEAN" ? document.documentId : "");
 
   if (document.status === "DELETED") return null;
 
@@ -123,6 +131,7 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
             {downloadMutation.error instanceof ApiError ? downloadMutation.error.message : "Não foi possível baixar este arquivo."}
           </p>
         ) : null}
+        {document.status === "CLEAN" ? <ExtractionDisclosure disclosure={extractionQuery.data?.disclosure} /> : null}
       </div>
       <StatusBadge presentation={presentation} srPrefix="Status do arquivo" />
       {/* Mirrors the backend's own gate (DocumentService.downloadDocument: status!=="CLEAN" ->

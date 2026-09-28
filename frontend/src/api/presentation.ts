@@ -28,6 +28,7 @@ import type {
   MembershipRole,
   MembershipStatus,
   InvitationStatus,
+  DisclosedExtractedField,
 } from "./types.js";
 
 export interface StatusPresentation {
@@ -406,4 +407,61 @@ export function presentGuestLinkState(request: Pick<DocumentRequest, "status" | 
   if (request.status === "CANCELLED") return "Cancelado";
   if (request.deadline && new Date(request.deadline).getTime() < now.getTime()) return "Expirado";
   return request.deadline ? `Ativo · expira em ${formatAbsoluteDate(request.deadline)}` : "Ativo";
+}
+
+/**
+ * D-349 (`docs/architecture/reviews/p0-screen-a12-ocr-drift-scoping/`, converged Claude 9.1/Codex
+ * 9.1) — the AI-disclosure presentation rules for a single `DisclosedExtractedField`, shared
+ * verbatim between A07 and A12 (same component consumes this, see
+ * `components/ExtractionDisclosure.tsx`). Every rule below is a real correction the protocol's
+ * 3 rounds found, not invented UI polish:
+ *
+ * - No `candidateValue` is a distinct, named state ("Nenhum valor extraído") - never rendered as
+ *   an empty "Sugerido".
+ * - `agreement === "MISMATCH"` never asserts "as fontes discordaram" - it also fires when Bedrock
+ *   was needed but produced no candidate, so the label stays neutral ("Requer revisão").
+ * - Provenance reflects the REAL `sources` - a field resolved only by the deterministic parser is
+ *   never labeled as AI-generated; only `BEDROCK` earns that label.
+ * - `confirmedBy === "SYSTEM_AUTO_CONFIRM"` (the pipeline's own auto-confirm decision) is labeled
+ *   "Confirmado automaticamente", never a fabricated human name. A real confirming userId is
+ *   labeled plainly "Confirmado" - resolving it to a display name is a separate, not-yet-built
+ *   requirement (`estado-final-consolidado.md`), never guessed here.
+ */
+export interface ExtractedFieldDisclosureView {
+  /** The value to display - confirmedValue when the field is CONFIRMED, candidateValue while
+   * PENDING_CONFIRMATION, undefined when neither exists yet. */
+  valueText: string | undefined;
+  /** Present only while PENDING_CONFIRMATION - "Sugerido[ com N% de confiança]", "Nenhum valor
+   * extraído — preenchimento necessário", or "Requer revisão" (MISMATCH). */
+  suggestionLabel: string | undefined;
+  /** Present only when at least one source produced the value - never fabricated for an empty
+   * `sources` array. */
+  provenanceLabel: string | undefined;
+  /** Present only when CONFIRMED. */
+  confirmationLabel: string | undefined;
+  /** Present only when REJECTED. */
+  rejectedLabel: string | undefined;
+}
+
+export function presentExtractedFieldDisclosure(field: DisclosedExtractedField): ExtractedFieldDisclosureView {
+  const provenanceLabel = field.sources.length === 0 ? undefined : field.sources.includes("BEDROCK") ? "Sugestão com participação de IA generativa" : field.sources.includes("TEXTRACT") ? "Extraído por reconhecimento de texto" : "Extraído automaticamente do documento";
+
+  if (field.state === "REJECTED") {
+    return { valueText: undefined, suggestionLabel: undefined, provenanceLabel: undefined, confirmationLabel: undefined, rejectedLabel: "Rejeitado" };
+  }
+
+  if (field.state === "CONFIRMED") {
+    const confirmationLabel = field.confirmedBy === "SYSTEM_AUTO_CONFIRM" ? "Confirmado automaticamente" : "Confirmado";
+    return { valueText: field.confirmedValue, suggestionLabel: undefined, provenanceLabel, confirmationLabel, rejectedLabel: undefined };
+  }
+
+  // PENDING_CONFIRMATION.
+  if (field.agreement === "MISMATCH") {
+    return { valueText: field.candidateValue, suggestionLabel: "Requer revisão", provenanceLabel, confirmationLabel: undefined, rejectedLabel: undefined };
+  }
+  if (!field.candidateValue) {
+    return { valueText: undefined, suggestionLabel: "Nenhum valor extraído — preenchimento necessário", provenanceLabel: undefined, confirmationLabel: undefined, rejectedLabel: undefined };
+  }
+  const confidenceSuffix = field.confidence !== undefined ? ` com ${Math.round(field.confidence * 100)}% de confiança` : "";
+  return { valueText: field.candidateValue, suggestionLabel: `Sugerido${confidenceSuffix}`, provenanceLabel, confirmationLabel: undefined, rejectedLabel: undefined };
 }

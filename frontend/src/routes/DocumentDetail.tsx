@@ -25,7 +25,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Bookmark, Check, RotateCw, Upload, UserPlus, X } from "lucide-react";
-import { useDocument, useDocumentVersions } from "../hooks/useDocumentDetail.js";
+import { useDocument, useDocumentVersions, useDocumentVersionExtraction } from "../hooks/useDocumentDetail.js";
 import { listDocumentVersions } from "../api/documentArchive.js";
 import {
   useReserveUpload,
@@ -45,6 +45,7 @@ import { Button } from "../components/ui/Button.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
+import { ExtractionDisclosure } from "../components/ExtractionDisclosure.js";
 import type { DocumentArchiveVersion, RejectionReason, DocumentVersionState } from "../api/types.js";
 // ADR-0015 v2 reskin (2026-09-21): `.a12-version-timeline`/`.a12-version-header`/
 // `.a12-upload-wizard` only existed as bare class names with no CSS anywhere in the codebase
@@ -167,6 +168,10 @@ function VersionCard({
   const anyPending = claimMutation.isPending || acceptMutation.isPending || rejectMutation.isPending;
   const isInfected = version.infectedFileScans > 0;
   const isScanPending = version.pendingFileScans > 0;
+  // D-349: extraction only ever runs after the evidence file's malware scan clears - never query
+  // for a version whose file is still scanning/infected, same gate `isScanPending`/`isInfected`
+  // already express for the accept/reject actions below.
+  const extractionQuery = useDocumentVersionExtraction(documentId, !isScanPending && !isInfected ? version.seq : 0);
 
   async function handleClaim() {
     setActionError(undefined);
@@ -239,6 +244,8 @@ function VersionCard({
           </div>
         ) : null}
       </dl>
+
+      {!isScanPending && !isInfected ? <ExtractionDisclosure disclosure={extractionQuery.data?.disclosure} /> : null}
 
       {actionError ? (
         <InlineNotice tone="warning" announce="alert">

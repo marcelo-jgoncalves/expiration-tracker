@@ -11,6 +11,7 @@ import type {
   DocumentArchiveDocument,
   DocumentArchiveVersion,
   CreateDocumentInput,
+  ExtractionDisclosureResponse,
   FileUploadSpec,
   ReservedDocumentFile,
   RejectionReason,
@@ -31,6 +32,12 @@ export function getDocument(documentId: string, options?: { signal?: AbortSignal
  * the backend response order. */
 export function listDocumentVersions(documentId: string, options?: { signal?: AbortSignal }): Promise<{ versions: DocumentArchiveVersion[] }> {
   return apiClient.get<{ versions: DocumentArchiveVersion[] }>(`/document-archive/documents/${encodeURIComponent(documentId)}/versions`, { signal: options?.signal });
+}
+
+/** D-349 - the AI-disclosure read for A12. `disclosure` is `null` (never a 404) when extraction
+ * hasn't produced a run yet for this version. */
+export function getDocumentVersionExtraction(documentId: string, seq: number, options?: { signal?: AbortSignal }): Promise<ExtractionDisclosureResponse> {
+  return apiClient.get<ExtractionDisclosureResponse>(`/document-archive/documents/${encodeURIComponent(documentId)}/versions/${seq}/extractions`, { signal: options?.signal });
 }
 
 /** Upload step 1/3 — `POST .../versions` reserves a new DRAFT version. `docarchive:upload`. */
