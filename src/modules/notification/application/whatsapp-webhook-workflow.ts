@@ -127,8 +127,49 @@ export async function processWhatsAppWebhook(deps: WhatsAppWebhookWorkflowDeps, 
     // failure, the winning transition already reflects the correct monotonic state.
   }
 
+  // D-347 §3.5: a WhatsApp digest's ONE external message covers N attempts, correlated here only
+  // via this ONE (the "representative" attempt's) lookup row - fan the SAME transition out to
+  // every sibling `whatsapp-digest-delivery/delivery.ts` recorded on it. Best-effort per sibling,
+  // same "one bad row never corrupts the others" posture the primary attempt's own catch above
+  // already uses - each sibling independently re-derives its own precedence decision rather than
+  // blindly copying `application.nextStatus` (a sibling could be at a different current status).
+  if (lookup.digestSiblingAttempts && lookup.digestSiblingAttempts.length > 0) {
+    for (const sibling of lookup.digestSiblingAttempts) {
+      await applySiblingTransition(deps, tenantId, sibling, event, now);
+    }
+  }
+
   await markInboxProcessed(deps, inboxKey, event.wabaId, now);
   return { kind: "APPLIED", nextStatus: application.nextStatus };
+}
+
+async function applySiblingTransition(
+  deps: WhatsAppWebhookWorkflowDeps,
+  tenantId: string,
+  sibling: { intentId: string; attemptSk: string },
+  event: WhatsAppStatusEvent,
+  now: string,
+): Promise<void> {
+  const siblingAttempt = await deps.store.get<NotificationAttempt>({ PK: `TENANT#${tenantId}#INTENT#${sibling.intentId}`, SK: sibling.attemptSk }, true);
+  if (!siblingAttempt || siblingAttempt.tenantId !== tenantId) return;
+  const siblingApplication = decideWhatsAppCallbackApplication(siblingAttempt.status, event.statusType);
+  if (!siblingApplication.apply) return;
+  try {
+    await deps.store.transactWrite([
+      {
+        Update: buildVersionedUpdate({
+          tableName: deps.tableName,
+          key: { PK: siblingAttempt.PK, SK: siblingAttempt.SK },
+          tenantId,
+          expectedVersion: siblingAttempt.version,
+          now,
+          set: { status: siblingApplication.nextStatus, lastProviderEventAt: event.occurredAt },
+        }),
+      },
+    ]);
+  } catch (err) {
+    if (!isTransactionCanceled(err) && !isConditionalCheckFailed(err)) throw err;
+  }
 }
 
 async function annotateInboxTenant(

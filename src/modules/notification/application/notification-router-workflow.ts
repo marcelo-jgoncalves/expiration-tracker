@@ -29,9 +29,9 @@ import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../.
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { buildWhatsAppOutboxRecord } from "./whatsapp-outbox.js";
 import { outboxShard, epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../shared/outbox/outbox.js";
-import { decideDigestRouting } from "./notification-digest-routing.js";
+import { decideDigestRouting, type DigestRoutingDecision } from "./notification-digest-routing.js";
 import { buildDigestEntryWriteEntry } from "./whatsapp-digest-entry-writer.js";
-import { digestEntryKey, digestWindowDateFromIso, type DigestEntry } from "../domain/digest-entry.js";
+import { digestEntryKey, digestWindowDateFromIso, isDigestEntryAtCapacity, type DigestEntry } from "../domain/digest-entry.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -355,10 +355,23 @@ async function applyRoutedDecision(
     // write later to flip it. Only reachable for WHATSAPP with a resolved recipient (a ROUTED
     // decision always has one - see the comment above `recipientUserId` - `resolvedRecipientUserId`
     // stays optional in the signature purely for defensive fallback to immediate send).
-    const digestDecision =
+    let digestDecision: DigestRoutingDecision =
       channel === "WHATSAPP" && resolvedRecipientUserId
         ? decideDigestRouting({ channel, targetKind: intent.targetKind, itemDueDate: currentItem?.dueDate, now })
         : "BYPASS_IMMEDIATE";
+
+    // D-347 §3.5 (Round 1 Codex review): the digest window's own read happens HERE, before the
+    // attempt is built, so a window already at MAX_DIGEST_ITEMS can fall back to
+    // BYPASS_IMMEDIATE before the attempt's status is ever set to DIGESTED - never a second
+    // write later to flip it, same "decide once, build once" discipline as the branch above.
+    const windowDate = digestDecision === "DIGEST" ? digestWindowDateFromIso(now) : undefined;
+    const existingDigestEntry =
+      digestDecision === "DIGEST" && windowDate
+        ? await deps.store.get<DigestEntry>(digestEntryKey(intent.tenantId, resolvedRecipientUserId!, "WHATSAPP", windowDate), true)
+        : undefined;
+    if (digestDecision === "DIGEST" && isDigestEntryAtCapacity(existingDigestEntry)) {
+      digestDecision = "BYPASS_IMMEDIATE";
+    }
 
     const attemptId = deps.newAttemptId();
     const attemptNumber = 1;
@@ -404,19 +417,15 @@ async function applyRoutedDecision(
 
     if (digestDecision === "DIGEST") {
       // D-347 §3.5: fold into the recipient's daily WHATSAPP window instead of an immediate
-      // outbox record - a consistent read here (same "read just before building the
-      // transaction" pattern `routeNotificationIntent` already uses for item/policy/
-      // entitlements/preferences) lets the pure writer decide Put-if-absent vs. versioned
-      // Update.
-      const windowDate = digestWindowDateFromIso(now);
-      const existingDigestEntry = await deps.store.get<DigestEntry>(digestEntryKey(intent.tenantId, resolvedRecipientUserId!, "WHATSAPP", windowDate), true);
+      // outbox record - `existingDigestEntry`/`windowDate` were already read above (same
+      // consistent read the capacity check just used), never a second read here.
       digestEntryIndex = entries.length;
       entries.push(
         buildDigestEntryWriteEntry({
           tableName: deps.tableName,
           tenantId: intent.tenantId,
           recipientUserId: resolvedRecipientUserId!,
-          windowDate,
+          windowDate: windowDate!,
           existing: existingDigestEntry,
           newItem: { intentId: intent.intentId, attemptId, itemId: intent.itemId, itemVersion: intent.itemVersion, addedAt: now },
           now,

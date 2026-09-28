@@ -5197,6 +5197,13 @@ module "whatsapp_digest_delivery" {
     WHATSAPP_SECRET_ID                  = aws_secretsmanager_secret.whatsapp_cloud_api.id
     WHATSAPP_API_VERSION                = var.whatsapp_api_version
     WHATSAPP_PORTFOLIO_QUOTA_TIER_LIMIT = tostring(var.whatsapp_portfolio_quota_tier_limit)
+    # Round 1 Codex review (D-347 §3.5): the digest path bypassed the SAME kill switch
+    # (WHATSAPP_DELIVERY_WORKER_ENABLED) the immediate whatsapp_delivery Lambda already checks -
+    # reused here rather than a second flag, same feature-flags trio every AppConfig-gated Lambda
+    # uses.
+    APPCONFIG_APPLICATION_ID           = module.feature_flags.application_id
+    APPCONFIG_ENVIRONMENT_ID           = module.feature_flags.environment_id
+    APPCONFIG_CONFIGURATION_PROFILE_ID = module.feature_flags.configuration_profile_id
   })
   # D-8: whatsapp_portfolio_quota_policy_json is the SAME dedicated, LeadingKeys-scoped grant on
   # the WHATSAPP#PORTFOLIO partition whatsapp_delivery already holds - a digest send is still one
@@ -5207,6 +5214,7 @@ module "whatsapp_digest_delivery" {
     module.whatsapp_digest_deliver_queue.consume_policy_json,
     data.aws_iam_policy_document.whatsapp_secret_read.json,
     module.table.whatsapp_portfolio_quota_policy_json,
+    module.feature_flags.feature_flags_read_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }

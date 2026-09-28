@@ -16,7 +16,41 @@
 import type { EntityKey } from "../../../shared/dynamodb/occ.js";
 
 export type DigestChannel = "WHATSAPP";
-export type DigestEntryStatus = "OPEN" | "FLUSHED";
+
+/**
+ * Round 1 Codex review (D-347 §3.5) found the original two-state (`OPEN`/`FLUSHED`) model let a
+ * redelivered `SQS_NOTIFICATION_WHATSAPP_DIGEST_V1` message send the same window's message twice
+ * and left a retried-but-now-successful send's attempts recorded as failed. States below mirror
+ * the SAME admission/lease/reconcile discipline `NotificationAttemptStatus`'s
+ * PREPARED->SUBMITTING->resolved already establishes, applied to the WHOLE window instead of one
+ * attempt (the digest's one external call covers N attempts, so the lease belongs on the entry,
+ * not repeated per attempt):
+ *   - `OPEN`: accumulating items, not yet due.
+ *   - `FLUSHED`: claimed by the flush worker (GSI8 pointer dropped), outbox event dispatched,
+ *     awaiting the delivery worker's admission.
+ *   - `SENDING`: the delivery worker admitted this window for ONE external call attempt -
+ *     `leaseExpiresAt` bounds how long a crash mid-send can block a retry (same lease-expiry
+ *     concept `NotificationAttempt.leaseExpiresAt`/`decideSendAction` already use).
+ *   - `SENT`: terminal success.
+ *   - `FAILED`: terminal, conclusively never sendable (no eligible items left, or no resolvable
+ *     phone) - never automatically retried.
+ *   - `UNKNOWN`: an external call MAY have reached the provider without local confirmation
+ *     (timeout/connection drop, or a `SENDING` lease that expired without resolution) - never
+ *     retried blindly, same posture `NotificationAttemptStatus.UNKNOWN` already establishes.
+ */
+export type DigestEntryStatus = "OPEN" | "FLUSHED" | "SENDING" | "SENT" | "FAILED" | "UNKNOWN";
+
+/** Hard cap on a single window's item list - Round 1 Codex review found an unbounded list risks
+ * DynamoDB's 400KB item size limit (a rare but real risk at the fornecedor volumes D-347 §3.6
+ * describes, 2.000-10.000/organização) and would fail the WHOLE router transaction (including
+ * that intent's own EMAIL channel, if requested) if ever hit. Once a window is at capacity, the
+ * router's digest branch falls back to BYPASS_IMMEDIATE for the next intent rather than growing
+ * further or losing the notification - never silently dropped, never a size-related transaction
+ * failure. Sized generously above any real per-recipient-per-day volume plausible today (D-347
+ * §3.6's own worst-case scenarios are per-ORGANIZATION, spread across however many recipients the
+ * organization has - never this concentrated onto one recipient/day in practice), while staying
+ * far under the 400KB ceiling even with worst-case per-item field lengths. */
+export const MAX_DIGEST_ITEMS = 200;
 
 /** One underlying NotificationIntent/NotificationAttempt pair folded into this window's
  * eventual single message — never the full rendered content (the flush/delivery worker
@@ -42,9 +76,19 @@ export interface DigestEntry extends EntityKey {
   items: DigestEntryItem[];
   /** ISO instant the flush worker claims/sends this window at — `digestFlushAtIso(windowDate)`. */
   flushAt: string;
+  /** Set only while `status === "SENDING"` — same lease-expiry concept as
+   * `NotificationAttempt.leaseExpiresAt`, bounding how long a crashed delivery invocation can
+   * block a retry before `decideDigestDeliveryAction` reconciles it to UNKNOWN. */
+  leaseExpiresAt?: string;
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** TRANSIENT retention (LGPD categorization, same class as the outbox's own
+   * `purgeAfterTtl`/`OUTBOX_TRANSIENT_RETENTION_SECONDS`) — this is internal delivery-layer
+   * bookkeeping, never the delivery record of record itself (that's `NotificationIntent`/
+   * `NotificationAttempt`, deliberately untouched, no TTL). Set once at creation from
+   * `windowDate`, never recomputed. */
+  purgeAfterTtl: number;
 }
 
 export function digestEntryKey(tenantId: string, recipientUserId: string, channel: DigestChannel, windowDate: string): { PK: string; SK: "META" } {
@@ -84,6 +128,16 @@ export function digestEntryGsi8Keys(input: { tenantId: string; recipientUserId: 
   };
 }
 
+/** 30 days past `windowDate`'s own flush - generous past every real state transition this row
+ * ever goes through (OPEN for at most 1 day, FLUSHED/SENDING/SENT/FAILED/UNKNOWN resolved within
+ * minutes of flush in the overwhelming common case) while leaving a wide margin for a stuck
+ * `UNKNOWN`/manual-reconciliation window before native DynamoDB TTL reclaims the row. */
+const DIGEST_ENTRY_RETENTION_DAYS = 30;
+
+export function digestEntryPurgeAfterTtl(windowDate: string): number {
+  return Math.floor(Date.parse(`${windowDate}T00:00:00.000Z`) / 1000) + DIGEST_ENTRY_RETENTION_DAYS * 24 * 60 * 60;
+}
+
 /**
  * Pure merge: the next DigestEntry state after folding `newItem` into `existing` (or creating a
  * fresh entry when `existing` is undefined). Deduped by `intentId` — idempotent against a
@@ -114,5 +168,14 @@ export function appendDigestEntryItem(
     version: (existing?.version ?? 0) + 1,
     createdAt: existing?.createdAt ?? input.now,
     updatedAt: input.now,
+    purgeAfterTtl: existing?.purgeAfterTtl ?? digestEntryPurgeAfterTtl(input.windowDate),
   };
+}
+
+/** Whether `existing` has already reached `MAX_DIGEST_ITEMS` - the router's digest branch calls
+ * this BEFORE appending a new item (never after), so the cap is on the count BEFORE the
+ * candidate item would be added: a window at exactly the cap falls back to BYPASS_IMMEDIATE for
+ * the next intent, it is never grown past the cap. */
+export function isDigestEntryAtCapacity(existing: DigestEntry | undefined): boolean {
+  return (existing?.items.length ?? 0) >= MAX_DIGEST_ITEMS;
 }

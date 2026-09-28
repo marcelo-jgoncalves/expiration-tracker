@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDigestEntryWriteEntry } from "../../../src/modules/notification/application/whatsapp-digest-entry-writer.js";
-import { digestEntryKey, digestFlushAtIso, type DigestEntry } from "../../../src/modules/notification/domain/digest-entry.js";
+import { digestEntryKey, digestEntryPurgeAfterTtl, digestFlushAtIso, type DigestEntry } from "../../../src/modules/notification/domain/digest-entry.js";
 
 const TENANT = "t1";
 const RECIPIENT = "user-1";
@@ -41,6 +41,7 @@ describe("buildDigestEntryWriteEntry (D-347 §3.5)", () => {
       version: 3,
       createdAt: "2026-09-27T09:00:00.000Z",
       updatedAt: "2026-09-27T09:00:00.000Z",
+      purgeAfterTtl: digestEntryPurgeAfterTtl(WINDOW),
     };
     const entry = buildDigestEntryWriteEntry({
       tableName: TABLE,

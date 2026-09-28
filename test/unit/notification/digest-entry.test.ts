@@ -3,8 +3,11 @@ import {
   appendDigestEntryItem,
   digestEntryGsi8Keys,
   digestEntryKey,
+  digestEntryPurgeAfterTtl,
   digestFlushAtIso,
   digestWindowDateFromIso,
+  isDigestEntryAtCapacity,
+  MAX_DIGEST_ITEMS,
   type DigestEntry,
   type DigestEntryItem,
 } from "../../../src/modules/notification/domain/digest-entry.js";
@@ -81,6 +84,7 @@ describe("appendDigestEntryItem", () => {
       version: 1,
       createdAt: "2026-09-27T09:00:00.000Z",
       updatedAt: "2026-09-27T09:00:00.000Z",
+      purgeAfterTtl: digestEntryPurgeAfterTtl(WINDOW),
     };
     const secondItem = item({ intentId: "intent-2", attemptId: "attempt-2", itemId: "item-2" });
     const next = appendDigestEntryItem(existing, { tenantId: TENANT, recipientUserId: RECIPIENT, channel: "WHATSAPP", windowDate: WINDOW, newItem: secondItem, now: NOW });
@@ -97,5 +101,32 @@ describe("appendDigestEntryItem", () => {
     // Version still increments - the caller's OCC-conditioned Update always advances version on
     // a real write, even a no-op-content one; this is not a special "skip the write" path.
     expect(next.version).toBe(2);
+  });
+});
+
+describe("isDigestEntryAtCapacity", () => {
+  it("is false for undefined (no entry yet) and for an entry under the cap", () => {
+    expect(isDigestEntryAtCapacity(undefined)).toBe(false);
+    const under = appendDigestEntryItem(undefined, { tenantId: TENANT, recipientUserId: RECIPIENT, channel: "WHATSAPP", windowDate: WINDOW, newItem: item(), now: NOW });
+    expect(isDigestEntryAtCapacity(under)).toBe(false);
+  });
+
+  it("is true once items.length reaches MAX_DIGEST_ITEMS", () => {
+    const atCap: DigestEntry = {
+      ...digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW),
+      entityType: "DigestEntry",
+      tenantId: TENANT,
+      recipientUserId: RECIPIENT,
+      channel: "WHATSAPP",
+      windowDate: WINDOW,
+      status: "OPEN",
+      items: Array.from({ length: MAX_DIGEST_ITEMS }, (_, i) => item({ intentId: `intent-${i}`, attemptId: `attempt-${i}` })),
+      flushAt: digestFlushAtIso(WINDOW),
+      version: MAX_DIGEST_ITEMS,
+      createdAt: NOW,
+      updatedAt: NOW,
+      purgeAfterTtl: digestEntryPurgeAfterTtl(WINDOW),
+    };
+    expect(isDigestEntryAtCapacity(atCap)).toBe(true);
   });
 });

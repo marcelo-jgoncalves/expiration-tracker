@@ -11,6 +11,7 @@ import type { NotificationIntent } from "../../../src/modules/reminder/domain/no
 import type { NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../src/shared/outbox/outbox.js";
+import { digestEntryKey, digestEntryPurgeAfterTtl, digestFlushAtIso, digestWindowDateFromIso, MAX_DIGEST_ITEMS, type DigestEntry, type DigestEntryItem } from "../../../src/modules/notification/domain/digest-entry.js";
 
 const TENANT = "t1";
 const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
@@ -308,6 +309,45 @@ describe("routeNotificationIntent", () => {
     expect(digestEntries).toHaveLength(1);
     expect((digestEntries[0]?.["items"] as unknown[]).map((i) => (i as { intentId: string }).intentId)).toEqual(["intent-a", "intent-b"]);
     expect(digestEntries[0]?.["version"]).toBe(2);
+  });
+
+  it("a window already at MAX_DIGEST_ITEMS falls back to BYPASS_IMMEDIATE for the next intent, never growing past the cap", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const windowDate = digestWindowDateFromIso(NOW);
+    const atCapItems: DigestEntryItem[] = Array.from({ length: MAX_DIGEST_ITEMS }, (_, i) => ({ intentId: `prior-${i}`, attemptId: `prior-attempt-${i}`, itemId: `prior-item-${i}`, itemVersion: 1, addedAt: NOW }));
+    const atCapEntry: DigestEntry = {
+      ...digestEntryKey(TENANT, ASSIGNEE, "WHATSAPP", windowDate),
+      entityType: "DigestEntry",
+      tenantId: TENANT,
+      recipientUserId: ASSIGNEE,
+      channel: "WHATSAPP",
+      windowDate,
+      status: "OPEN",
+      items: atCapItems,
+      flushAt: digestFlushAtIso(windowDate),
+      version: MAX_DIGEST_ITEMS,
+      createdAt: NOW,
+      updatedAt: NOW,
+      purgeAfterTtl: digestEntryPurgeAfterTtl(windowDate),
+    };
+    await store.putIfAbsent(atCapEntry);
+
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"] });
+
+    const all = store.allItems();
+    const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;
+    expect(attempt.status).toBe("PREPARED"); // never DIGESTED - the cap forced immediate send
+    expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(true);
+
+    const unchangedEntry = await store.get<DigestEntry>(digestEntryKey(TENANT, ASSIGNEE, "WHATSAPP", windowDate));
+    expect(unchangedEntry?.items).toHaveLength(MAX_DIGEST_ITEMS); // never grown past the cap
   });
 
   it("WHATSAPP requested but kill switch off (deps.whatsappChannelEnabled left false/default) -> CANCELLED CHANNEL_UNAVAILABLE, no attempt/outbox created", async () => {

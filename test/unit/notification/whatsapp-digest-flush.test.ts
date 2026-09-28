@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runWhatsAppDigestFlushTick, shouldAlarmWhatsAppDigestFlush } from "../../../src/workers/whatsapp-digest-flush/flush.js";
 import { InMemoryNotificationStore } from "./in-memory-store.js";
-import { digestEntryGsi8Keys, digestEntryKey, digestFlushAtIso, type DigestEntry } from "../../../src/modules/notification/domain/digest-entry.js";
+import { digestEntryGsi8Keys, digestEntryKey, digestEntryPurgeAfterTtl, digestFlushAtIso, type DigestEntry } from "../../../src/modules/notification/domain/digest-entry.js";
 import type { WhatsAppDigestGsi8Candidate, WhatsAppDigestGsi8Page, WhatsAppDigestCandidateSource } from "../../../src/workers/whatsapp-digest-flush/candidate-source.js";
 import { buildVersionedUpdate, type EntityKey } from "../../../src/shared/dynamodb/occ.js";
 
@@ -26,6 +26,7 @@ function makeEntry(overrides: Partial<DigestEntry> = {}): DigestEntry {
     version: 1,
     createdAt: "2026-09-09T12:00:00.000Z",
     updatedAt: "2026-09-09T12:00:00.000Z",
+    purgeAfterTtl: digestEntryPurgeAfterTtl(WINDOW),
     ...digestEntryGsi8Keys({ tenantId: TENANT, recipientUserId: RECIPIENT, flushAt }),
     ...overrides,
   };

@@ -114,6 +114,16 @@ export interface NotificationAttemptLookup extends EntityKey {
   attemptSk: string;
   provider: NotificationProvider;
   providerAccountId: string;
+  /** D-347 §3.5 (Round 1 Codex review): a WhatsApp digest sends ONE external message covering N
+   * attempts, but Meta's webhook callback can only correlate back to ONE `biz_opaque_callback_data`
+   * (this row's own key). Set ONLY on the lookup of the digest's "representative" attempt (the
+   * first eligible item - `whatsapp-digest-delivery/delivery.ts`), never on an ordinary
+   * single-send attempt's lookup (undefined there, unchanged behavior) - `whatsapp-webhook-
+   * workflow.ts` fans the same status transition out to every sibling after applying it to this
+   * row's own attempt. Set via a blind `NotificationStore.update()` (this row has no `version`
+   * field to condition an OCC update on - it is otherwise immutable after creation), done exactly
+   * once, before the one external call this correlation covers - never touched again afterward. */
+  digestSiblingAttempts?: { intentId: string; attemptSk: string }[];
 }
 
 export function notificationAttemptLookupKey(tenantId: string, attemptId: string): EntityKey {
