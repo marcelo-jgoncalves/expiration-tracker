@@ -19,6 +19,7 @@ import {
   type GetExtractionDisclosureForItemDeps,
   type GetExtractionDisclosureForDocumentArchiveDeps,
 } from "../application/read-extraction-disclosure.js";
+import type { ExtractedField } from "../domain/extracted-field.js";
 
 const CONFIRM_SCHEMA_ID = "https://expiration-tracker/schemas/api/confirm-extracted-field-request.v1.json";
 const REJECT_SCHEMA_ID = "https://expiration-tracker/schemas/api/reject-extracted-field-request.v1.json";
@@ -86,6 +87,26 @@ async function withErrorMapping(fn: () => Promise<HttpResponse>): Promise<HttpRe
   }
 }
 
+/** D-349 achado real (mesma disciplina já documentada em `membership-handlers.ts`'s
+ * `handleListMembers`, Wave B2B-14/D-120: nunca devolver o item bruto de DynamoDB por HTTP -
+ * `PK`/`SK`/`entityType`/`tenantId` são estrutura interna de chave, não contrato de API). Projeta
+ * `ExtractedField` para o subconjunto seguro que o disclosure de IA realmente precisa. */
+function presentField(field: ExtractedField): Record<string, unknown> {
+  return {
+    fieldName: field.fieldName,
+    valueType: field.valueType,
+    candidateValue: field.candidateValue,
+    confidence: field.confidence,
+    sources: field.sources,
+    agreement: field.agreement,
+    state: field.state,
+    confirmedValue: field.confirmedValue,
+    confirmedBy: field.confirmedBy,
+    confirmedAt: field.confirmedAt,
+    version: field.version,
+  };
+}
+
 function requirePathParam(req: HttpRequest, name: string): string {
   const value = req.pathParameters?.[name];
   if (!value) throw new ValidationError(`Missing ${name} path parameter.`);
@@ -136,7 +157,7 @@ export async function handleConfirmField(deps: ExtractionHttpDeps, req: HttpRequ
       confirmedValue: req.body.confirmedValue,
       idempotencyKey,
     });
-    return { statusCode: 200, body: { field } };
+    return { statusCode: 200, body: { field: presentField(field) } };
   });
 }
 
@@ -151,7 +172,7 @@ export async function handleGetExtractionDisclosureForItem(deps: ExtractionHttpD
     const documentId = requirePathParam(req, "documentId");
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const disclosure = await getExtractionDisclosureForItem(deps.disclosureForItem, context, itemId, documentId);
-    return { statusCode: 200, body: { disclosure: disclosure ?? null } };
+    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, fields: disclosure.fields.map(presentField) } : null } };
   });
 }
 
@@ -164,7 +185,7 @@ export async function handleGetExtractionDisclosureForDocumentArchive(deps: Extr
     if (!Number.isInteger(seq) || seq < 1) throw new ValidationError("Invalid seq path parameter.");
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const disclosure = await getExtractionDisclosureForDocumentArchive(deps.disclosureForDocumentArchive, context, documentId, seq);
-    return { statusCode: 200, body: { disclosure: disclosure ?? null } };
+    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, fields: disclosure.fields.map(presentField) } : null } };
   });
 }
 
@@ -208,7 +229,7 @@ export async function handleConfirmFieldDocumentArchive(deps: ExtractionHttpDeps
       correlationId: req.correlationId,
       idempotencyKey,
     });
-    return { statusCode: 200, body: { field } };
+    return { statusCode: 200, body: { field: presentField(field) } };
   });
 }
 
@@ -231,7 +252,7 @@ export async function handleRejectFieldDocumentArchive(deps: ExtractionHttpDeps,
       correctionReason: req.body.correctionReason,
       idempotencyKey,
     });
-    return { statusCode: 200, body: { field } };
+    return { statusCode: 200, body: { field: presentField(field) } };
   });
 }
 
@@ -257,6 +278,6 @@ export async function handleRejectField(deps: ExtractionHttpDeps, req: HttpReque
       correctionReason: req.body.correctionReason,
       idempotencyKey,
     });
-    return { statusCode: 200, body: { field } };
+    return { statusCode: 200, body: { field: presentField(field) } };
   });
 }
