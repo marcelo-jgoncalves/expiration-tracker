@@ -674,6 +674,8 @@ module "dispatch_outbox_relay" {
     # D-300: tenth destination - EVERY ReminderScanLease transition's continuation event, same
     # reasoning.
     REMINDER_SCAN_CONTINUATION_QUEUE_URL = module.reminder_scan_queue.queue_url
+    # D-347 §3.5: eleventh destination - whatsapp-digest-flush's claim transaction, same reasoning.
+    WHATSAPP_DIGEST_DELIVER_QUEUE_URL = module.whatsapp_digest_deliver_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   policy_documents_json = [
@@ -687,6 +689,7 @@ module "dispatch_outbox_relay" {
     module.dossier_export_queue.send_policy_json,
     module.guest_credential_issuance_queue.send_policy_json,
     module.reminder_scan_queue.send_policy_json,
+    module.whatsapp_digest_deliver_queue.send_policy_json,
     data.aws_iam_policy_document.dispatch_outbox_relay_stream_read.json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
@@ -720,6 +723,8 @@ module "outbox_sweeper" {
     WHATSAPP_DELIVER_QUEUE_URL = module.whatsapp_deliver_queue.queue_url
     # D-300: twelfth destination, same reasoning.
     REMINDER_SCAN_CONTINUATION_QUEUE_URL = module.reminder_scan_queue.queue_url
+    # D-347 §3.5: thirteenth destination, same reasoning.
+    WHATSAPP_DIGEST_DELIVER_QUEUE_URL = module.whatsapp_digest_deliver_queue.queue_url
   })
   reserved_concurrent_executions = var.enable_reserved_concurrency ? 2 : null
   # The second of EXACTLY THREE roles granted gsi6_read (see reminder_reconciliation above).
@@ -745,6 +750,7 @@ module "outbox_sweeper" {
     module.guest_credential_issuance_queue.send_policy_json,
     module.whatsapp_deliver_queue.send_policy_json,
     module.reminder_scan_queue.send_policy_json,
+    module.whatsapp_digest_deliver_queue.send_policy_json,
   ]
   tags = { Project = local.project_name, Environment = var.environment }
 }
@@ -1475,6 +1481,20 @@ module "whatsapp_deliver_queue" {
   tags                     = { Project = local.project_name, Environment = var.environment }
 }
 
+module "whatsapp_digest_deliver_queue" {
+  source = "./modules/sqs-worker-queue"
+
+  # D-347 §3.5: dedicated queue+DLQ for the digest half of the WhatsApp margin-protection
+  # mechanism - never reuses whatsapp_deliver_queue (same "each destination gets its own queue"
+  # discipline ADR-0008 already established for EMAIL vs. WHATSAPP).
+  queue_name               = "${local.name_prefix}-whatsapp-digest-deliver"
+  consumer_timeout_seconds = 10
+  aws_region               = var.aws_region
+  aws_account_id           = var.aws_account_id
+  alert_topic_arn          = module.alert_topic.topic_arn
+  tags                     = { Project = local.project_name, Environment = var.environment }
+}
+
 module "ses_callback_queue" {
   source = "./modules/sqs-worker-queue"
 
@@ -2004,6 +2024,7 @@ module "security_audit_observability" {
     module.delivery_record_purge_handler.function_name,
     module.core_user_data_purge_handler.function_name,
     module.scheduled_reports_scheduler_handler.function_name,
+    module.whatsapp_digest_flush_handler.function_name,
   ]
   alert_topic_arn = module.alert_topic.topic_arn
   tags            = { Project = local.project_name, Environment = var.environment }
@@ -5084,6 +5105,117 @@ resource "aws_scheduler_schedule" "scheduled_reports_scheduler" {
     # angle-bracket-escaping bug that rule exists to prevent.
     input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
   }
+}
+
+# --- WhatsAppDigestFlushWorker / WhatsAppDigestDeliveryWorker: D-347 §3.5 (WhatsApp margin
+# protection, digest half - the real-cost AI/OCR budget, §3.7-3.8, is the other half, already
+# implemented, D-347 commit c0ff1426). Same 2-Lambda "claim (GSI8 scan + outbox event) / deliver
+# (SQS consumer, real external call)" split as ScheduledReportsScheduler/
+# ReportSubscriptionDeliveryWorker above - gsi8_read_policy_json/worker_transact_write_policy_json
+# scoped to WORK#WHATSAPP_DIGEST/DLQ#WHATSAPP_DIGEST, same pattern as every other GSI8 consumer.
+#
+# Cron cadence is every 15 minutes, NOT once/day - a DigestEntry's own `flushAt` (fixed per window
+# at creation, ~20 minutes after UTC midnight of the day AFTER it was opened - see
+# digest-entry.ts's own header) is what actually determines when a given window is due, same
+# "poll frequently, let the due-date do the real scheduling" posture reminder_dispatch_outbox_sweeper
+# already uses - a daily-only poll would let a claim silently wait up to 24h if this specific tick
+# were ever skipped.
+module "whatsapp_digest_flush_handler" {
+  source = "./modules/lambda-function"
+
+  function_name         = "${local.name_prefix}-whatsapp-digest-flush"
+  handler_name          = "whatsapp-digest-flush-handler"
+  source_dir            = "${local.dist_dir}/whatsapp-digest-flush-handler"
+  adot_layer_arn        = var.adot_layer_arn
+  timeout_seconds       = 300
+  environment_variables = local.common_env
+  policy_documents_json = [
+    module.table.gsi8_read_policy_json["whatsapp_digest_flush"],
+    module.table.worker_transact_write_policy_json["whatsapp_digest_flush"],
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role" "whatsapp_digest_flush_schedule" {
+  name = "${module.whatsapp_digest_flush_handler.function_name}-schedule-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "SchedulerAssumeRole"
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "scheduler.amazonaws.com" }
+      }
+    ]
+  })
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "whatsapp_digest_flush_schedule_invoke" {
+  name = "invoke"
+  role = aws_iam_role.whatsapp_digest_flush_schedule.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeWhatsAppDigestFlush"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = module.whatsapp_digest_flush_handler.live_alias_arn
+      }
+    ]
+  })
+}
+
+resource "aws_scheduler_schedule" "whatsapp_digest_flush" {
+  name                = "${local.name_prefix}-whatsapp-digest-flush"
+  schedule_expression = "rate(15 minutes)"
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = module.whatsapp_digest_flush_handler.live_alias_arn
+    role_arn = aws_iam_role.whatsapp_digest_flush_schedule.arn
+    # Literal string, NOT jsonencode() - see reminder-schedule/main.tf's header for the real
+    # angle-bracket-escaping bug that rule exists to prevent.
+    input = "{\"scheduledTime\":\"<aws.scheduler.scheduled-time>\"}"
+  }
+}
+
+module "whatsapp_digest_delivery" {
+  source = "./modules/lambda-function"
+
+  function_name  = "${local.name_prefix}-whatsapp-digest-delivery"
+  handler_name   = "whatsapp-digest-delivery-handler"
+  source_dir     = "${local.dist_dir}/whatsapp-digest-delivery-handler"
+  adot_layer_arn = var.adot_layer_arn
+  environment_variables = merge(local.common_env, {
+    WHATSAPP_SECRET_ID                  = aws_secretsmanager_secret.whatsapp_cloud_api.id
+    WHATSAPP_API_VERSION                = var.whatsapp_api_version
+    WHATSAPP_PORTFOLIO_QUOTA_TIER_LIMIT = tostring(var.whatsapp_portfolio_quota_tier_limit)
+  })
+  # D-8: whatsapp_portfolio_quota_policy_json is the SAME dedicated, LeadingKeys-scoped grant on
+  # the WHATSAPP#PORTFOLIO partition whatsapp_delivery already holds - a digest send is still one
+  # real template message against that same portfolio-wide ceiling (see
+  # whatsapp-digest-delivery/delivery.ts's own doc comment), so this role needs it too.
+  policy_documents_json = [
+    module.table.tenant_facing_read_write_policy_json,
+    module.whatsapp_digest_deliver_queue.consume_policy_json,
+    data.aws_iam_policy_document.whatsapp_secret_read.json,
+    module.table.whatsapp_portfolio_quota_policy_json,
+  ]
+  tags = { Project = local.project_name, Environment = var.environment }
+}
+
+resource "aws_lambda_event_source_mapping" "whatsapp_digest_delivery_from_queue" {
+  event_source_arn        = module.whatsapp_digest_deliver_queue.queue_arn
+  function_name           = module.whatsapp_digest_delivery.live_alias_arn
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
 }
 
 module "synthetic_canary" {

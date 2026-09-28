@@ -32,7 +32,13 @@ export type NotificationAttemptStatus =
   | "FAILED_RETRYABLE"
   | "FAILED_TERMINAL"
   | "UNKNOWN"
-  | "NOT_SENT_STALE";
+  | "NOT_SENT_STALE"
+  /** D-347 §3.5: this attempt's channel was routed but folded into a `DigestEntry` instead of
+   * an immediate outbox record — no external send has happened yet. Terminal-ish like PREPARED
+   * (never in `ATTEMPT_STATES_WITH_POSSIBLE_DELIVERY` below) until the digest flush/delivery
+   * worker (`whatsapp-digest-delivery-workflow.ts`) transitions it to ACCEPTED/FAILED_* after the
+   * one consolidated external call the whole window's items share. */
+  | "DIGESTED";
 
 export interface NotificationAttempt extends EntityKey {
   // PK = TENANT#<tenantId>#INTENT#<intentId>, SK = ATTEMPT#<attemptNumber padded>#<attemptId>

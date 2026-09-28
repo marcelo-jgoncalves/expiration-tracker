@@ -61,7 +61,8 @@ export type GlobalIndexComponent =
   | "transient-purge"
   | "delivery-record-purge"
   | "core-user-data-purge"
-  | "scheduled-reports";
+  | "scheduled-reports"
+  | "whatsapp-digest-flush";
 
 export function auditAuthorizationDenied(input: { reason: string; action: string }): void {
   logger.warn("security.authorization_denied", {

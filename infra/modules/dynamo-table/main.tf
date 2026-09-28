@@ -258,6 +258,8 @@ locals {
     delivery_record_purge        = "DELIVERY_RECORD"
     core_user_data_purge         = "CORE_USER_DATA"
     report_subscription          = "REPORT_SUBSCRIPTION"
+    # D-347 §3.5: WhatsAppDigestFlushWorker - claims due DigestEntry windows.
+    whatsapp_digest_flush         = "WHATSAPP_DIGEST"
   }
 }
 

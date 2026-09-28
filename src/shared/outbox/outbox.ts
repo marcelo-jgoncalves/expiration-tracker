@@ -95,7 +95,13 @@ export type OutboxDestination =
    * coordination message, formalized here, never consumable by tenant-partitioning/authorization
    * logic). Consumed by the SAME Lambda/module that produced it (`reminder-producer`, dual
    * trigger - see `reminder-producer-handler.ts`), never the new claim consumer. */
-  | "SQS_REMINDER_SCAN_CONTINUATION_V1";
+  | "SQS_REMINDER_SCAN_CONTINUATION_V1"
+  /** D-347 §3.5 (WhatsApp margin protection, digest half): written in the SAME `TransactWriteItems`
+   * as `whatsapp-digest-flush.ts`'s claim `Update` on a `DigestEntry` (OPEN -> FLUSHED). Same
+   * "bare event.data, self-contained" payload shape as `SQS_REPORT_SUBSCRIPTION_DELIVERY_V1`
+   * (`tenantId`/`recipientUserId`/`windowDate`/`items` — no envelope wrapping) — consumed by
+   * `whatsapp-digest-delivery-handler.ts`, which never trusts anything beyond those fields. */
+  | "SQS_NOTIFICATION_WHATSAPP_DIGEST_V1";
 
 /** D-300 4th-bug incident, round-3 Claude<->Codex regression-coverage requirement (2026-09-16,
  * `reminder-producer-implementation-plan-scoping/DECISION.md` §8 second rollback, Codex round 2
@@ -136,6 +142,12 @@ export const OUTBOX_DESTINATION_OWNERSHIP = {
   // doesn't falsely flag it as a gap.
   SQS_NOTIFICATION_EMAIL_V1: "sweeper",
   SQS_NOTIFICATION_WHATSAPP_V1: "sweeper",
+  // D-347 §3.5: unlike EMAIL/WHATSAPP above, this destination has no dedicated per-channel relay
+  // Lambda of its own - it reuses the shared reminder relay/sweeper, same "both" reliability
+  // posture as SQS_REPORT_SUBSCRIPTION_DELIVERY_V1 (a periodic scheduler's claim transaction,
+  // never a per-request HTTP write, so there is no reason to single it out the way the
+  // dedicated-relay EMAIL/WHATSAPP destinations are).
+  SQS_NOTIFICATION_WHATSAPP_DIGEST_V1: "both",
   // D-300 4th-bug fix (2026-09-16): the one destination this incident was actually about - now
   // "both", matching the general-worker-queue pattern above (it was always SUPPOSED to be
   // "both", per DECISION.md §4/§8; it was silently neither until this fix).

@@ -254,6 +254,12 @@ export function buildOutboxRelayDeps(
   // SQS_REMINDER_DISPATCH_V1 above (payload IS the full SqsCommandEnvelope, not re-wrapped) -
   // the dual-trigger reminder-producer-handler.ts's SQS path reads it directly.
   reminderScanContinuationQueueUrl?: string,
+  // D-347 §3.5: ELEVENTH optional sender - `whatsapp-digest-flush.ts`'s claim transaction
+  // dispatches this destination in the same TWI as its `DigestEntry` OPEN->FLUSHED `Update`.
+  // Same bare-event-data shape (`tenantId`/`recipientUserId`/`windowDate`/`items`) as the other
+  // bare-payload destinations above - whatsapp-digest-delivery-handler.ts never trusts anything
+  // beyond those four fields.
+  whatsAppDigestDeliverQueueUrl?: string,
 ) {
   const store = new DynamoDbOutboxRelayStore(client, tableName);
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -293,6 +299,7 @@ export function buildOutboxRelayDeps(
       ...(guestCredentialIssuanceQueueUrl ? { SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1: send(guestCredentialIssuanceQueueUrl) } : {}),
       ...(materializationTriggerQueueUrl ? { SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl) } : {}),
       ...(reminderScanContinuationQueueUrl ? { SQS_REMINDER_SCAN_CONTINUATION_V1: send(reminderScanContinuationQueueUrl) } : {}),
+      ...(whatsAppDigestDeliverQueueUrl ? { SQS_NOTIFICATION_WHATSAPP_DIGEST_V1: send(whatsAppDigestDeliverQueueUrl) } : {}),
     },
   };
 }
@@ -322,6 +329,9 @@ export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string |
   // D-300 §4/§8 (2026-09-16 fix): tenth real destination on this relay - see the class comment
   // above `buildOutboxRelayDeps` and `OutboxDestination`'s own D-300 doc comment in outbox.ts.
   const reminderScanContinuationQueueUrl = env["REMINDER_SCAN_CONTINUATION_QUEUE_URL"];
+  // D-347 §3.5: eleventh real destination on this relay - see the class comment above
+  // `buildOutboxRelayDeps` and `OutboxDestination`'s own D-347 doc comment in outbox.ts.
+  const whatsAppDigestDeliverQueueUrl = env["WHATSAPP_DIGEST_DELIVER_QUEUE_URL"];
   if (!tableName) throw new Error("TABLE_NAME env var is required.");
   if (!queueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
   if (!importCommitQueueUrl) throw new Error("IMPORT_COMMIT_QUEUE_URL env var is required.");
@@ -332,6 +342,7 @@ export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string |
   if (!dossierExportQueueUrl) throw new Error("DOSSIER_EXPORT_QUEUE_URL env var is required.");
   if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
   if (!reminderScanContinuationQueueUrl) throw new Error("REMINDER_SCAN_CONTINUATION_QUEUE_URL env var is required.");
+  if (!whatsAppDigestDeliverQueueUrl) throw new Error("WHATSAPP_DIGEST_DELIVER_QUEUE_URL env var is required.");
   return buildOutboxRelayDeps(
     client,
     tableName,
@@ -345,6 +356,7 @@ export function buildDispatchOutboxRelayDepsFromEnv(env: Record<string, string |
     dossierExportQueueUrl,
     guestCredentialIssuanceQueueUrl,
     reminderScanContinuationQueueUrl,
+    whatsAppDigestDeliverQueueUrl,
   );
 }
 
@@ -372,6 +384,9 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
   // `buildDispatchOutboxRelayDepsFromEnv` above for the matching relay-side fix and the full
   // incident history.
   const reminderScanContinuationQueueUrl = env["REMINDER_SCAN_CONTINUATION_QUEUE_URL"];
+  // D-347 §3.5: thirteenth destination on this sweeper - see
+  // `buildDispatchOutboxRelayDepsFromEnv` above for the matching relay-side wiring.
+  const whatsAppDigestDeliverQueueUrl = env["WHATSAPP_DIGEST_DELIVER_QUEUE_URL"];
   if (!tableName) throw new Error("TABLE_NAME env var is required.");
   if (!reminderDispatchQueueUrl) throw new Error("DISPATCH_QUEUE_URL env var is required.");
   if (!emailDeliverQueueUrl) throw new Error("EMAIL_DELIVER_QUEUE_URL env var is required.");
@@ -384,6 +399,7 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
   if (!guestCredentialIssuanceQueueUrl) throw new Error("GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL env var is required.");
   if (!whatsAppDeliverQueueUrl) throw new Error("WHATSAPP_DELIVER_QUEUE_URL env var is required.");
   if (!reminderScanContinuationQueueUrl) throw new Error("REMINDER_SCAN_CONTINUATION_QUEUE_URL env var is required.");
+  if (!whatsAppDigestDeliverQueueUrl) throw new Error("WHATSAPP_DIGEST_DELIVER_QUEUE_URL env var is required.");
 
   const store = new DynamoDbOutboxRelayStore(client, tableName, "outbox-sweeper");
   const send = (targetQueueUrl: string) => async (payload: Record<string, unknown>, correlationId: string) => {
@@ -422,6 +438,7 @@ export function buildOutboxSweeperDepsFromEnv(env: Record<string, string | undef
       SQS_NOTIFICATION_WHATSAPP_V1: send(whatsAppDeliverQueueUrl),
       SQS_REMINDER_MATERIALIZATION_TRIGGER_V1: sendMaterializationTrigger(materializationTriggerQueueUrl),
       SQS_REMINDER_SCAN_CONTINUATION_V1: send(reminderScanContinuationQueueUrl),
+      SQS_NOTIFICATION_WHATSAPP_DIGEST_V1: send(whatsAppDigestDeliverQueueUrl),
     },
   };
 }

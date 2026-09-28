@@ -76,6 +76,8 @@ output "lambda_function_names" {
     module.transient_purge_handler.function_name,
     module.membership_purge_handler.function_name,
     module.scheduled_reports_scheduler_handler.function_name,
+    module.whatsapp_digest_flush_handler.function_name,
+    module.whatsapp_digest_delivery.function_name,
     module.reminder_scan_enumerator_v2.function_name,
     module.reminder_scan_page_v2.function_name,
     module.reminder_scan_control_relay.function_name,
@@ -148,6 +150,8 @@ output "lambda_published_versions" {
     (module.transient_purge_handler.function_name)                      = module.transient_purge_handler.published_version
     (module.membership_purge_handler.function_name)                     = module.membership_purge_handler.published_version
     (module.scheduled_reports_scheduler_handler.function_name)          = module.scheduled_reports_scheduler_handler.published_version
+    (module.whatsapp_digest_flush_handler.function_name)                = module.whatsapp_digest_flush_handler.published_version
+    (module.whatsapp_digest_delivery.function_name)                     = module.whatsapp_digest_delivery.published_version
     (module.reminder_scan_enumerator_v2.function_name)                  = module.reminder_scan_enumerator_v2.published_version
     (module.reminder_scan_page_v2.function_name)                        = module.reminder_scan_page_v2.published_version
     (module.reminder_scan_control_relay.function_name)                  = module.reminder_scan_control_relay.published_version

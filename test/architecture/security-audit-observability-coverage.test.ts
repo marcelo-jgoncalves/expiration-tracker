@@ -63,6 +63,7 @@ const GLOBAL_INDEX_ACCESS_CALL_SITES: Array<{ file: string; component: string; l
   { file: "src/workers/delivery-record-purge/dynamodb-candidate-source.ts", component: "delivery-record-purge", lambdaModule: "delivery_record_purge_handler" },
   { file: "src/workers/core-user-data-purge/dynamodb-candidate-source.ts", component: "core-user-data-purge", lambdaModule: "core_user_data_purge_handler" },
   { file: "src/workers/scheduled-reports/dynamodb-candidate-source.ts", component: "scheduled-reports", lambdaModule: "scheduled_reports_scheduler_handler" },
+  { file: "src/workers/whatsapp-digest-flush/dynamodb-candidate-source.ts", component: "whatsapp-digest-flush", lambdaModule: "whatsapp_digest_flush_handler" },
 ];
 
 function read(relativePath: string): string {

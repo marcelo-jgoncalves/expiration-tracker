@@ -145,6 +145,13 @@ const HANDLERS = [
   // route, GET /external-share/{shareId}/{token} — dedicated Lambda, authorization_type = NONE,
   // same isolation posture as document-archive-guest-handler above.
   "external-share-handler",
+  // D-347 §3.5 (WhatsApp margin protection, digest half): EventBridge Scheduler claim worker —
+  // scans GSI8 (WORK#WHATSAPP_DIGEST) for due DigestEntry windows and writes a durable outbox
+  // event per claim.
+  "whatsapp-digest-flush-handler",
+  // D-347 §3.5: SQS_NOTIFICATION_WHATSAPP_DIGEST_V1 consumer — sends the one consolidated
+  // WhatsApp message per window and resolves every underlying NotificationAttempt.
+  "whatsapp-digest-delivery-handler",
 ];
 
 async function buildHandler(name: string): Promise<void> {
