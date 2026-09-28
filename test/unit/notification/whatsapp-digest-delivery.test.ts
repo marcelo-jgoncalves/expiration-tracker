@@ -320,6 +320,49 @@ describe("processWhatsAppDigestDelivery (D-347 §3.5)", () => {
     expect(attempt1?.status).toBe("UNKNOWN");
   });
 
+  it("Round 4 Codex review: the default lease reconciles to UNKNOWN within the digest queue's real redelivery budget (visibility=60s, maxReceiveCount=5), never reaching the DLQ stuck SENDING", async () => {
+    // Real queue sizing (infra/main.tf's whatsapp_digest_deliver_queue -> sqs-worker-queue/main.tf):
+    // consumer_timeout_seconds=10 -> visibility_timeout_seconds=60, maxReceiveCount=5 - up to 5
+    // receive attempts, ~60s apart, before the message is moved to the DLQ.
+    const command = makeCommand();
+    await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")]);
+
+    let simulatedNow = NOW;
+    deps.now = () => simulatedNow;
+    const realTransactWrite = store.transactWrite.bind(store);
+    let callCount = 0;
+    store.transactWrite = async (writeEntries) => {
+      callCount += 1;
+      // Call 1 = receive #1's FLUSHED->SENDING claim (must succeed). Call 2 = receive #1's
+      // finalize write after the accepted send - fails (simulates a worker crash right after the
+      // external call succeeded, the exact scenario Round 3/4 found). Every later call (receive
+      // #3's lease-expiry reconciliation) succeeds normally.
+      if (callCount === 2) {
+        throw { name: "TransactionCanceledException", message: "TransactionConflict", CancellationReasons: writeEntries.map(() => ({ Code: "TransactionConflict" })) };
+      }
+      return realTransactWrite(writeEntries);
+    };
+
+    // Receive #1 (t=0): claims SENDING, sends externally, finalize write fails (simulated crash).
+    await expect(processWhatsAppDigestDelivery(deps, command)).rejects.toBeTruthy();
+    expect(provider.sendCalls).toHaveLength(1);
+
+    // Receive #2 (t=60s): lease (90s default) still valid -> backs off, forces redelivery.
+    simulatedNow = new Date(Date.parse(NOW) + 60_000).toISOString();
+    const receive2 = await processWhatsAppDigestDelivery(deps, command);
+    expect(receive2).toEqual({ kind: "SKIPPED_IN_PROGRESS" });
+
+    // Receive #3 (t=120s): lease has expired (90s < 120s) - reconciles to UNKNOWN, with 2 of the
+    // queue's 5 receive attempts still to spare. Never reaches the DLQ still stuck SENDING.
+    simulatedNow = new Date(Date.parse(NOW) + 120_000).toISOString();
+    const receive3 = await processWhatsAppDigestDelivery(deps, command);
+    expect(receive3).toEqual({ kind: "RECONCILED_UNKNOWN" });
+    expect(provider.sendCalls).toHaveLength(1); // never resent
+
+    const entry = await store.get<DigestEntry>(digestEntryKey(TENANT, RECIPIENT, "WHATSAPP", WINDOW));
+    expect(entry?.status).toBe("UNKNOWN");
+  });
+
   it("a tenant in DELETING can never admit a new SENDING lease - the SAME fence the immediate WhatsApp send already uses", async () => {
     const command = makeCommand();
     await seed(command, [makeItem("item-1"), makeItem("item-2")], [makeAttempt("intent-1", "attempt-1"), makeAttempt("intent-2", "attempt-2")], {}, "DELETING");

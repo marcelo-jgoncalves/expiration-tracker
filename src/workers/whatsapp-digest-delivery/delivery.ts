@@ -113,7 +113,17 @@ export async function processWhatsAppDigestDelivery(deps: WhatsAppDigestDelivery
     return { kind: "SKIPPED_NOT_DUE" };
   }
 
-  const leaseDurationMs = deps.leaseDurationMs ?? 5 * 60_000;
+  // Round 4 Codex review: the lease must expire comfortably BEFORE the queue's own redelivery
+  // budget runs out, or a SENDING lease can outlive every SQS receive attempt and the message
+  // reaches the DLQ while the entry is still stuck SENDING - with no automatic path to UNKNOWN
+  // left at all (a DLQ message no longer triggers this worker). The digest queue
+  // (`infra/main.tf`'s `whatsapp_digest_deliver_queue`, `consumer_timeout_seconds = 10`) gets
+  // `visibility_timeout_seconds = 60` and `maxReceiveCount = 5` from `sqs-worker-queue/main.tf`'s
+  // fixed sizing - i.e. up to ~5 receive attempts, ~60s apart (t=0,60,120,180,240) before DLQ.
+  // 90s means a lease claimed on receive #1 (t=0) is still valid at #2 (t=60, SKIPPED_IN_PROGRESS,
+  // forces redelivery again) but has expired by #3 (t=120) - reconciliation to UNKNOWN succeeds
+  // with 2 receive attempts to spare, never reaching the DLQ on this path.
+  const leaseDurationMs = deps.leaseDurationMs ?? 90_000;
   const leaseExpiresAt = new Date(Date.parse(now) + leaseDurationMs).toISOString();
   const claim = await tryFencedSendingClaim(deps, entry, entryKey, { status: "SENDING", leaseExpiresAt }, now);
   if (claim === "LOST_RACE") return { kind: "SKIPPED_LOST_LEASE_RACE" };
