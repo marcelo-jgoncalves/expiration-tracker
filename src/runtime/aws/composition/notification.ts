@@ -13,8 +13,9 @@ import { WhatsAppPhoneConfirmationService } from "../../../modules/notification/
 import type { WhatsAppProviderAdapter } from "../../../modules/notification/ports/whatsapp-provider.js";
 import type { GlobalUserRepository } from "../../../modules/identity/persistence/global-user-repository.js";
 import type { ExpirationItem } from "../../../modules/expiration/domain/expiration-item.js";
+import { DynamoDbWhatsAppDigestCandidateSource } from "../../../workers/whatsapp-digest-flush/dynamodb-candidate-source.js";
 import { buildTenantManagerLookup } from "./reminder.js";
-import { UlidIdGenerator } from "../ids.js";
+import { UlidIdGenerator, newCorrelationId } from "../ids.js";
 
 export function buildNotificationHttpDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbNotificationStore(client, tableName);
@@ -208,4 +209,50 @@ export function buildWhatsAppDeliveryDeps(
 export function buildWhatsAppWebhookDeps(client: DynamoDBDocumentClient, tableName: string) {
   const store = new DynamoDbNotificationStore(client, tableName);
   return { store, tableName, now: () => new Date().toISOString() };
+}
+
+/** D-347 §3.5: composition root for the WhatsAppDigestFlushWorker Lambda - separate GSI8
+ * candidate source from every other notification worker above (`DigestEntry` is a distinct
+ * entity none of them touch), same "own store/candidate-source pair" posture
+ * `buildScheduledReportsDeps` (composition/reports.ts) already established for its own
+ * GSI8-scanning scheduler. */
+export function buildWhatsAppDigestFlushDeps(client: DynamoDBDocumentClient, tableName: string) {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  const candidates = new DynamoDbWhatsAppDigestCandidateSource(client, tableName);
+  const ids = new UlidIdGenerator();
+  return {
+    store,
+    candidates,
+    tableName,
+    now: () => new Date().toISOString(),
+    newEventId: () => ids.newEventId(),
+    correlationId: () => newCorrelationId(),
+  };
+}
+
+/** Placeholder consolidated-message rendering (see `renderWhatsAppTemplate` above's own note on
+ * placeholder templates) - one line per item, joined into a single param. Real, pre-provisioned
+ * digest template naming/params (D-3: Meta Business Manager catalog) are a follow-up, same
+ * "follow-up, not this fatia" boundary the per-item template already carries. */
+function renderWhatsAppDigestTemplate(items: ExpirationItem[]): { templateName: string; templateLanguage: string; templateParams: string[] } {
+  const summary = items.map((item) => `${item.name} (${item.dueDate.slice(0, 10)})`).join("; ");
+  return { templateName: "expiration_reminder_digest", templateLanguage: "pt_BR", templateParams: [String(items.length), summary] };
+}
+
+/** D-347 §3.5: composition root for the WhatsAppDigestDeliveryWorker Lambda. Reuses the SAME
+ * `WhatsAppCloudApiAdapter`/`resolveRecipientPhone` shapes `buildWhatsAppDeliveryDeps` above
+ * already builds - a fresh instance here (own store/adapter), never the shared one, same
+ * "each Lambda's own module-level singleton" posture every other composition function in this
+ * file already follows. */
+export function buildWhatsAppDigestDeliveryDeps(client: DynamoDBDocumentClient, tableName: string, config: WhatsAppCloudApiConfig, portfolioQuotaTierLimit: number) {
+  const store = new DynamoDbNotificationStore(client, tableName);
+  return {
+    store,
+    tableName,
+    whatsAppProvider: new WhatsAppCloudApiAdapter(config),
+    resolveRecipientPhone: (input: { tenantId: string; userId: string }) => resolveRecipientPhone(client, tableName, input.tenantId, input.userId),
+    renderDigestTemplate: (input: { items: ExpirationItem[] }) => renderWhatsAppDigestTemplate(input.items),
+    now: () => new Date().toISOString(),
+    portfolioQuotaTierLimit,
+  };
 }

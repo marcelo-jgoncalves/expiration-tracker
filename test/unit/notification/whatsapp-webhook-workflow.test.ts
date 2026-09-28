@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { InMemoryNotificationStore } from "./in-memory-store.js";
 import { processWhatsAppWebhook, type WhatsAppWebhookWorkflowDeps } from "../../../src/modules/notification/application/whatsapp-webhook-workflow.js";
 import type { WhatsAppStatusEvent } from "../../../src/modules/notification/application/whatsapp-webhook-processor.js";
-import { notificationAttemptKey, buildNotificationAttemptLookup, type NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
+import { notificationAttemptKey, buildNotificationAttemptLookup, type NotificationAttempt, type NotificationAttemptLookup } from "../../../src/modules/notification/domain/notification-attempt.js";
 
 const TENANT = "t1";
 const INTENT_ID = "intent1";
@@ -66,6 +66,58 @@ describe("processWhatsAppWebhook (D-197 fatia 3/5, D-7 - account-scoped WebhookI
     expect(outcome).toEqual({ kind: "APPLIED", nextStatus: "DELIVERED" });
     const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
     expect(attempt?.status).toBe("DELIVERED");
+  });
+
+  it("D-347 §3.5: fans a digest's shared correlation out to every sibling attempt recorded on the lookup row", async () => {
+    const siblingAttempt: NotificationAttempt = { ...makeAttempt(), intentId: "intent-2", attemptId: "attempt-2", ...notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"), status: "ACCEPTED" };
+    await seed(makeAttempt({ status: "ACCEPTED" }));
+    await store.putIfAbsent(siblingAttempt);
+    const primaryLookup = buildNotificationAttemptLookup(makeAttempt());
+    await store.update<NotificationAttemptLookup>({ ...primaryLookup, digestSiblingAttempts: [{ intentId: "intent-2", attemptSk: notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2").SK }] });
+
+    const outcome = await processWhatsAppWebhook(deps, makeEvent());
+    expect(outcome).toEqual({ kind: "APPLIED", nextStatus: "DELIVERED" });
+
+    const primary = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+    const sibling = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"));
+    expect(primary?.status).toBe("DELIVERED");
+    expect(sibling?.status).toBe("DELIVERED");
+  });
+
+  it("Round 2 Codex review: a sibling still advances even when the REPRESENTATIVE is already at a higher precedence than this event", async () => {
+    // Representative already DELIVERED (further along than this READ event would move an
+    // ACCEPTED attempt) - decideWhatsAppCallbackApplication won't apply anything to it, but the
+    // sibling (still ACCEPTED) should still advance to DELIVERED from the SAME event.
+    const siblingAttempt: NotificationAttempt = { ...makeAttempt(), intentId: "intent-2", attemptId: "attempt-2", ...notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"), status: "ACCEPTED" };
+    await seed(makeAttempt({ status: "DELIVERED" }));
+    await store.putIfAbsent(siblingAttempt);
+    const primaryLookup = buildNotificationAttemptLookup(makeAttempt());
+    await store.update<NotificationAttemptLookup>({ ...primaryLookup, digestSiblingAttempts: [{ intentId: "intent-2", attemptSk: notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2").SK }] });
+
+    const outcome = await processWhatsAppWebhook(deps, makeEvent({ statusType: "READ" }));
+    expect(outcome).toEqual({ kind: "NO_OP_PRECEDENCE" }); // correct for the representative itself
+
+    const sibling = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"));
+    expect(sibling?.status).toBe("DELIVERED"); // but the sibling still advanced from this same event
+  });
+
+  it("a sibling attempt at a status where the transition doesn't apply (precedence) is left untouched", async () => {
+    const siblingAttempt: NotificationAttempt = { ...makeAttempt(), intentId: "intent-2", attemptId: "attempt-2", ...notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"), status: "FAILED_TERMINAL" };
+    await seed(makeAttempt({ status: "ACCEPTED" }));
+    await store.putIfAbsent(siblingAttempt);
+    const primaryLookup = buildNotificationAttemptLookup(makeAttempt());
+    await store.update<NotificationAttemptLookup>({ ...primaryLookup, digestSiblingAttempts: [{ intentId: "intent-2", attemptSk: notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2").SK }] });
+
+    await processWhatsAppWebhook(deps, makeEvent());
+
+    const sibling = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, "intent-2", 1, "attempt-2"));
+    expect(sibling?.status).toBe("FAILED_TERMINAL");
+  });
+
+  it("no digestSiblingAttempts on the lookup (an ordinary, non-digest send) - unchanged single-attempt behavior", async () => {
+    await seed(makeAttempt({ status: "ACCEPTED" }));
+    const outcome = await processWhatsAppWebhook(deps, makeEvent());
+    expect(outcome).toEqual({ kind: "APPLIED", nextStatus: "DELIVERED" });
   });
 
   it("the WebhookInbox row is account-scoped (PK=WEBHOOK#WHATSAPP#<wabaId>), purgeScope=ACCOUNT, GSI8 pointer keyed by accountId - never TENANT#", async () => {

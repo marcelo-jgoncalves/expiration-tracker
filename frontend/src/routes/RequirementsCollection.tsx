@@ -20,9 +20,6 @@
  *    affordance behind it.
  *  - Template-apply (`docarchive:requirementtemplate-apply`, opens A21) is Block 4 scope - "Ver
  *    templates" is out of scope for this screen this block; omitted rather than a dead link.
- *  - "Novo requisito" asks for a subjectId directly (no subject-name typeahead picker yet) -
- *    same "operator supplies the id directly" precedent the legacy review flow already
- *    established for `itemId`, not a fabricated shortcut.
  *  - The tenant-wide "Todos" tab merges each status's FIRST page only (`searchRequirements`'s
  *    cursor is read but not followed) - a true cursor-following aggregate would need either a
  *    dedicated backend endpoint or client-side multi-page fetching per status, out of this
@@ -47,7 +44,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Trash2, FileCheck2 } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
 import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
@@ -55,19 +52,24 @@ import { useCreateRequirement } from "../hooks/useCreateRequirement.js";
 import { useUpdateRequirement } from "../hooks/useUpdateRequirement.js";
 import { useDeleteRequirement } from "../hooks/useDeleteRequirement.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
+import { useSubjectsDashboard } from "../hooks/useSubjectsDashboard.js";
 import { InitialLoading, ErrorState, EmptyState } from "../components/AsyncStates.js";
 import { InlineNotice } from "../components/ui/InlineNotice.js";
-import { DataTable, CellSecondary } from "../components/ui/DataTable.js";
+import { OmniHero } from "../components/OmniHero.js";
+import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
+import { IconButton } from "../components/ui/IconButton.js";
+import { Dialog } from "../components/ui/Dialog.js";
+import { Combobox } from "../components/ui/Combobox.js";
 import { RequirementDetail } from "./subjects/RequirementDetail.js";
 import { TextField } from "../components/forms/TextField.js";
 import { SelectField } from "../components/forms/SelectField.js";
 import { FormErrorSummary } from "../components/forms/FormErrorSummary.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { presentRequirementDocStatus, formatAbsoluteDate } from "../api/presentation.js";
-import type { Requirement, RequirementApplicability, RequirementStatus } from "../api/types.js";
+import type { Requirement, RequirementApplicability, RequirementSearchHit, RequirementStatus, TrackedSubject } from "../api/types.js";
 import "./RequirementsCollection.css";
 
 /** "success" aqui é deliberadamente diferente do tom de `presentRequirementDocStatus` (mantido
@@ -81,6 +83,15 @@ const STATUS_METRICS: { value: RequirementStatus; label: string; tone: "critical
   { value: "NOT_SATISFIED", label: "Não satisfeito", tone: "critical" },
   { value: "NOT_APPLICABLE", label: "Não se aplica", tone: "neutral" },
 ];
+
+// `searchRequirements` (tenant-wide, used whenever `!filterSubjectId`) returns
+// `RequirementSearchHit[]` (`{kind, requirement, subjectDisplayName}`), never a bare
+// `Requirement[]` - only the per-subject route does. `RequirementRow` is the one shape both
+// branches normalize into below, so the table doesn't need to special-case its source.
+interface RequirementRow {
+  requirement: Requirement;
+  subjectDisplayName?: string;
+}
 
 export function RequirementsCollection() {
   const orgPath = useOrgPath();
@@ -111,6 +122,7 @@ export function RequirementsCollection() {
     if (nested) navigate(orgPath(`/subjects/${r.subjectId}/requirements/${r.requirementId}`));
     else setViewingRequirement({ subjectId: r.subjectId, requirementId: r.requirementId });
   }
+
 
   function closeRequirement() {
     if (nested && filterSubjectId) navigate(orgPath(`/subjects/${filterSubjectId}`));
@@ -152,17 +164,40 @@ export function RequirementsCollection() {
     return <ErrorState message={message} onRetry={() => allQueries.forEach((q) => void q.refetch())} />;
   }
 
-  let requirements: Requirement[];
+  let requirements: RequirementRow[];
   if (filterSubjectId) {
-    requirements = subjectQuery.data?.requirements ?? [];
-    if (statusTab !== "ALL") requirements = requirements.filter((r) => r.status === statusTab);
+    let subjectRequirements = subjectQuery.data?.requirements ?? [];
+    if (statusTab !== "ALL") subjectRequirements = subjectRequirements.filter((r) => r.status === statusTab);
     if (searchTerm.trim()) {
       const needle = searchTerm.trim().toLowerCase();
-      requirements = requirements.filter((r) => r.name.toLowerCase().includes(needle));
+      subjectRequirements = subjectRequirements.filter((r) => r.name.toLowerCase().includes(needle));
     }
+    requirements = subjectRequirements.map((requirement) => ({ requirement }));
   } else {
-    requirements = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    const hits = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    requirements = hits.map((hit: RequirementSearchHit) => ({ requirement: hit.requirement, subjectDisplayName: hit.subjectDisplayName }));
   }
+  // Item 37 (spec §3/§6): "Requisitos (N)" no hub do fornecedor é sempre o TOTAL sem busca - antes
+  // desta correção, a anotação usava `requirements.length` (já filtrado por busca), então digitar
+  // na busca mudava o total exibido no título da seção, contradizendo a regra explícita da spec
+  // ("a busca não altera... o total global"). O contador de resultados filtrados vive à parte,
+  // junto do campo de busca.
+  const subjectTotalCount = filterSubjectId ? (subjectQuery.data?.requirements.length ?? 0) : undefined;
+
+  // Tenant-wide view only: grouped by fornecedor instead of one flat 28-row table repeating the
+  // same requirement names per fornecedor (real UX finding, Marcelo 2026-09-27) - nested (already
+  // single-fornecedor) stays flat, `DataTable`'s own grouped mode already handles the header row/
+  // count/a11y (same mechanism `ItemsCollection.tsx` uses for "Vencidos"/"Vence em breve").
+  const groups: DataTableGroup<RequirementRow>[] | undefined = filterSubjectId
+    ? undefined
+    : Object.values(
+        requirements.reduce<Record<string, DataTableGroup<RequirementRow>>>((acc, row) => {
+          const id = row.requirement.subjectId;
+          const group = (acc[id] ??= { id, label: row.subjectDisplayName ?? row.requirement.subjectId, rows: [] });
+          group.rows.push(row);
+          return acc;
+        }, {}),
+      ).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
 
   return (
     <div>
@@ -176,11 +211,25 @@ export function RequirementsCollection() {
           </p>
         ) : null
       ) : (
-        <PageHeader
-          title="Requisitos documentais"
-          description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
-          actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
-        />
+        <>
+          <PageHeader
+            title="Requisitos documentais"
+            above={<span className="ov-eyebrow">Conformidade documental</span>}
+            description={filterSubjectId ? "Requisitos de documento deste fornecedor." : "Requisitos de documento, com evidência vinculada, em toda a organização."}
+            actions={canWrite ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo requisito</Button> : undefined}
+          />
+          {/* Banner roxo (protótipo `expiration-tracker-requisitos-documentais.html`, Marcelo
+              2026-09-27) - mesmo `OmniHero` já usado por Vencimentos/Fornecedores/Membros/
+              Atividade, só que ainda faltava aqui. Só na visão tenant-wide: dentro do hub do
+              fornecedor o `SubjectLayout` já tem o seu próprio cabeçalho/hero. */}
+          <OmniHero
+            icon={FileCheck2}
+            eyebrow="Conformidade em dia"
+            title="Cada exigência, com evidência rastreável."
+            description="Acompanhe o que está em falta, pendente ou satisfeito para cada fornecedor, num só lugar."
+            summary={<><strong>{totalCount}{anyScanLimitReached ? "+" : ""}</strong><span>{totalCount === 1 ? "requisito" : "requisitos"}</span></>}
+          />
+        </>
       )}
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
@@ -235,43 +284,72 @@ export function RequirementsCollection() {
             an e2e fixture using that exact real-sounding name on this same page
             (E2E-B3-07, block3-subjects-requirements.spec.ts) - getByText("Certidão Negativa de
             Débitos") matched both the hint and the actual row. */}
-        <TextField id="requirements-search" label="Buscar por nome" value={searchTerm} onChange={setSearchTerm} hint="Vazio mostra todos os requisitos." />
+        <TextField
+          id="requirements-search"
+          label={filterSubjectId ? "Buscar por nome do requisito" : "Buscar por nome"}
+          value={searchTerm}
+          onChange={setSearchTerm}
+          hint="Vazio mostra todos os requisitos."
+        />
+        {filterSubjectId && searchTerm.trim() ? (
+          <p aria-live="polite" className="u-text-secondary requirements-search-result-count">
+            {requirements.length} {requirements.length === 1 ? "resultado" : "resultados"} para &quot;{searchTerm.trim()}&quot;
+          </p>
+        ) : null}
       </Panel>
-      <Section heading="Requisitos" headingId="requirements-list" annotation={`(${requirements.length})`}>
+      <Section heading="Requisitos" headingId="requirements-list" annotation={`(${filterSubjectId ? subjectTotalCount : requirements.length})`}>
         <Panel>
           {requirements.length === 0 ? (
+            // Item 37 (spec §3): dentro do hub do fornecedor, mensagens/CTA seguem o texto exato
+            // da spec ("Nenhum requisito cadastrado"/"Criar primeiro requisito"/"Nenhum requisito
+            // encontrado") - fora dela (coleção tenant-wide), copy original preservada.
             <EmptyState
               kind={searchTerm ? "filtered-empty" : "true-empty"}
-              message={searchTerm ? "Nenhum requisito encontrado para estes filtros." : "Nenhum requisito cadastrado ainda."}
-              action={searchTerm ? <Button variant="secondary" onClick={() => setSearchTerm("")}>Limpar filtros</Button> : undefined}
+              message={
+                searchTerm
+                  ? filterSubjectId
+                    ? "Nenhum requisito encontrado."
+                    : "Nenhum requisito encontrado para estes filtros."
+                  : filterSubjectId
+                    ? "Nenhum requisito cadastrado. Cadastre a primeira exigência documental para acompanhar este fornecedor."
+                    : "Nenhum requisito cadastrado ainda."
+              }
+              action={
+                searchTerm ? (
+                  <Button variant="secondary" onClick={() => setSearchTerm("")}>
+                    {filterSubjectId ? "Limpar busca" : "Limpar filtros"}
+                  </Button>
+                ) : filterSubjectId && canWrite ? (
+                  <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
+                    Criar primeiro requisito
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <DataTable
               caption="Requisitos documentais"
-              rowKey={(r: Requirement) => r.requirementId}
-              rows={requirements}
+              rowKey={(r: RequirementRow) => r.requirement.requirementId}
+              rows={groups ? undefined : requirements}
+              groups={groups}
               columns={[
             {
               key: "name",
               header: "Requisito",
               primary: true,
+              // D-339 achado 1: o nome abria o FORNECEDOR (mesmo destino de um clique errado) - o
+              // requisito já tem um destino próprio; o nome agora abre esse destino diretamente
+              // (a ação "Ver" que fazia a mesma coisa foi removida por ser redundante). O
+              // fornecedor não aparece mais nesta célula: fora do contexto de um fornecedor a
+              // linha já mora dentro do grupo com o nome dele no cabeçalho; dentro do contexto
+              // (`filterSubjectId`) a página inteira (SubjectLayout) já o mostra.
               render: (r) => (
-                // D-339 achado 1: o nome abria o FORNECEDOR (mesmo destino de um clique errado) -
-                // o requisito já tem um destino próprio (o botão "Ver" mais à direita); o nome
-                // agora abre o MESMO destino, nunca um recurso diferente do que anuncia. O link
-                // para o fornecedor mora no identificador abaixo, onde genuinamente pertence.
-                <>
-                  <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
-                    {r.name}
-                  </Button>
-                  <CellSecondary>
-                    <Link to={orgPath(`/subjects/${r.subjectId}`)}>{r.subjectId}</Link>
-                  </CellSecondary>
-                </>
+                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r.requirement)}>
+                  {r.requirement.name}
+                </Button>
               ),
             },
-            { key: "assignee", header: "Responsável", render: (r) => r.assigneeUserId ?? "Sem responsável" },
-            { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.status)} /> },
+            { key: "status", header: "Status", render: (r) => <StatusBadge presentation={presentRequirementDocStatus(r.requirement.status)} /> },
             {
               key: "validity",
               header: "Validade",
@@ -282,27 +360,21 @@ export function RequirementsCollection() {
                 // Isto NÃO é uma coleção completa de documentos do fornecedor (achado mantido,
                 // não fingido como resolvido) - só o acesso ao documento já vinculado a este
                 // requisito específico.
-                r.evidenceValidUntil ? (
-                  r.evidenceDocumentId ? <Link to={orgPath(`/documents/${r.evidenceDocumentId}`)}>{formatAbsoluteDate(r.evidenceValidUntil)}</Link> : formatAbsoluteDate(r.evidenceValidUntil)
+                r.requirement.evidenceValidUntil ? (
+                  r.requirement.evidenceDocumentId ? (
+                    <Link to={orgPath(`/documents/${r.requirement.evidenceDocumentId}`)}>{formatAbsoluteDate(r.requirement.evidenceValidUntil)}</Link>
+                  ) : (
+                    formatAbsoluteDate(r.requirement.evidenceValidUntil)
+                  )
                 ) : (
                   "—"
                 ),
             },
             {
-              key: "view",
-              header: "",
-              actions: true,
-              render: (r) => (
-                <Button variant="tertiary" size="sm" onClick={() => openRequirement(r)}>
-                  Ver
-                </Button>
-              ),
-            },
-            {
               key: "actions",
               header: "Ações",
               actions: true,
-              render: (r) => (canWrite ? <RowActions requirement={r} /> : null),
+              render: (r) => (canWrite ? <RowActions requirement={r.requirement} /> : null),
             },
           ]}
             />
@@ -313,49 +385,57 @@ export function RequirementsCollection() {
   );
 }
 
+// Real UX fix (Marcelo, 2026-09-27): row actions now match `SubjectsCollection.tsx`'s own
+// pattern (icon-only `IconButton`s, a real `Dialog` for the destructive confirmation) instead of
+// this screen's own earlier, different-looking text buttons + a bare `role="alertdialog"` span.
 function RowActions({ requirement }: { requirement: Requirement }) {
   const deleteMutation = useDeleteRequirement(requirement.subjectId, requirement.requirementId);
-  const [confirming, setConfirming] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [action, setAction] = useState<"edit" | "delete">();
   const [deleteError, setDeleteError] = useState<string | undefined>();
 
   async function handleDelete() {
     try {
       await deleteMutation.mutateAsync({ expectedVersion: requirement.version });
-      setConfirming(false);
+      setAction(undefined);
     } catch (err) {
       if (isConflict(err)) return;
       setDeleteError(err instanceof ApiError ? err.message : "Não foi possível excluir este requisito.");
     }
   }
 
-  if (editing) {
-    return <EditRequirementForm requirement={requirement} onClose={() => setEditing(false)} />;
-  }
-
-  return confirming ? (
-    <span role="alertdialog" aria-label={`Excluir ${requirement.name}`}>
-      Excluir &quot;{requirement.name}&quot; ({requirement.subjectId})?{" "}
-      <Button size="sm" variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
-        Confirmar
-      </Button>{" "}
-      <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
-        Cancelar
-      </Button>
-      {/* Holistic frontend review finding: a conflict on delete used to `return` silently in
-          `handleDelete` above, never rendering anything - the same class of gap already fixed for
-          SubjectsCollection.tsx's archive/reactivate action (Codex Block 3 round 1 finding 12). */}
-      {deleteMutation.isConflict ? <span role="alert"> Este requisito foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</span> : null}
-      {deleteError ? <span role="alert"> {deleteError}</span> : null}
-    </span>
-  ) : (
+  return (
     <>
-      <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-        Editar
-      </Button>{" "}
-      <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
-        Excluir
-      </Button>
+      <IconButton size="sm" variant="tertiary" label={`Editar ${requirement.name}`} onClick={() => setAction("edit")}>
+        <Pencil size={16} aria-hidden="true" />
+      </IconButton>{" "}
+      <IconButton
+        size="sm"
+        variant="danger"
+        label={`Excluir ${requirement.name}`}
+        onClick={() => {
+          setDeleteError(undefined);
+          setAction("delete");
+        }}
+      >
+        <Trash2 size={16} aria-hidden="true" />
+      </IconButton>
+      {action === "edit" ? <EditRequirementForm requirement={requirement} onClose={() => setAction(undefined)} /> : null}
+      {action === "delete" ? (
+        <Dialog title="Excluir requisito?" variant="alertdialog" onClose={() => (deleteMutation.isPending ? undefined : setAction(undefined))}>
+          <p>O requisito &quot;{requirement.name}&quot; será excluído permanentemente. Esta ação não pode ser desfeita.</p>
+          <Button variant="secondary" disabled={deleteMutation.isPending} onClick={() => setAction(undefined)}>
+            Cancelar
+          </Button>{" "}
+          <Button variant="danger" pending={deleteMutation.isPending} onClick={() => void handleDelete()}>
+            Excluir
+          </Button>
+          {/* Holistic frontend review finding: a conflict on delete used to `return` silently in
+              `handleDelete` above, never rendering anything - the same class of gap already fixed
+              for SubjectsCollection.tsx's archive/reactivate action (Codex Block 3 round 1 finding 12). */}
+          {deleteMutation.isConflict ? <p role="alert">Este requisito foi alterado por outra pessoa — atualize a página antes de tentar excluir de novo.</p> : null}
+          {deleteError ? <p role="alert">{deleteError}</p> : null}
+        </Dialog>
+      ) : null}
     </>
   );
 }
@@ -383,53 +463,59 @@ function EditRequirementForm({ requirement, onClose }: { requirement: Requiremen
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-      <FormErrorSummary errors={errors} />
-      {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
-      <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
-      <SelectField
-        id={`req-edit-applicability-${requirement.requirementId}`}
-        label="Aplicabilidade"
-        value={applicability}
-        onChange={(v) => setApplicability(v as RequirementApplicability)}
-        options={[
-          { value: "APPLICABLE", label: "Aplicável" },
-          { value: "NOT_APPLICABLE", label: "Não se aplica" },
-        ]}
-      />
-      <Button type="submit" variant="primary" pending={mutation.isPending}>
-        {mutation.isPending ? "Salvando…" : "Salvar"}
-      </Button>{" "}
-      <Button type="button" variant="secondary" onClick={onClose}>
-        Cancelar
-      </Button>
-    </form>
+    <Dialog title="Editar requisito" onClose={onClose}>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <FormErrorSummary errors={errors} />
+        {mutation.isConflict ? <p role="alert">Este requisito mudou desde que a página carregou — atualize antes de salvar de novo.</p> : null}
+        <TextField id={`req-edit-name-${requirement.requirementId}`} label="Nome do requisito" value={name} onChange={setName} required />
+        <SelectField
+          id={`req-edit-applicability-${requirement.requirementId}`}
+          label="Aplicabilidade"
+          value={applicability}
+          onChange={(v) => setApplicability(v as RequirementApplicability)}
+          options={[
+            { value: "APPLICABLE", label: "Aplicável" },
+            { value: "NOT_APPLICABLE", label: "Não se aplica" },
+          ]}
+        />
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Salvando…" : "Salvar"}
+          </Button>
+          <Button type="button" variant="tertiary" onClick={onClose}>
+            Cancelar
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
 function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => void; defaultSubjectId?: string }) {
   const mutation = useCreateRequirement();
-  // D-339 achado 2: quando `defaultSubjectId` vem do contexto (filtro/rota de um fornecedor
-  // específico), o fornecedor NUNCA é um campo de formulário editável - antes, `defaultSubjectId`
-  // só pré-preenchia um `TextField` que continuava aceitando qualquer edição, permitindo trocar
-  // de fornecedor silenciosamente ao criar. Fixo por construção agora: nem renderiza o campo
-  // nesse caso, só usa `defaultSubjectId` direto no payload. A criação a partir da coleção
-  // GLOBAL (sem fornecedor conhecido) continua exigindo o ID explícito.
-  const [subjectId, setSubjectId] = useState(defaultSubjectId ?? "");
+  // Real UX finding (Marcelo, 2026-09-27): a partir da coleção GLOBAL, este campo pedia o ID
+  // interno do fornecedor como texto livre ("copie o ID na página do fornecedor") - o pior ponto
+  // de fricção da tela, obrigando o usuário a navegar pra outro lugar só pra copiar um ULID. Um
+  // `Combobox` (mesmo componente/padrão que `SubjectRequests.tsx` já usa pra "Requisito") busca
+  // por nome sobre a lista real de fornecedores ativos. D-339 achado 2 continua valendo: quando
+  // `defaultSubjectId` vem do contexto (dentro do Hub do fornecedor), o fornecedor nunca é um
+  // campo de formulário - nem o Combobox é renderizado, só `defaultSubjectId` vai direto no payload.
+  const subjectsQuery = useSubjectsDashboard("ACTIVE");
+  const [selectedSubject, setSelectedSubject] = useState<TrackedSubject | null>(null);
   const [name, setName] = useState("");
   const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
   const [errors, setErrors] = useState<string[]>([]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const effectiveSubjectId = defaultSubjectId ?? subjectId;
-    if (!effectiveSubjectId.trim() || !name.trim()) {
-      setErrors(["Informe o fornecedor (ID) e o nome do requisito."]);
+    const effectiveSubjectId = defaultSubjectId ?? selectedSubject?.subjectId;
+    if (!effectiveSubjectId || !name.trim()) {
+      setErrors([defaultSubjectId ? "Informe o nome do requisito." : "Escolha o fornecedor e informe o nome do requisito."]);
       return;
     }
     setErrors([]);
     try {
-      await mutation.mutateAsync({ subjectId: effectiveSubjectId.trim(), name: name.trim(), applicability });
+      await mutation.mutateAsync({ subjectId: effectiveSubjectId, name: name.trim(), applicability });
       onClose();
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar este requisito."]);
@@ -437,28 +523,42 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-      <FormErrorSummary errors={errors} />
-      {defaultSubjectId ? null : (
-        <TextField id="req-subject-id" label="ID do fornecedor" value={subjectId} onChange={setSubjectId} required hint="Copie o ID na página do fornecedor (Hub do fornecedor)." />
-      )}
-      <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
-      <SelectField
-        id="req-applicability"
-        label="Aplicabilidade"
-        value={applicability}
-        onChange={(v) => setApplicability(v as RequirementApplicability)}
-        options={[
-          { value: "APPLICABLE", label: "Aplicável" },
-          { value: "NOT_APPLICABLE", label: "Não se aplica" },
-        ]}
-      />
-      <Button type="submit" variant="primary" pending={mutation.isPending}>
-        {mutation.isPending ? "Criando…" : "Criar requisito"}
-      </Button>{" "}
-      <Button type="button" variant="secondary" onClick={onClose}>
-        Cancelar
-      </Button>
-    </form>
+    <Dialog title="Novo requisito" onClose={onClose}>
+      <form className="ui-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+        <FormErrorSummary errors={errors} />
+        {defaultSubjectId ? null : (
+          <Combobox
+            id="req-subject"
+            label="Fornecedor"
+            required
+            options={subjectsQuery.data?.subjects ?? []}
+            value={selectedSubject}
+            onChange={setSelectedSubject}
+            getOptionId={(s) => s.subjectId}
+            getOptionLabel={(s) => s.displayName}
+            placeholder={subjectsQuery.isPending ? "Carregando fornecedores…" : "Buscar por nome"}
+          />
+        )}
+        <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
+        <SelectField
+          id="req-applicability"
+          label="Aplicabilidade"
+          value={applicability}
+          onChange={(v) => setApplicability(v as RequirementApplicability)}
+          options={[
+            { value: "APPLICABLE", label: "Aplicável" },
+            { value: "NOT_APPLICABLE", label: "Não se aplica" },
+          ]}
+        />
+        <div className="ui-form__actions">
+          <Button type="submit" variant="primary" pending={mutation.isPending}>
+            {mutation.isPending ? "Criando…" : "Criar requisito"}
+          </Button>
+          <Button type="button" variant="tertiary" onClick={onClose}>
+            Cancelar
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

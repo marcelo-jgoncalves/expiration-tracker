@@ -10,6 +10,7 @@
     "type": { "type": "string", "enum": ["COMPANY", "VENDOR", "CLIENT", "EMPLOYEE", "ASSET", "LOCATION", "CUSTOM"] },
     "displayName": { "type": "string", "minLength": 1, "maxLength": 160 },
     "notes": { "type": "string", "maxLength": 2000 },
-    "tags": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 20 }
+    "tags": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 20 },
+    "externalId": { "type": "string", "minLength": 1, "maxLength": 160 }
   }
 }

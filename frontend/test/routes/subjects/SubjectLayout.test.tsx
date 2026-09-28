@@ -75,7 +75,11 @@ describe("SubjectLayout (D-339, substitui A09 SubjectHub)", () => {
     renderLayout("/subjects/subject-1");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Conservare Facilities ME" })).toBeInTheDocument());
-    expect(screen.getByText(/Fornecedor.*14\.221\.900/)).toBeInTheDocument();
+    // Item 37 (fidelidade total ao protótipo): o cabeçalho mostra tipo (badge) + a linha estática
+    // do protótipo, nunca mais o CNPJ - a spec §3 não lista identificador no cabeçalho (só na
+    // listagem/edição), e o protótipo real também não o mostra aqui.
+    expect(screen.getByText("Fornecedor")).toBeInTheDocument();
+    expect(screen.getByText("Documentos e solicitações em um só lugar")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("1 de 2 requisitos satisfeitos")).toBeInTheDocument());
     expect(screen.getByText("50%")).toBeInTheDocument();
     expect(screen.getByText("conteúdo de requisitos aqui")).toBeInTheDocument();
@@ -105,9 +109,15 @@ describe("SubjectLayout (D-339, substitui A09 SubjectHub)", () => {
     });
     renderLayout("/subjects/subject-1");
 
-    await waitFor(() => expect(screen.getByText("0 de 0 requisitos satisfeitos")).toBeInTheDocument());
-    const section = screen.getByRole("heading", { name: "Conformidade" }).closest("section");
-    expect(section?.querySelector(".ui-compliance__percent")?.textContent).toBe("—");
+    // Item 37 (spec §5.6): sem denominador, nunca "0 de 0 requisitos satisfeitos" (a frase antiga
+    // sugeria uma avaliação real que deu zero) - o texto explícito é "Nenhum requisito aplicável
+    // cadastrado", e o valor acessível do "—" anuncia a ausência de base de cálculo, não 0%.
+    // Mutação: reverter para "0 de 0 requisitos satisfeitos" faria esta asserção falhar.
+    await waitFor(() => expect(screen.getByText("Nenhum requisito aplicável cadastrado")).toBeInTheDocument());
+    expect(screen.queryByText(/de 0 requisitos satisfeitos/)).not.toBeInTheDocument();
+    const section = screen.getByRole("heading", { name: "Conformidade documental" }).closest("section");
+    expect(section?.querySelector(".subject-layout__progress-card strong")?.textContent).toBe("—");
+    expect(section?.querySelector(".subject-layout__progress-card strong")).toHaveAttribute("aria-label", "Conformidade não calculada: nenhum requisito aplicável cadastrado");
   });
 
   it("'Editar fornecedor' opens the SubjectFormDialog modal pre-filled, instead of navigating to a route", async () => {

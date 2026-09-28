@@ -33,7 +33,11 @@ export type QuotaType =
   // import é uma superfície de processamento em massa com um perfil de abuso diferente.
   | "IMPORT_COUNT"
   | "IMPORT_BYTES"
-  | "IMPORT_ROWS";
+  | "IMPORT_ROWS"
+  // D-347 §3.7 (planos-precos-2026-09-27.md): orçamento de custo real de automação (Textract +
+  // Bedrock), debitado por operação em centavos reais - nunca uma cota pré-calculada por média
+  // (achado do Codex R8: média != máximo). `count`/`limit` aqui são centavos, não chamadas.
+  | "AUTOMATION_COST_CENTS";
 
 export interface TenantQuotaRecord {
   PK: string;
@@ -144,12 +148,31 @@ export function quotaTelemetryGsi8Keys(input: {
   };
 }
 
+/** Codex R1 finding (MÉDIO): `amount` had no validation - a negative value would silently
+ * REDUCE a quota's count on consume() (or increase it on release()) instead of admitting/
+ * compensating a real unit. Every pre-existing caller passes no `amount` (defaults to 1) or a
+ * fixed positive constant, so this only guards against a future caller's bug, never a
+ * behavior change for today's real call sites. */
+function validatedAmount(amount: number | undefined): number {
+  const value = amount ?? 1;
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`QuotaCheckInput.amount must be a positive integer, got ${value}.`);
+  }
+  return value;
+}
+
 export interface QuotaCheckInput {
   tenantId: string;
   quotaType: QuotaType;
   window: string; // e.g. rolling window identifier/bucket, caller-defined granularity
   limit: number;
   windowSeconds: number;
+  /** Units to consume/release in this call - defaults to 1 (every pre-existing caller's
+   * count-of-events idiom, e.g. AI_CALL/UPLOAD_COUNT's `limit: 1` reservation-lock pattern).
+   * AUTOMATION_COST_CENTS is the first caller to pass a real amount (a cost in cents, not an
+   * event count) - added here rather than as a separate method so both quota "shapes" share
+   * the exact same OCC/contention-retry discipline instead of a second implementation. */
+  amount?: number;
 }
 
 /**
@@ -196,6 +219,7 @@ export class TenantQuotaService {
     if (EPHEMERAL_TELEMETRY_QUOTA_TYPES.has(input.quotaType)) {
       return this.consumeEphemeralTelemetry(input);
     }
+    const amount = validatedAmount(input.amount);
     for (let attempt = 0; attempt < TenantQuotaService.MAX_CONTENTION_RETRIES; attempt++) {
       const key = tenantQuotaKey(input.tenantId, input.quotaType, input.window);
       const nowIso = this.now();
@@ -203,6 +227,15 @@ export class TenantQuotaService {
 
       const existing = await this.store.get<TenantQuotaRecord>(key);
       if (!existing) {
+        // Codex R1 finding (ALTO): the very first consume() for a window used to create the
+        // record unconditionally with `count: amount`, never checking it against `input.limit` -
+        // a brand-new tenant/window with e.g. limit=0 or limit=7 could still admit an amount=8
+        // operation on its first call. Every SUBSEQUENT call already goes through the
+        // `effectiveCount + amount > existing.limit` check below - this makes the create path
+        // consistent with it instead of a silent exception on attempt 1.
+        if (amount > input.limit) {
+          throw new QuotaExceededError("Quota exceeded.", { tenantId: input.tenantId, quotaType: input.quotaType, limit: input.limit });
+        }
         const entries: TransactWriteEntry[] = [
           {
             Put: buildVersionedCreate(this.tableName, {
@@ -212,7 +245,7 @@ export class TenantQuotaService {
               quotaType: input.quotaType,
               limit: input.limit,
               windowSeconds: input.windowSeconds,
-              count: 1,
+              count: amount,
               resetAt,
               ...quotaTelemetryGsi8Keys({
                 dueAtIso: deriveQuotaTelemetryMaintenanceDue({ resetAt }).dueAtIso,
@@ -236,7 +269,7 @@ export class TenantQuotaService {
       const windowExpired = existing.resetAt < nowIso;
       const effectiveCount = windowExpired ? 0 : existing.count;
 
-      if (effectiveCount >= existing.limit) {
+      if (effectiveCount + amount > existing.limit) {
         throw new QuotaExceededError("Quota exceeded.", {
           tenantId: input.tenantId,
           quotaType: input.quotaType,
@@ -258,7 +291,7 @@ export class TenantQuotaService {
         {
           Put: buildConditionalPut({
             tableName: this.tableName,
-            item: { ...existing, count: effectiveCount + 1, resetAt: nextResetAt, ...gsi8 },
+            item: { ...existing, count: effectiveCount + amount, resetAt: nextResetAt, ...gsi8 },
             conditionExpression: "#count = :expectedCount AND resetAt = :expectedResetAt",
             names: { "#count": "count" },
             values: { ":expectedCount": existing.count, ":expectedResetAt": existing.resetAt },
@@ -370,6 +403,7 @@ export class TenantQuotaService {
    * blocking it during `DELETING` would leak a reservation forever with no way to free it.
    */
   async release(input: Omit<QuotaCheckInput, "limit"> & { limit?: number }): Promise<void> {
+    const amount = validatedAmount(input.amount);
     for (let attempt = 0; attempt < TenantQuotaService.MAX_CONTENTION_RETRIES; attempt++) {
       const key = tenantQuotaKey(input.tenantId, input.quotaType, input.window);
       const nowIso = this.now();
@@ -379,7 +413,7 @@ export class TenantQuotaService {
       const windowExpired = existing.resetAt < nowIso;
       if (windowExpired) return; // window already reset naturally - already recovered.
 
-      const nextCount = Math.max(0, existing.count - 1);
+      const nextCount = Math.max(0, existing.count - amount);
       const wrote = await this.store.updateConditional({ ...existing, count: nextCount }, { count: existing.count, resetAt: existing.resetAt });
       if (wrote) return;
       // Lost a concurrent write race; re-read and retry against fresh state.

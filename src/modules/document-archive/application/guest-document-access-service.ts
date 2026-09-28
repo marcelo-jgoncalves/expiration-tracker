@@ -622,6 +622,14 @@ export class GuestDocumentAccessService {
         }),
       },
       {
+        // Real bug found live against dev (2026-09-26) - see document-archive-service.ts's
+        // twin quota-reservation block (same broken pattern, same fix): the `extraConditions`
+        // entry this used to carry (`#used + #reserved + :requested <= #limit`) is not valid
+        // DynamoDB ConditionExpression syntax - arithmetic only works inside an
+        // UpdateExpression's SET clause, never a ConditionExpression. Removed, not rewritten:
+        // `expectedVersion: quota.version` below is already a real OCC fence on this row, and
+        // `wouldExceedStorageQuota()` (line ~596) already gates the in-memory check before this
+        // transaction is even attempted.
         Update: buildVersionedUpdate({
           tableName: this.tableName,
           key: storageQuotaKey(tenantId),
@@ -629,13 +637,6 @@ export class GuestDocumentAccessService {
           expectedVersion: quota.version,
           set: { reservedBytes: quota.reservedBytes + input.contentLength },
           now,
-          extraConditions: [
-            {
-              expression: "#used + #reserved + :requested <= #limit",
-              names: { "#used": "usedBytes", "#reserved": "reservedBytes", "#limit": "limitBytes" },
-              values: { ":requested": input.contentLength },
-            },
-          ],
         }),
       },
     ];

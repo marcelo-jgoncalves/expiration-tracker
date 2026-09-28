@@ -339,4 +339,78 @@ describe("TenantQuotaService", () => {
       expect(record?.count).toBe(1);
     });
   });
+
+  describe("variable amount (D-347 §3.7: AUTOMATION_COST_CENTS debits a real cost, not a fixed 1-per-event unit)", () => {
+    it("debits a multi-unit amount on create and denies once the accumulated amount would exceed the limit", async () => {
+      const store = new InMemoryIdentityStore();
+      await seedActive(store, "tenant-a");
+      const quota = new TenantQuotaService(store, TABLE);
+      const input = { tenantId: "tenant-a", quotaType: "AUTOMATION_COST_CENTS" as const, window: "CYCLE", limit: 10, windowSeconds: 60 };
+
+      await quota.consume({ ...input, amount: 8 });
+      const record = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AUTOMATION_COST_CENTS#CYCLE" });
+      expect(record?.count).toBe(8);
+
+      // 8 + 8 = 16 > 10 - denied, and the denial must not partially apply (count stays 8).
+      await expect(quota.consume({ ...input, amount: 8 })).rejects.toBeInstanceOf(QuotaExceededError);
+      const after = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AUTOMATION_COST_CENTS#CYCLE" });
+      expect(after?.count).toBe(8);
+
+      // Exactly enough remaining (8 + 2 = 10) is allowed.
+      await expect(quota.consume({ ...input, amount: 2 })).resolves.toBeUndefined();
+    });
+
+    it("release() compensates the same multi-unit amount, never floors below zero", async () => {
+      const store = new InMemoryIdentityStore();
+      await seedActive(store, "tenant-a");
+      const quota = new TenantQuotaService(store, TABLE);
+      const input = { tenantId: "tenant-a", quotaType: "AUTOMATION_COST_CENTS" as const, window: "CYCLE", limit: 10, windowSeconds: 60 };
+
+      await quota.consume({ ...input, amount: 8 });
+      await quota.release({ ...input, amount: 8 });
+      const record = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AUTOMATION_COST_CENTS#CYCLE" });
+      expect(record?.count).toBe(0);
+
+      // Releasing more than was ever consumed floors at 0, never goes negative.
+      await quota.release({ ...input, amount: 100 });
+      const after = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AUTOMATION_COST_CENTS#CYCLE" });
+      expect(after?.count).toBe(0);
+    });
+
+    it("omitting amount defaults to 1, unchanged behavior for every pre-existing caller (AI_CALL/UPLOAD_COUNT/etc.)", async () => {
+      const store = new InMemoryIdentityStore();
+      await seedActive(store, "tenant-a");
+      const quota = new TenantQuotaService(store, TABLE);
+      const input = { tenantId: "tenant-a", quotaType: "AI_CALL" as const, window: "w1", limit: 1, windowSeconds: 60 };
+
+      await quota.consume(input);
+      const record = await store.get<{ PK: string; SK: string; count: number }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AI_CALL#w1" });
+      expect(record?.count).toBe(1);
+      await expect(quota.consume(input)).rejects.toBeInstanceOf(QuotaExceededError);
+    });
+
+    it("Codex R1 finding (ALTO): the FIRST consume() for a brand-new window also enforces amount <= limit, not just subsequent ones", async () => {
+      const store = new InMemoryIdentityStore();
+      await seedActive(store, "tenant-a");
+      const quota = new TenantQuotaService(store, TABLE);
+      // A brand-new window (no record exists yet) with limit=5 must refuse an amount=8 create.
+      await expect(quota.consume({ tenantId: "tenant-a", quotaType: "AUTOMATION_COST_CENTS", window: "CYCLE#2026-09", limit: 5, windowSeconds: 60, amount: 8 })).rejects.toBeInstanceOf(
+        QuotaExceededError,
+      );
+      const record = await store.get<{ PK: string; SK: string }>({ PK: "TENANT#tenant-a#QUOTA", SK: "TYPE#AUTOMATION_COST_CENTS#CYCLE#2026-09" });
+      expect(record).toBeUndefined(); // no partial/incorrect row left behind by the refused create.
+    });
+
+    it("Codex R1 finding (MÉDIO): rejects a non-positive or non-integer amount rather than silently crediting/debiting the wrong direction", async () => {
+      const store = new InMemoryIdentityStore();
+      await seedActive(store, "tenant-a");
+      const quota = new TenantQuotaService(store, TABLE);
+      const input = { tenantId: "tenant-a", quotaType: "AUTOMATION_COST_CENTS" as const, window: "CYCLE#2026-09", limit: 10, windowSeconds: 60 };
+
+      await expect(quota.consume({ ...input, amount: -8 })).rejects.toThrow();
+      await expect(quota.consume({ ...input, amount: 0 })).rejects.toThrow();
+      await expect(quota.consume({ ...input, amount: 1.5 })).rejects.toThrow();
+      await expect(quota.release({ ...input, amount: -8 })).rejects.toThrow();
+    });
+  });
 });

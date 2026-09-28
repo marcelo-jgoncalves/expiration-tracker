@@ -19,6 +19,7 @@ import type { ExtractionArtifactRef } from "../ports/ocr-artifact-store.js";
 import { TenantQuotaService } from "../../identity/application/quota.js";
 import type { ExtractedFieldValueType } from "../domain/extracted-field.js";
 import { BEDROCK_SYSTEM_PROMPT_VERSION } from "../domain/bedrock-extraction.js";
+import { AUTOMATION_BUDGET_WINDOW_SECONDS, FREE_TIER_AUTOMATION_BUDGET_CENTS_PER_CYCLE, automationBudgetWindow } from "../domain/automation-budget.js";
 
 export interface RunBedrockExtractionDeps {
   featureFlags: FeatureFlagsReader;
@@ -29,6 +30,21 @@ export interface RunBedrockExtractionDeps {
    * call itself, so this defaults low (a single retry) to avoid amplifying the cost-abuse
    * surface a flaky retry loop would create. */
   callAttempts?: number;
+  /** D-347 §3.7: real-time automation cost budget for this tenant's current cycle, in cents.
+   * Defaults to the Free tier's fixed subsidized allowance (`automation-budget.ts`'s doc
+   * comment - no per-plan pricing exists in code yet, M12). */
+  automationBudgetCentsPerCycle?: number;
+  /** Codex R3 finding (ALTO): the real per-call cost ceiling, tied to whichever model
+   * `BEDROCK_MODEL_ID` is actually configured with - `undefined` (the default, same
+   * placeholder discipline as `BEDROCK_MODEL_ID` itself) means "no confirmed cost for the
+   * configured model", which this function treats as a hard fail-closed signal: Bedrock is
+   * never called, the run degrades immediately, exactly like an exhausted budget. Resolve via
+   * `automation-budget.ts`'s `resolveBedrockCostCentsPerCall()`. */
+  bedrockCostCentsPerCall?: number;
+  /** Same optional-clock-injection convention as `start-ocr.ts`. Read ONCE per invocation (not
+   * per quota call) so the consume() and any compensating release() in the SAME invocation
+   * always compute the identical calendar-month budget window key. */
+  now?: () => string;
 }
 
 export interface RunBedrockExtractionFieldInput {
@@ -98,7 +114,33 @@ export interface RunBedrockExtractionOutput {
 
 const AI_CALL_RESERVATION_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
+/** Zero-candidate degraded output, shared by every "Bedrock never ran" branch (no artifact, no
+ * confirmed cost for the configured model, budget exhausted) - same shape each time, so a
+ * single place defines it instead of three near-identical object literals drifting apart. */
+function degradedOutput(input: RunBedrockExtractionInput): RunBedrockExtractionOutput {
+  return {
+    tenantId: input.tenantId,
+    itemId: input.itemId,
+    documentId: input.documentId,
+    documentVersion: input.documentVersion,
+    runId: input.runId,
+    pipelineVersion: input.pipelineVersion,
+    correlationId: input.correlationId,
+    bedrockFields: [],
+    bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
+    ocrAvailable: input.ocrAvailable,
+    extractedFields: input.extractedFields,
+    needsBedrock: input.needsBedrock,
+    aiExtractionEnabled: input.aiExtractionEnabled,
+    artifact: input.artifact,
+  };
+}
+
 export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input: RunBedrockExtractionInput): Promise<RunBedrockExtractionOutput> {
+  // Computed once and reused for every automation-budget quota call in this invocation - see
+  // `now`'s docstring above.
+  const budgetWindow = automationBudgetWindow(deps.now?.() ?? new Date().toISOString());
+
   let flags;
   try {
     flags = await deps.featureFlags.getFlags();
@@ -120,22 +162,7 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
     // document text either, so this returns zero candidates rather than calling the model with
     // an empty document (which would waste a paid call and a quota reservation for a
     // guaranteed-empty answer).
-    return {
-      tenantId: input.tenantId,
-      itemId: input.itemId,
-      documentId: input.documentId,
-      documentVersion: input.documentVersion,
-      runId: input.runId,
-      pipelineVersion: input.pipelineVersion,
-      correlationId: input.correlationId,
-      bedrockFields: [],
-      bedrockSystemPromptVersion: BEDROCK_SYSTEM_PROMPT_VERSION,
-      ocrAvailable: input.ocrAvailable,
-      extractedFields: input.extractedFields,
-      needsBedrock: input.needsBedrock,
-      aiExtractionEnabled: input.aiExtractionEnabled,
-      artifact: input.artifact,
-    };
+    return degradedOutput(input);
   }
 
   // Idempotency key mirrors start-ocr.ts's exact pattern (design §1.11's 14th adversarial case
@@ -160,9 +187,49 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
     // is terminal.
   }
 
+  // Codex R3 finding (ALTO): never debit/reserve against an UNCONFIRMED cost for whichever
+  // model is actually configured - a flat reference constant silently used regardless of the
+  // real `BEDROCK_MODEL_ID` cannot be trusted as a ceiling (Bedrock model pricing/lineup
+  // changes fast enough that even "the most expensive Claude model" is not a stable anchor).
+  // Fail closed: no confirmed per-call cost means Bedrock is never called for this run.
+  const costCentsPerCall = deps.bedrockCostCentsPerCall;
+  if (costCentsPerCall === undefined) {
+    await deps.quota.release({ tenantId: input.tenantId, quotaType: "AI_CALL", window: quotaWindow, windowSeconds: AI_CALL_RESERVATION_WINDOW_SECONDS });
+    return degradedOutput(input);
+  }
+
+  // D-347 §3.7: real-time cost budget, debited PER REAL ATTEMPT inside the retry loop below
+  // (Codex R1 finding, ALTO: debiting once before the loop undercounts a `callAttempts > 1`
+  // config, and the old single post-loop `release()` refunded the debit even when a LATER
+  // attempt's real model call had already happened and failed only on tool-call/schema
+  // validation downstream of a genuine, billable Converse call - not a case with zero real
+  // cost). Exhaustion on the FIRST attempt degrades gracefully to zero candidates (never
+  // throws - this must never block the upload/extraction run); exhaustion on a LATER attempt
+  // (only reachable with `callAttempts > 1`, not used by any composition root today) simply
+  // stops retrying and propagates the last real failure, since at least one billable attempt
+  // already happened for this run.
+  const budgetLimit = deps.automationBudgetCentsPerCycle ?? FREE_TIER_AUTOMATION_BUDGET_CENTS_PER_CYCLE;
   const attempts = Math.max(1, deps.callAttempts ?? 1);
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
+    try {
+      await deps.quota.consume({
+        tenantId: input.tenantId,
+        quotaType: "AUTOMATION_COST_CENTS",
+        window: budgetWindow,
+        limit: budgetLimit,
+        windowSeconds: AUTOMATION_BUDGET_WINDOW_SECONDS,
+        amount: costCentsPerCall,
+      });
+    } catch (err) {
+      if (!(err instanceof QuotaExceededError)) throw err;
+      if (i > 0) break; // at least one real attempt already happened and was billed - stop retrying, propagate its failure below.
+      // Never attempted Bedrock at all - compensate the AI_CALL reservation (it was never
+      // going to be spent) and degrade gracefully rather than throwing.
+      await deps.quota.release({ tenantId: input.tenantId, quotaType: "AI_CALL", window: quotaWindow, windowSeconds: AI_CALL_RESERVATION_WINDOW_SECONDS });
+      return degradedOutput(input);
+    }
+
     try {
       const result = await deps.bedrock.extract({
         textArtifact: input.artifact,
@@ -196,13 +263,19 @@ export async function runBedrockExtraction(deps: RunBedrockExtractionDeps, input
         artifact: input.artifact,
       };
     } catch (err) {
+      // No cost-budget release here (deliberate, see the comment above the loop): this
+      // attempt's Converse call may have genuinely happened and been billed by AWS even
+      // though the port surfaces every failure mode (network, no tool call, malformed
+      // tool-call JSON) identically as BedrockExtractionFailedError - refunding here would
+      // risk crediting back real spend under-counted forever.
       lastErr = err;
     }
   }
 
-  // The call never succeeded even after local retry - compensate the quota reservation (design
-  // §1.8's exact compensation pattern from start-ocr.ts) before propagating, so a genuinely
-  // failed call does not permanently burn this run's one Bedrock attempt.
+  // The call never succeeded even after local retry - compensate only the AI_CALL reservation
+  // (design §1.8's exact compensation pattern from start-ocr.ts) so a genuinely failed call
+  // does not permanently burn this run's one Bedrock attempt. The cost-budget debit(s) already
+  // taken above are NOT refunded - see the loop's comments.
   await deps.quota.release({ tenantId: input.tenantId, quotaType: "AI_CALL", window: quotaWindow, windowSeconds: AI_CALL_RESERVATION_WINDOW_SECONDS });
   throw new BedrockExtractionFailedError(`Bedrock extraction failed for run ${input.runId} after ${attempts} attempt(s).`, {
     runId: input.runId,

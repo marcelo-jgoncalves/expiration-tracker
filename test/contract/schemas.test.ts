@@ -1003,6 +1003,24 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
     expect(valid).toBe(false);
   });
 
+  // Real bug found by scripts/seed-dev-demo-data.mjs's first live run against dev (2026-09-26):
+  // `externalId` (CNPJ/identificador externo - a real, load-bearing field in
+  // tracked-subject.ts's own `CreateSubjectInput`, with a dedupe pointer mechanism, and a real
+  // "CNPJ/identificador externo" input on SubjectForm.tsx's create screen) was never listed in
+  // this schema, which has `additionalProperties: false` - every real creation with a CNPJ
+  // filled in 400'd with a generic "must NOT have additional properties", not a field-specific
+  // error, silently breaking subject creation with a CNPJ end to end. Mutation: removing
+  // `externalId` from the schema's `properties` again makes this test fail.
+  it("accepts a create-subject-request with externalId (CNPJ)", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/create-subject-request.v1.json", {
+      type: "VENDOR",
+      displayName: "Comércio Vale Verde Ltda",
+      externalId: "12.345.678/0001-90",
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
   it("accepts a valid update-subject-request", () => {
     const { valid, errors } = registry.validate("https://expiration-tracker/schemas/api/update-subject-request.v1.json", {
       notes: "Contato principal: financeiro@acme.com",
@@ -2157,6 +2175,51 @@ describe("schemas/ contract validation (implementation-blueprint.md #6.3)", () =
 
   it("rejects a docarchive-share-link-revoke-request.v1 missing expectedVersion", () => {
     const { valid } = registry.validate("https://expiration-tracker/schemas/api/docarchive-share-link-revoke-request.v1.json", {});
+    expect(valid).toBe(false);
+  });
+
+  // D-347 §3.5 (Round 2 Codex review): the digest flush->delivery command is a bare payload
+  // (no command-envelope.v1.json wrapping, same convention SQS_REPORT_SUBSCRIPTION_DELIVERY_V1
+  // already established) - schema added so a malformed element (e.g. `items: [null]`) is caught
+  // at the boundary, not deep inside the claim logic.
+  it("accepts a valid notification-whatsapp-digest-deliver.v1", () => {
+    const { valid, errors } = registry.validate("https://expiration-tracker/schemas/queues/notification-whatsapp-digest-deliver.v1.json", {
+      tenantId: "t1",
+      recipientUserId: "user-1",
+      windowDate: "2026-09-27",
+      items: [{ intentId: "intent-1", attemptId: "attempt-1", itemId: "item-1", itemVersion: 1, addedAt: "2026-09-27T09:00:00.000Z" }],
+    });
+    expect(errors).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it("rejects a notification-whatsapp-digest-deliver.v1 with a malformed item (null element)", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/notification-whatsapp-digest-deliver.v1.json", {
+      tenantId: "t1",
+      recipientUserId: "user-1",
+      windowDate: "2026-09-27",
+      items: [null],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a notification-whatsapp-digest-deliver.v1 with an empty items array", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/notification-whatsapp-digest-deliver.v1.json", {
+      tenantId: "t1",
+      recipientUserId: "user-1",
+      windowDate: "2026-09-27",
+      items: [],
+    });
+    expect(valid).toBe(false);
+  });
+
+  it("rejects a notification-whatsapp-digest-deliver.v1 with a malformed windowDate", () => {
+    const { valid } = registry.validate("https://expiration-tracker/schemas/queues/notification-whatsapp-digest-deliver.v1.json", {
+      tenantId: "t1",
+      recipientUserId: "user-1",
+      windowDate: "09/27/2026",
+      items: [{ intentId: "intent-1", attemptId: "attempt-1", itemId: "item-1", itemVersion: 1, addedAt: "2026-09-27T09:00:00.000Z" }],
+    });
     expect(valid).toBe(false);
   });
 });

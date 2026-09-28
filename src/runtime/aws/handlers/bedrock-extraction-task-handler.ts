@@ -18,6 +18,7 @@ import { runBedrockExtraction, type RunBedrockExtractionInput, type RunBedrockEx
 import { runWithContext } from "../../../shared/observability/context.js";
 import { SecureLogger } from "../../../shared/observability/logger.js";
 import { toAppError } from "../../../shared/errors/app-error.js";
+import { resolveBedrockCostCentsPerCall } from "../../../modules/extraction/domain/automation-budget.js";
 
 const tableName = process.env["TABLE_NAME"];
 const extractionTransientBucket = process.env["EXTRACTION_TRANSIENT_BUCKET_NAME"];
@@ -32,6 +33,11 @@ const appConfigConfigurationProfileId = process.env["APPCONFIG_CONFIGURATION_PRO
 // model ID beyond what Bedrock itself rejects at call time.
 const bedrockModelId = process.env["BEDROCK_MODEL_ID"] ?? "PLACEHOLDER_BEDROCK_MODEL_ID_NOT_SELECTED";
 const bedrockRegion = process.env["BEDROCK_REGION"] ?? process.env["AWS_REGION"] ?? "us-east-1";
+// D-347 §3.7 (Codex R3 finding, ALTO): must be set TOGETHER with BEDROCK_MODEL_ID, as one
+// deliberate pre-production decision - the real per-call cost ceiling for whichever model is
+// actually configured (automation-budget.ts's docstring has the calculation methodology).
+// Unset (the default) makes runBedrockExtraction() fail closed: Bedrock is never called.
+const bedrockCostCentsPerCall = resolveBedrockCostCentsPerCall(process.env["BEDROCK_COST_CENTS_PER_CALL"]);
 
 if (!tableName) throw new Error("TABLE_NAME env var is required.");
 if (!extractionTransientBucket) throw new Error("EXTRACTION_TRANSIENT_BUCKET_NAME env var is required.");
@@ -49,6 +55,7 @@ const deps = buildBedrockExtractionTaskWorkerDeps(
     tableName,
     extractionTransientBucket,
     bedrockModelId,
+    bedrockCostCentsPerCall,
     appConfig: { applicationId: appConfigApplicationId, environmentId: appConfigEnvironmentId, configurationProfileId: appConfigConfigurationProfileId },
   },
 );

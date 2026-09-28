@@ -725,6 +725,22 @@ export class DocumentArchiveService {
         // storage-quota-scoping (D-2xx): the transactional re-assertion of the same check above
         // — the ONE write that actually serializes concurrent reservations against the shared
         // quota row (the earlier in-memory check only gives a fast, clear error message).
+        //
+        // Real bug found live against dev (2026-09-26, scripts/seed-dev-demo-data.mjs's first
+        // run): the `extraConditions` entry this comment used to add here
+        // (`#used + #reserved + :requested <= #limit`) is not valid DynamoDB
+        // ConditionExpression syntax — arithmetic operators are only legal inside an
+        // UpdateExpression's SET clause (which `reservedBytes: quota.reservedBytes +
+        // requestedBytes` above already correctly uses), never inside a ConditionExpression,
+        // which only supports comparing a single operand against a value/function result. Every
+        // real file reservation hit this and 500'd with "Invalid ConditionExpression: Syntax
+        // error" — confirmed reproducible before this fix, the storage-quota re-assertion never
+        // actually ran once. Removed rather than rewritten: `expectedVersion: quota.version`
+        // below is already a real OCC fence on this exact row — two concurrent reservations that
+        // both pass the in-memory `wouldExceedStorageQuota()` check above can never both commit
+        // against the SAME `quota.version`, so the second one's conditional write fails on the
+        // version mismatch alone (`ConflictError`, caller retries against fresh numbers) with
+        // no need for a second, arithmetic-based condition on the same write.
         Update: buildVersionedUpdate({
           tableName: this.tableName,
           key: storageQuotaKey(tenantId),
@@ -732,13 +748,6 @@ export class DocumentArchiveService {
           expectedVersion: quota.version,
           set: { reservedBytes: quota.reservedBytes + requestedBytes },
           now,
-          extraConditions: [
-            {
-              expression: "#used + #reserved + :requested <= #limit",
-              names: { "#used": "usedBytes", "#reserved": "reservedBytes", "#limit": "limitBytes" },
-              values: { ":requested": requestedBytes },
-            },
-          ],
         }),
       },
     ];

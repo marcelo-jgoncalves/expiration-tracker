@@ -23,12 +23,15 @@ import { isTransactionCanceled } from "../ports/notification-store.js";
 import type { TenantManagerLookup } from "../../reminder/ports/tenant-manager-lookup.js";
 import { decideRouting, type RouterDecision } from "./notification-router.js";
 import { correctiveIdempotencyKey } from "./corrective-intent-service.js";
-import { buildVersionedUpdate } from "../../../shared/dynamodb/occ.js";
+import { buildVersionedUpdate, getCancellationReasonCodes } from "../../../shared/dynamodb/occ.js";
 import { buildIdempotencyKey } from "../../../shared/idempotency/idempotency.js";
 import { deriveDeliveryRecordMaintenanceDue, deliveryRecordGsi8Keys } from "../../../shared/delivery-record-gsi8.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../identity/domain/authorization.js";
 import { buildWhatsAppOutboxRecord } from "./whatsapp-outbox.js";
 import { outboxShard, epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../shared/outbox/outbox.js";
+import { decideDigestRouting, type DigestRoutingDecision } from "./notification-digest-routing.js";
+import { buildDigestEntryWriteEntry } from "./whatsapp-digest-entry-writer.js";
+import { digestEntryKey, digestWindowDateFromIso, isDigestEntryAtCapacity, type DigestEntry } from "../domain/digest-entry.js";
 
 export interface NotificationRouterWorkflowDeps {
   store: NotificationStore;
@@ -167,7 +170,7 @@ async function applyDecision(
   }
 
   // ROUTED
-  return applyRoutedDecision(deps, intent, decision, now, resolvedRecipientUserId);
+  return applyRoutedDecision(deps, intent, decision, now, resolvedRecipientUserId, currentItem);
 }
 
 /** Minimal shape applyStaleDecision needs - structurally satisfied by both
@@ -303,6 +306,7 @@ async function applyRoutedDecision(
   decision: Extract<RouterDecision, { kind: "ROUTED" }>,
   now: string,
   resolvedRecipientUserId: string | undefined,
+  currentItem: ExpirationItem | undefined,
 ): Promise<RouterWorkflowOutcome> {
   const entries: TransactWriteEntry[] = [
     {
@@ -332,6 +336,12 @@ async function applyRoutedDecision(
     },
   ];
 
+  // D-347 §3.5: set only when this call appends a DigestEntry write - lets the catch block
+  // below distinguish "the digest window's own OCC race" (must RETRY so the router re-runs
+  // against the now-current version, never silently drop the digested channel) from every
+  // other cancellation reason this transaction already handled as an idempotent duplicate.
+  let digestEntryIndex: number | undefined;
+
   for (const channel of decision.routedChannels) {
     // D-197 fatia 5/5: WHATSAPP now has a real delivery path too (fatia 2-4 built the
     // adapter/worker/queue/quota; this fatia is the first thing that actually reaches them).
@@ -339,6 +349,30 @@ async function applyRoutedDecision(
     // router's own per-channel loop (`isChannelRoutable`) is the only place a NEW channel must
     // ever be added going forward, never here in isolation.
     if (channel !== "EMAIL" && channel !== "WHATSAPP") continue;
+
+    // D-347 §3.5: decided per-channel, before the attempt row is built, so the attempt's own
+    // `status` already reflects DIGESTED vs. the immediate-send PREPARED - never a separate
+    // write later to flip it. Only reachable for WHATSAPP with a resolved recipient (a ROUTED
+    // decision always has one - see the comment above `recipientUserId` - `resolvedRecipientUserId`
+    // stays optional in the signature purely for defensive fallback to immediate send).
+    let digestDecision: DigestRoutingDecision =
+      channel === "WHATSAPP" && resolvedRecipientUserId
+        ? decideDigestRouting({ channel, targetKind: intent.targetKind, itemDueDate: currentItem?.dueDate, now })
+        : "BYPASS_IMMEDIATE";
+
+    // D-347 §3.5 (Round 1 Codex review): the digest window's own read happens HERE, before the
+    // attempt is built, so a window already at MAX_DIGEST_ITEMS can fall back to
+    // BYPASS_IMMEDIATE before the attempt's status is ever set to DIGESTED - never a second
+    // write later to flip it, same "decide once, build once" discipline as the branch above.
+    const windowDate = digestDecision === "DIGEST" ? digestWindowDateFromIso(now) : undefined;
+    const existingDigestEntry =
+      digestDecision === "DIGEST" && windowDate
+        ? await deps.store.get<DigestEntry>(digestEntryKey(intent.tenantId, resolvedRecipientUserId!, "WHATSAPP", windowDate), true)
+        : undefined;
+    if (digestDecision === "DIGEST" && isDigestEntryAtCapacity(existingDigestEntry)) {
+      digestDecision = "BYPASS_IMMEDIATE";
+    }
+
     const attemptId = deps.newAttemptId();
     const attemptNumber = 1;
     const attempt: NotificationAttempt = {
@@ -352,7 +386,7 @@ async function applyRoutedDecision(
       channel,
       provider: channel === "EMAIL" ? "SES" : "META_CLOUD_API",
       providerAccountId: "default",
-      status: "PREPARED",
+      status: digestDecision === "DIGEST" ? "DIGESTED" : "PREPARED",
       expectedItemVersion: intent.itemVersion,
       commandMessageId: attemptId,
       destinationHash: "",
@@ -381,6 +415,25 @@ async function applyRoutedDecision(
     const lookup = buildNotificationAttemptLookup(attempt);
     entries.push({ Put: { TableName: deps.tableName, Item: { ...lookup }, ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)" } });
 
+    if (digestDecision === "DIGEST") {
+      // D-347 §3.5: fold into the recipient's daily WHATSAPP window instead of an immediate
+      // outbox record - `existingDigestEntry`/`windowDate` were already read above (same
+      // consistent read the capacity check just used), never a second read here.
+      digestEntryIndex = entries.length;
+      entries.push(
+        buildDigestEntryWriteEntry({
+          tableName: deps.tableName,
+          tenantId: intent.tenantId,
+          recipientUserId: resolvedRecipientUserId!,
+          windowDate: windowDate!,
+          existing: existingDigestEntry,
+          newItem: { intentId: intent.intentId, attemptId, itemId: intent.itemId, itemVersion: intent.itemVersion, addedAt: now },
+          now,
+        }),
+      );
+      continue;
+    }
+
     entries.push({
       Put: {
         TableName: deps.tableName,
@@ -396,6 +449,29 @@ async function applyRoutedDecision(
   try {
     await deps.store.transactWrite(entries);
   } catch (err) {
+    // D-347 §3.5: the digest window's own OCC condition losing a race to a concurrent intent
+    // for the SAME recipient/day must never be swallowed as an idempotent duplicate - unlike
+    // every other entry in this transaction, this one wasn't written by a PRIOR run of this
+    // exact intent, so treating its cancellation as "already handled" would leave the intent
+    // stuck PENDING forever with nothing to retry it. RETRY re-runs the whole decision fresh
+    // (re-reads the now-current DigestEntry version), same "no write at all, let the caller
+    // redeliver" contract the RETRY branch above already documents.
+    //
+    // Round 2 Codex review: this used to call `isSoleConditionalCancellation`, which only
+    // recognizes the `ConditionalCheckFailed` reason - but two concurrent intents genuinely
+    // contending for the SAME DigestEntry (a new contention pattern this feature introduces,
+    // unlike most existing OCC usage in this codebase, which is only ever retried by the SAME
+    // logical operation) can just as plausibly surface as `TransactionConflict`
+    // (docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) -
+    // that reason would have fallen through to the generic `isTransactionCanceled` swallow below
+    // and silently returned ROUTED with nothing written. Checked directly against the raw
+    // per-entry reason codes instead, matching ANY non-"None" reason at the digest entry's own
+    // index (not just ConditionalCheckFailed) while every other entry's reason is "None".
+    const reasonCodes = digestEntryIndex !== undefined ? getCancellationReasonCodes(err) : undefined;
+    const digestEntryIsTheSoleCause = reasonCodes !== undefined && digestEntryIndex !== undefined && reasonCodes[digestEntryIndex] !== "None" && reasonCodes.every((code, i) => i === digestEntryIndex || code === "None");
+    if (digestEntryIsTheSoleCause) {
+      return { kind: "RETRY", cause: "DIGEST_ENTRY_VERSION_CONFLICT" };
+    }
     if (!isTransactionCanceled(err)) throw err;
   }
 

@@ -11,6 +11,7 @@ import type { NotificationIntent } from "../../../src/modules/reminder/domain/no
 import type { NotificationAttempt } from "../../../src/modules/notification/domain/notification-attempt.js";
 import { authorizedTenantIdFromPersistedEntity } from "../../../src/modules/identity/domain/authorization.js";
 import { epochSecondsFromIso, OUTBOX_TRANSIENT_RETENTION_SECONDS } from "../../../src/shared/outbox/outbox.js";
+import { digestEntryKey, digestEntryPurgeAfterTtl, digestFlushAtIso, digestWindowDateFromIso, MAX_DIGEST_ITEMS, type DigestEntry, type DigestEntryItem } from "../../../src/modules/notification/domain/digest-entry.js";
 
 const TENANT = "t1";
 const AUTH_TENANT = authorizedTenantIdFromPersistedEntity({ tenantId: TENANT });
@@ -213,7 +214,13 @@ describe("routeNotificationIntent", () => {
   // (deps.whatsappChannelEnabled) and the tenant entitled (NotificationEntitlements.whatsapp.
   // enabled), now reaches the WhatsApp outbox destination for the first time (previously this
   // outcome was mechanically impossible - SUPPORTED_CHANNELS was EMAIL-only).
-  it("happy path: routes WHATSAPP when kill switch on + entitled, creates attempt + lookup + outbox event on the WhatsApp destination", async () => {
+  //
+  // D-347 §3.5: the item here (makeItem's default dueDate 2026-12-01, far past NOW's VENCENDO
+  // window) is NOT overdue and the intent has no MANAGER targetKind - by decideDigestRouting's
+  // own rule this is now digestible, so this happy path folds into a DigestEntry instead of an
+  // immediate outbox record. The immediate-send behavior this test used to assert is covered by
+  // the dedicated bypass tests below (overdue item, MANAGER escalation).
+  it("happy path: routes WHATSAPP when kill switch on + entitled + not overdue -> digested, attempt DIGESTED, DigestEntry created, no outbox event", async () => {
     deps.whatsappChannelEnabled = true;
     await seed({
       entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
@@ -230,10 +237,145 @@ describe("routeNotificationIntent", () => {
     expect(attempt).toBeDefined();
     expect(attempt.channel).toBe("WHATSAPP");
     expect(attempt.provider).toBe("META_CLOUD_API");
+    expect(attempt.status).toBe("DIGESTED");
 
+    expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(false);
+
+    const digestEntry = all.find((i) => i["entityType"] === "DigestEntry");
+    expect(digestEntry).toBeDefined();
+    expect(digestEntry?.["tenantId"]).toBe(TENANT);
+    expect(digestEntry?.["recipientUserId"]).toBe(ASSIGNEE);
+    expect(digestEntry?.["status"]).toBe("OPEN");
+    expect(digestEntry?.["items"]).toEqual([{ intentId: intent.intentId, attemptId: attempt.attemptId, itemId: ITEM_ID, itemVersion: intent.itemVersion, addedAt: NOW }]);
+  });
+
+  it("WHATSAPP intent for an already-overdue item bypasses the digest - immediate outbox event, attempt PREPARED", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      item: makeItem({ dueDate: "2026-01-01" }),
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"] });
+
+    const all = store.allItems();
+    const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;
+    expect(attempt.status).toBe("PREPARED");
     const outboxEvent = all.find((i) => i["entityType"] === "OutboxEvent");
-    expect(outboxEvent).toBeDefined();
     expect(outboxEvent?.["destination"]).toBe("SQS_NOTIFICATION_WHATSAPP_V1");
+    expect(all.some((i) => i["entityType"] === "DigestEntry")).toBe(false);
+  });
+
+  it("WHATSAPP MANAGER-escalation intent bypasses the digest even when the item is not overdue", async () => {
+    deps.whatsappChannelEnabled = true;
+    managerLookup.activeManagers.add(ASSIGNEE);
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"], targetKind: "MANAGER", targetUserId: ASSIGNEE });
+    await store.putIfAbsent(intent);
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"] });
+
+    const all = store.allItems();
+    const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;
+    expect(attempt.status).toBe("PREPARED");
+    expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(true);
+    expect(all.some((i) => i["entityType"] === "DigestEntry")).toBe(false);
+  });
+
+  it("a second digestible WHATSAPP intent the same day for the same recipient appends to the SAME DigestEntry window", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const firstIntent = makeIntent({ intentId: "intent-a", PK: `TENANT#${TENANT}#INTENT#intent-a`, requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(firstIntent);
+    await routeNotificationIntent(deps, firstIntent);
+
+    const secondIntent = makeIntent({ intentId: "intent-b", PK: `TENANT#${TENANT}#INTENT#intent-b`, requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(secondIntent);
+    await routeNotificationIntent(deps, secondIntent);
+
+    const all = store.allItems();
+    const digestEntries = all.filter((i) => i["entityType"] === "DigestEntry");
+    expect(digestEntries).toHaveLength(1);
+    expect((digestEntries[0]?.["items"] as unknown[]).map((i) => (i as { intentId: string }).intentId)).toEqual(["intent-a", "intent-b"]);
+    expect(digestEntries[0]?.["version"]).toBe(2);
+  });
+
+  it("a window already at MAX_DIGEST_ITEMS falls back to BYPASS_IMMEDIATE for the next intent, never growing past the cap", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const windowDate = digestWindowDateFromIso(NOW);
+    const atCapItems: DigestEntryItem[] = Array.from({ length: MAX_DIGEST_ITEMS }, (_, i) => ({ intentId: `prior-${i}`, attemptId: `prior-attempt-${i}`, itemId: `prior-item-${i}`, itemVersion: 1, addedAt: NOW }));
+    const atCapEntry: DigestEntry = {
+      ...digestEntryKey(TENANT, ASSIGNEE, "WHATSAPP", windowDate),
+      entityType: "DigestEntry",
+      tenantId: TENANT,
+      recipientUserId: ASSIGNEE,
+      channel: "WHATSAPP",
+      windowDate,
+      status: "OPEN",
+      items: atCapItems,
+      flushAt: digestFlushAtIso(windowDate),
+      version: MAX_DIGEST_ITEMS,
+      createdAt: NOW,
+      updatedAt: NOW,
+      purgeAfterTtl: digestEntryPurgeAfterTtl(windowDate),
+    };
+    await store.putIfAbsent(atCapEntry);
+
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "ROUTED", routedChannels: ["WHATSAPP"] });
+
+    const all = store.allItems();
+    const attempt = all.find((i) => i["entityType"] === "NotificationAttempt") as unknown as NotificationAttempt;
+    expect(attempt.status).toBe("PREPARED"); // never DIGESTED - the cap forced immediate send
+    expect(all.some((i) => i["entityType"] === "OutboxEvent")).toBe(true);
+
+    const unchangedEntry = await store.get<DigestEntry>(digestEntryKey(TENANT, ASSIGNEE, "WHATSAPP", windowDate));
+    expect(unchangedEntry?.items).toHaveLength(MAX_DIGEST_ITEMS); // never grown past the cap
+  });
+
+  // Round 2 Codex review: a real DynamoDB TransactWriteItems conflict between two concurrent
+  // intents contending for the SAME DigestEntry can surface as `TransactionConflict`, not just
+  // `ConditionalCheckFailed` - the digest-entry-index check must catch that reason too, or the
+  // whole transaction's failure gets swallowed as an idempotent duplicate and returns ROUTED with
+  // nothing actually written (the intent then stuck PENDING forever, nothing left to retry it).
+  it("a TransactionConflict reason (not ConditionalCheckFailed) at the digest entry's own index still returns RETRY, never a silent no-write ROUTED", async () => {
+    deps.whatsappChannelEnabled = true;
+    await seed({
+      entitlements: { ...defaultEntitlements(), whatsapp: { enabled: true } },
+      preferences: defaultPreferences(ASSIGNEE),
+    });
+    const intent = makeIntent({ requestedChannels: ["WHATSAPP"] });
+    await store.putIfAbsent(intent);
+
+    const realTransactWrite = store.transactWrite.bind(store);
+    store.transactWrite = async (writeEntries) => {
+      // entries[0]=intent update, [1]=attempt Put, [2]=lookup Put, [3]=digest entry write.
+      throw { name: "TransactionCanceledException", message: "TransactionConflict", CancellationReasons: writeEntries.map((_, i) => ({ Code: i === 3 ? "TransactionConflict" : "None" })) };
+    };
+
+    const outcome = await routeNotificationIntent(deps, intent);
+    expect(outcome).toEqual({ kind: "RETRY", cause: "DIGEST_ENTRY_VERSION_CONFLICT" });
+    store.transactWrite = realTransactWrite;
+
+    const unchangedIntent = await store.get<NotificationIntent>({ PK: intent.PK, SK: intent.SK });
+    expect(unchangedIntent?.status).toBe("PENDING"); // nothing was written - safe to retry from scratch
   });
 
   it("WHATSAPP requested but kill switch off (deps.whatsappChannelEnabled left false/default) -> CANCELLED CHANNEL_UNAVAILABLE, no attempt/outbox created", async () => {

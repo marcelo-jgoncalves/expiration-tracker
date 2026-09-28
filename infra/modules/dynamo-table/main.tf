@@ -258,6 +258,8 @@ locals {
     delivery_record_purge        = "DELIVERY_RECORD"
     core_user_data_purge         = "CORE_USER_DATA"
     report_subscription          = "REPORT_SUBSCRIPTION"
+    # D-347 §3.5: WhatsAppDigestFlushWorker - claims due DigestEntry windows.
+    whatsapp_digest_flush = "WHATSAPP_DIGEST"
   }
 }
 
@@ -452,13 +454,22 @@ data "aws_iam_policy_document" "gsi8_read" {
 # the workers that actually need atomic claim/revalidation get it, one policy per worker so a
 # future audit can see exactly who holds it). Table-level, not GSI8-scoped - TransactWriteItems
 # always targets the base table's own items (ConditionCheck/Delete/Update), never a GSI directly.
+#
+# `dynamodb:GetItem` real gap found in Codex review (D-347 §3.5, round 1): EVERY GSI8 worker
+# re-reads the candidate row by its base-table key BEFORE claiming it (own `store.get()` call,
+# e.g. `scheduled-reports/scheduler.ts`/`whatsapp-digest-flush/flush.ts`) - the write-only action
+# set above never covered that read, so every one of these roles was missing the permission its
+# own claim logic depends on (TransactWriteItems' per-item authorization follows the underlying
+# action, GetItem is not implied by PutItem/UpdateItem: docs.aws.amazon.com/amazondynamodb/latest/
+# developerguide/transaction-apis-iam.html). Added to the shared policy so every current AND future
+# GSI8 worker gets it, not just the one whose review happened to catch the gap.
 data "aws_iam_policy_document" "worker_transact_write" {
   for_each = local.gsi8_worker_types
 
   statement {
     # Same alpha-numeric-only Sid fix as gsi8_read above.
     sid       = "TransactWriteItems${join("", [for part in split("_", each.key) : title(part)])}"
-    actions   = ["dynamodb:TransactWriteItems", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"]
+    actions   = ["dynamodb:TransactWriteItems", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem"]
     resources = [local.table_arn]
   }
 }

@@ -134,6 +134,13 @@ export interface BedrockExtractionTaskWorkerConfig {
   extractionTransientBucket: string;
   bedrockModelId: string;
   appConfig: { applicationId: string; environmentId: string; configurationProfileId: string };
+  /** D-347 §3.7 (Codex R3 finding, ALTO): the real per-call cost ceiling in cents, confirmed
+   * for whichever model `bedrockModelId` is actually configured with. `undefined` (same
+   * placeholder discipline as `bedrockModelId` itself - see bedrock-extraction-task-
+   * handler.ts) makes `runBedrockExtraction()` fail closed: Bedrock is never called until both
+   * are set together as one deliberate pre-production decision. Resolve via `automation-
+   * budget.ts`'s `resolveBedrockCostCentsPerCall()`. */
+  bedrockCostCentsPerCall?: number;
 }
 
 export interface BedrockExtractionTaskWorkerDeps {
@@ -151,7 +158,7 @@ export function buildBedrockExtractionTaskWorkerDeps(
   const bedrock = new BedrockRuntimeConverseClient(clients.bedrockRuntime, artifacts, config.bedrockModelId);
 
   return {
-    runBedrockExtraction: { featureFlags, quota, bedrock },
+    runBedrockExtraction: { featureFlags, quota, bedrock, bedrockCostCentsPerCall: config.bedrockCostCentsPerCall },
   };
 }
 
@@ -195,6 +202,12 @@ export function createRealBedrockExtractionTaskWorkerClients(region: string) {
     // decision, deliberately never hardcoded here) - see BEDROCK_REGION/BEDROCK_MODEL_ID env
     // vars in bedrock-extraction-task-handler.ts and their obviously-placeholder Terraform
     // defaults.
-    bedrockRuntime: new BedrockRuntimeClient({ region }),
+    // `maxAttempts: 1` (Codex R2 finding, ALTO, D-347 §3.7): the SDK's own default retry
+    // behavior would let ONE `extract()` call silently issue several real Converse requests on
+    // transient errors, each potentially billable, while `run-bedrock-extraction.ts`'s cost
+    // budget only debits once per `extract()` call. Disabling SDK-internal retries makes "one
+    // extract() call = at most one real Converse request" actually true, so the application-
+    // level retry loop (which DOES debit per attempt) is the only place a retry can happen.
+    bedrockRuntime: new BedrockRuntimeClient({ region, maxAttempts: 1 }),
   };
 }

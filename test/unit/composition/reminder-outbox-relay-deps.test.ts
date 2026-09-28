@@ -34,6 +34,7 @@ const FULL_RELAY_ENV: Record<string, string> = {
   DOSSIER_EXPORT_QUEUE_URL: "https://sqs.example/dossier",
   GUEST_CREDENTIAL_ISSUANCE_QUEUE_URL: "https://sqs.example/guest-cred",
   REMINDER_SCAN_CONTINUATION_QUEUE_URL: "https://sqs.example/reminder-scan",
+  WHATSAPP_DIGEST_DELIVER_QUEUE_URL: "https://sqs.example/whatsapp-digest",
 };
 
 const FULL_SWEEPER_ENV: Record<string, string> = {
@@ -168,6 +169,7 @@ describe("OUTBOX_DESTINATION_OWNERSHIP matrix vs. the REAL constructed sender ma
       "SQS_DOCUMENT_REQUEST_CREDENTIAL_ISSUANCE_V1",
       "SQS_NOTIFICATION_WHATSAPP_V1",
       "SQS_REMINDER_SCAN_CONTINUATION_V1",
+      "SQS_NOTIFICATION_WHATSAPP_DIGEST_V1",
     ];
     for (const destination of allDestinations) {
       expect(OUTBOX_DESTINATION_OWNERSHIP[destination]).toBeDefined();

@@ -265,6 +265,48 @@ describe("compareExtractorsStage (COMPARE_EXTRACTORS)", () => {
     );
     expect(out.comparedFields).toEqual([{ fieldName: "expirationDate", valueType: "DATE", agreement: "SINGLE_SOURCE", sources: [], candidateValue: undefined, confidence: undefined }]);
   });
+
+  describe("D-347 §3.7 review finding (Codex R1, ALTO): needsBedrock=true with zero Bedrock candidates never silently auto-confirms", () => {
+    it("downgrades a confident-looking SINGLE_SOURCE deterministic candidate to MISMATCH (forces PENDING_CONFIRMATION) when Bedrock was needed but never contributed", () => {
+      const out = compareExtractorsStage(
+        baseContext({
+          needsBedrock: true,
+          bedrockFields: [], // budget-exhausted or no-artifact degradation - Bedrock never ran.
+          extractedFields: [{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.95, source: "DETERMINISTIC_PARSER", valid: true }],
+        }),
+      );
+      expect(out.comparedFields).toEqual([
+        { fieldName: "expirationDate", valueType: "DATE", agreement: "MISMATCH", sources: ["DETERMINISTIC_PARSER"], candidateValue: "2027-03-31", confidence: 0.95 },
+      ]);
+    });
+
+    it("does NOT downgrade when needsBedrock is false (the ordinary high-confidence auto-confirm path)", () => {
+      const out = compareExtractorsStage(
+        baseContext({
+          needsBedrock: false,
+          extractedFields: [{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.95, source: "DETERMINISTIC_PARSER", valid: true }],
+        }),
+      );
+      expect(out.comparedFields![0]!.agreement).toBe("SINGLE_SOURCE");
+    });
+
+    it("does NOT downgrade when Bedrock actually contributed a candidate (needsBedrock true but bedrockFields non-empty)", () => {
+      const out = compareExtractorsStage(
+        baseContext({
+          needsBedrock: true,
+          extractedFields: [{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.9, source: "DETERMINISTIC_PARSER", valid: true }],
+          bedrockFields: [{ fieldName: "expirationDate", valueType: "DATE", candidateValue: "2027-03-31", confidence: 0.95, source: "BEDROCK", valid: true }],
+        }),
+      );
+      expect(out.comparedFields![0]!.agreement).toBe("MATCH");
+    });
+
+    it("a zero-candidate field stays SINGLE_SOURCE (still routes to PENDING_CONFIRMATION via decideFieldOutcome, no behavior change needed)", () => {
+      const out = compareExtractorsStage(baseContext({ needsBedrock: true, bedrockFields: [], extractedFields: [] }));
+      expect(out.comparedFields![0]!.agreement).toBe("SINGLE_SOURCE");
+      expect(out.comparedFields![0]!.candidateValue).toBeUndefined();
+    });
+  });
 });
 
 describe("persistExtractedFieldsStage (PERSIST_EXTRACTED_FIELDS)", () => {

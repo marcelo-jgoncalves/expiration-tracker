@@ -60,6 +60,15 @@ function requirement(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// Real bug found live against dev (2026-09-27): `GET .../requirements/search` wraps each hit as
+// `{kind: "REQUIREMENT", requirement, subjectDisplayName}` (`RequirementSearchHit`, D-194 Fatia 3)
+// - it never returns a bare `Requirement`. Every mock below used to fabricate the bare shape,
+// which is why the resulting crash (StatusBadge reading `.tone` off `undefined`) survived a green
+// e2e suite: this helper is what actually keeps these mocks honest to the real contract.
+function requirementHit(overrides: Record<string, unknown> = {}, subjectDisplayName = "Fornecedor Alfa Ltda") {
+  return { kind: "REQUIREMENT", requirement: requirement(overrides), subjectDisplayName };
+}
+
 function mockCompliance(page: Page, compliance: Record<string, unknown>) {
   return page.route("**/bff/api/document-archive/requirements/*/compliance", (route) => route.fulfill({ json: { compliance } }));
 }
@@ -170,7 +179,10 @@ test("E2E-B3-05: compliance panel shows '-' (never 0%) when totalRequirements is
 
   await page.goto("/subjects/subj-1");
   await expect(page.getByRole("heading", { name: "Conformidade" })).toBeVisible();
-  await expect(page.locator("#compliance-heading").locator("..")).toContainText("—");
+  // Item 37 (fidelidade total ao protótipo): a grade de conformidade (percentual+indicadores) é
+  // uma seção `<section aria-labelledby="compliance-heading">`, não mais um irmão imediato do
+  // heading - localiza pelo `aria-labelledby`, nunca por `..` (frágil a mudança de estrutura).
+  await expect(page.locator('section[aria-labelledby="compliance-heading"]')).toContainText("—");
   await expect(page.getByText("0%")).toHaveCount(0);
 });
 
@@ -221,11 +233,11 @@ test("E2E-B3-09: all 5 Requirement status states render with the correct label",
     const url = new URL(route.request().url());
     const status = url.searchParams.get("status");
     const byStatus: Record<string, unknown> = {
-      MISSING: requirement({ requirementId: "r-missing", name: "Req Missing", status: "MISSING" }),
-      PENDING: requirement({ requirementId: "r-pending", name: "Req Pending", status: "PENDING" }),
-      SATISFIED: requirement({ requirementId: "r-satisfied", name: "Req Satisfied", status: "SATISFIED" }),
-      NOT_SATISFIED: requirement({ requirementId: "r-notsat", name: "Req NotSatisfied", status: "NOT_SATISFIED" }),
-      NOT_APPLICABLE: requirement({ requirementId: "r-na", name: "Req NA", status: "NOT_APPLICABLE" }),
+      MISSING: requirementHit({ requirementId: "r-missing", name: "Req Missing", status: "MISSING" }),
+      PENDING: requirementHit({ requirementId: "r-pending", name: "Req Pending", status: "PENDING" }),
+      SATISFIED: requirementHit({ requirementId: "r-satisfied", name: "Req Satisfied", status: "SATISFIED" }),
+      NOT_SATISFIED: requirementHit({ requirementId: "r-notsat", name: "Req NotSatisfied", status: "NOT_SATISFIED" }),
+      NOT_APPLICABLE: requirementHit({ requirementId: "r-na", name: "Req NA", status: "NOT_APPLICABLE" }),
     };
     return route.fulfill({ json: { items: status && byStatus[status] ? [byStatus[status]] : [], scanLimitReached: false } });
   });
@@ -241,8 +253,12 @@ test("E2E-B3-10: MEMBER creates a requirement -> visible in the list", async ({ 
   await mockOrganizations(page, "MEMBER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement({ requirementId: "r-existing", name: "Existente" })] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit({ requirementId: "r-existing", name: "Existente" })] : [], scanLimitReached: false } });
   });
+  // Real UX fix (2026-09-27): "Novo requisito" used to ask for the fornecedor's raw internal ID
+  // as free text - this Combobox (same pattern as A14's "Requisito" field) searches the real
+  // subjects list by name instead.
+  await page.route("**/bff/api/subjects/dashboard**", (route) => route.fulfill({ json: { subjects: [subject({ subjectId: "subj-2", displayName: "Fornecedor Beta Ltda" })] } }));
   let createBody: Record<string, unknown> | undefined;
   await page.route("**/bff/api/document-archive/requirements", (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -252,7 +268,8 @@ test("E2E-B3-10: MEMBER creates a requirement -> visible in the list", async ({ 
 
   await page.goto("/requirements");
   await page.getByRole("button", { name: "Novo requisito" }).click();
-  await page.getByLabel("ID do fornecedor").fill("subj-2");
+  await page.getByRole("combobox", { name: /Fornecedor/ }).fill("Beta");
+  await page.getByRole("option", { name: "Fornecedor Beta Ltda" }).click();
   await page.getByLabel("Nome do requisito").fill("Apólice de Seguro Vigente");
   await page.getByRole("button", { name: "Criar requisito" }).click();
 
@@ -264,7 +281,7 @@ test("E2E-B3-11: VIEWER sees no 'Novo requisito' button and no row actions", asy
   await mockOrganizations(page, "VIEWER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement()] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit()] : [], scanLimitReached: false } });
   });
 
   await page.goto("/requirements");
@@ -277,7 +294,7 @@ test("E2E-B3-12: MEMBER deletes a requirement (docarchive:requirement-delete is 
   await mockOrganizations(page, "MEMBER");
   await page.route("**/bff/api/document-archive/requirements/search**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirement()] : [], scanLimitReached: false } });
+    return route.fulfill({ json: { items: url.searchParams.get("status") === "MISSING" ? [requirementHit()] : [], scanLimitReached: false } });
   });
   let deleteCalled = false;
   await page.route("**/bff/api/document-archive/requirements/subj-1/req-1/delete", (route) => {
@@ -286,8 +303,12 @@ test("E2E-B3-12: MEMBER deletes a requirement (docarchive:requirement-delete is 
   });
 
   await page.goto("/requirements");
-  await page.getByRole("button", { name: "Excluir" }).click();
-  await page.getByRole("button", { name: "Confirmar" }).click();
+  // Real UX fix (2026-09-27): row actions/delete confirmation now match
+  // `SubjectsCollection.tsx`'s own pattern (icon-only actions, a real alertdialog `Dialog`).
+  await page.getByRole("button", { name: /^Excluir Certidão Negativa de Débitos/ }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Excluir requisito?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Excluir" }).click();
   await expect.poll(() => deleteCalled).toBe(true);
 });
 
@@ -321,8 +342,10 @@ test("E2E-B3-13 (D-339): navigate A08 -> A09 (Requisitos already shown) -> open/
   await expect(page.getByText("Certidão Negativa de Débitos")).toBeVisible();
 
   // D-339 achado 1: the requirement's own name opens the REQUIREMENT now (a real, addressable
-  // route), never the subject page it wrongly opened before this fix.
-  await page.getByRole("button", { name: "Certidão Negativa de Débitos" }).click();
+  // route), never the subject page it wrongly opened before this fix. `exact: true` - the row's
+  // icon-only "Editar"/"Excluir" actions carry this same name as a real substring of their own
+  // accessible name (same disambiguation SubjectsCollection's own tests already use).
+  await page.getByRole("button", { name: "Certidão Negativa de Débitos", exact: true }).click();
   await expect(page).toHaveURL(/\/subjects\/subj-1\/requirements\/req-1$/);
   await expect(page.getByRole("dialog", { name: "Certidão Negativa de Débitos" })).toBeVisible();
 
@@ -398,7 +421,7 @@ async function setupA11(page: Page) {
     const status = url.searchParams.get("status");
     return route.fulfill({
       json: {
-        items: status === "MISSING" ? [requirement()] : status === "PENDING" ? [requirement({ requirementId: "r-2", name: "Req Pendente", status: "PENDING" })] : [],
+        items: status === "MISSING" ? [requirementHit()] : status === "PENDING" ? [requirementHit({ requirementId: "r-2", name: "Req Pendente", status: "PENDING" })] : [],
         scanLimitReached: false,
       },
     });
@@ -599,7 +622,7 @@ test("A11Y-forms: A08's create form has full label/error association", async ({ 
   await expect(page.locator(`#${describedBy}`)).toHaveText("Informe o nome do fornecedor.");
 });
 
-test("A11Y-forms: A11's inline create-requirement form has full label/error association", async ({ page }) => {
+test("A11Y-forms: A11's create-requirement dialog has full label/error association", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await setupA11(page);
   await page.goto("/requirements");

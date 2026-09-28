@@ -10,6 +10,26 @@
  * (D-339 fechamento, Rodada 2/3): `DossierExport.tsx` usa `runId` na própria URL para retomar
  * geração após sair/recarregar - migrar para dentro desta casca exigiria uma reconciliação
  * própria dessa propriedade, fora de escopo aqui.
+ *
+ * Item 37 (2026-09-26, novo protótipo+spec `OmniVence-fornecedor-detalhe-*`): reconciliado contra
+ * este arquivo antes de implementar, por pedido direto de Marcelo - a spec pede `role=tablist`
+ * para Requisitos/Solicitações, mas isso reverteria a decisão do D-339 (3 rodadas de protocolo,
+ * WAI-ARIA APG citado) de usar rota real (`Link`+`Outlet`) porque essas são views navegáveis/
+ * bookmarkable, não um painel de abas client-side - Marcelo confirmou manter a rota. A spec também
+ * descreve Solicitações como lista somente-leitura, mas a tela real (`SubjectRequests.tsx`, A14)
+ * já tem séries recorrentes/avulso/materialização aprovados antes deste protótipo existir -
+ * Marcelo confirmou manter A14 como está.
+ *
+ * Segunda rodada do item 37 (mesmo dia): Marcelo pediu fidelidade visual TOTAL ao protótipo
+ * ("no protótipo não tem mais pills e sim cards"), depois estendeu explicitamente "Editar
+ * fornecedor"/"Excluir fornecedor" como padrão de TODO botão claro/vermelho do app inteiro - o
+ * formato retangular e as cores de `.ui-button--secondary`/`--danger` mudaram em `Button.css`
+ * (global, não só aqui). O que continua escopado só a esta tela (`.subject-layout`, raiz deste
+ * componente), em `SubjectHub.css`: altura/peso de fonte exatos do protótipo, e a grade de
+ * conformidade com barra de progresso (reverte a doutrina "nunca donut/progresso" da mission
+ * §29, só para este card). O link Voltar sai do slot `above` de `PageHeader` (que passa a levar
+ * só o selo) para replicar o protótipo: Voltar acima de TODO o cabeçalho, não só da coluna de
+ * texto.
  */
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
@@ -20,9 +40,8 @@ import { useDeleteSubject } from "../../hooks/useDeleteSubject.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { InitialLoading, ErrorState } from "../../components/AsyncStates.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
-import { PageHeader, Section, Panel } from "../../components/ui/Layout.js";
+import { PageHeader, Panel } from "../../components/ui/Layout.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
-import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { ApiError, isConflict } from "../../api/errors.js";
 import { presentSubjectType } from "../../api/presentation.js";
 import { SubjectFormDialog } from "./SubjectForm.js";
@@ -47,6 +66,13 @@ export function SubjectLayout() {
   const [deleteError, setDeleteError] = useState<string | undefined>();
   const [showEdit, setShowEdit] = useState(false);
 
+  // Item 37 (spec §3): título da aba segue o nome real assim que carregado, nunca um nome fixo -
+  // roda antes dos `return`s condicionais abaixo (Rules of Hooks), usando `subjectQuery.data`
+  // diretamente (a variável `subject` desestruturada só existe depois deles).
+  useEffect(() => {
+    document.title = subjectQuery.data ? `${subjectQuery.data.subject.displayName} · OmniVence` : "Fornecedor · OmniVence";
+  }, [subjectQuery.data]);
+
   if (!subjectId) return null; // unreachable - the route always supplies :subjectId
 
   if (subjectQuery.isPending) {
@@ -62,7 +88,6 @@ export function SubjectLayout() {
   }
 
   const subject = subjectQuery.data.subject;
-  const identifierLabel = subject.type === "COMPANY" || subject.type === "VENDOR" ? "CNPJ" : "Identificador";
 
   async function handleDelete() {
     try {
@@ -75,11 +100,22 @@ export function SubjectLayout() {
   }
 
   return (
-    <div>
+    <div className="subject-layout">
+      {/* Item 37: Voltar sai do slot `above` de PageHeader e vira seu próprio bloco, acima de TODO
+          o cabeçalho (texto + ações) - mesma posição do protótipo, nunca só acima da coluna de
+          texto. `ButtonLink` trocado por `Link` puro (mesmo alvo mínimo via `.subject-layout__back`,
+          que já reserva `--control-height-sm`, WCAG 2.5.8) - o protótipo não trata Voltar como um
+          botão. */}
+      <Link to={orgPath("/subjects")} className="subject-layout__back">← Voltar para Fornecedores</Link>
       <PageHeader
-        above={<ButtonLink variant="secondary" size="sm" to={orgPath("/subjects")}>← Voltar para Fornecedores</ButtonLink>}
+        above={<span className="ov-eyebrow subject-layout__eyebrow">Hub do fornecedor</span>}
         title={subject.displayName}
-        description={`${presentSubjectType(subject.type)}${subject.externalId ? ` · ${identifierLabel} ${subject.externalId}` : ""}`}
+        description={
+          <span className="subject-layout__org-meta">
+            <span className="subject-layout__type-badge">{presentSubjectType(subject.type)}</span>
+            <span>Documentos e solicitações em um só lugar</span>
+          </span>
+        }
         actions={
           <>
             {canWrite ? <Button variant="secondary" onClick={() => setShowEdit(true)}>Editar fornecedor</Button> : null}{" "}
@@ -141,8 +177,9 @@ export function SubjectLayout() {
 function EmptyStateNotFound({ orgPath }: { orgPath: (path: string) => string }) {
   return (
     <Panel padded>
-      <p>Este fornecedor não foi encontrado.</p>
-      <Link to={orgPath("/subjects")}>Voltar para Fornecedores</Link>
+      {/* Item 37 (spec §3/§10): texto exato "Fornecedor não encontrado". */}
+      <p>Fornecedor não encontrado.</p>
+      <Link to={orgPath("/subjects")}>← Voltar para Fornecedores</Link>
     </Panel>
   );
 }
@@ -199,30 +236,47 @@ function CompliancePanel({ subjectId }: { subjectId: string }) {
   }
 
   const { totalRequirements, satisfiedCount, expiringSoonCount, missingCount, compliancePercent } = complianceQuery.data.compliance;
+  // Item 37 (spec §3/§5.6/§11): sem denominador (nenhum requisito aplicável), nunca mostrar
+  // "0 de 0 requisitos satisfeitos" - o texto/anúncio precisa dizer explicitamente que não há
+  // base de cálculo, não sugerir uma avaliação real que deu zero.
+  const hasDenominator = compliancePercent !== null;
 
   return (
-    <Section heading="Conformidade" headingId="compliance-heading">
-      <Panel padded>
-        <div className="ui-compliance">
-          <div className="ui-compliance__stat">
-            <span className="ui-compliance__percent">{compliancePercent === null ? "—" : `${compliancePercent}%`}</span>
-            <span className="u-text-secondary">
-              {satisfiedCount} de {totalRequirements} requisitos satisfeitos
-            </span>
+    <section className="ui-panel subject-layout__compliance" aria-labelledby="compliance-heading">
+      {/* Item 37 (segunda rodada, fidelidade total ao protótipo): grade de 4 colunas
+          (percentual+barra de progresso | 3 indicadores coloridos) substitui o resumo em linha +
+          3 `StatusBadge` pill de antes, só nesta seção - exceção pontual à doutrina "nunca
+          donut/progresso" (mission §29), pedido direto de Marcelo. */}
+      <div className="subject-layout__compliance-head">
+        <h2 id="compliance-heading">Conformidade documental</h2>
+        <span>Panorama dos requisitos aplicáveis</span>
+      </div>
+      <div className="subject-layout__compliance-grid">
+        <div className="subject-layout__progress-card">
+          <strong
+            aria-label={hasDenominator ? `${compliancePercent}% - ${satisfiedCount} de ${totalRequirements} requisitos aplicáveis satisfeitos` : "Conformidade não calculada: nenhum requisito aplicável cadastrado"}
+          >
+            {hasDenominator ? `${compliancePercent}%` : "—"}
+          </strong>
+          <p aria-hidden="true">{hasDenominator ? `${satisfiedCount} de ${totalRequirements} requisitos satisfeitos` : "Nenhum requisito aplicável cadastrado"}</p>
+          <div className="subject-layout__progress-track">
+            <span className="subject-layout__progress-fill" style={{ width: hasDenominator ? `${compliancePercent}%` : "0%" }} />
           </div>
-          <ul className="ui-compliance__breakdown">
-            <li>
-              <StatusBadge presentation={{ label: `${satisfiedCount} satisfeito(s)`, tone: "neutral" }} />
-            </li>
-            <li>
-              <StatusBadge presentation={{ label: `${expiringSoonCount} vencendo em breve`, tone: "warning" }} />
-            </li>
-            <li>
-              <StatusBadge presentation={{ label: `${missingCount} em falta`, tone: "danger" }} />
-            </li>
-          </ul>
         </div>
-      </Panel>
-    </Section>
+        <div className="subject-layout__indicator subject-layout__indicator--ok">
+          <b>{satisfiedCount}</b>
+          <span>Requisitos satisfeitos</span>
+        </div>
+        <div className="subject-layout__indicator subject-layout__indicator--warn">
+          <b>{expiringSoonCount}</b>
+          <span>Vencendo em breve</span>
+        </div>
+        <div className="subject-layout__indicator subject-layout__indicator--bad">
+          <b>{missingCount}</b>
+          <span>Em falta</span>
+        </div>
+      </div>
+      <p className="subject-layout__compliance-note">A conformidade é calculada a partir dos requisitos aplicáveis deste fornecedor.</p>
+    </section>
   );
 }
