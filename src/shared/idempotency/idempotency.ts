@@ -52,7 +52,6 @@ export interface IdempotencyAbortInput {
 export interface DynamoLike {
   putIfAbsent(item: IdempotencyRecord): Promise<"PUT" | "ALREADY_EXISTS">;
   get(key: { PK: string; SK: string }): Promise<IdempotencyRecord | undefined>;
-  update(item: IdempotencyRecord): Promise<void>;
   /**
    * Conditional replace: applies `item` only if the STORED record's status is still exactly
    * `expectedStatus` at write time. Real Codex Round B finding: begin()'s ABORTED-reacquisition
@@ -222,18 +221,38 @@ export class IdempotencyStore {
     throw new ConcurrentOperationError(input.operation, input.key);
   }
 
+  /**
+   * Data-architecture audit eixo (b) finding (2026-09-29): this used to call the unconditioned
+   * `DynamoLike.update()` (same shape as `begin()`'s reacquisition path before that TOCTOU fix,
+   * and the same bug class D-337/D-351 found elsewhere this session) - a plain get()-then-update()
+   * with no condition. `begin()`'s own exclusivity invariant (only the caller that got ACQUIRED
+   * ever reaches its own `complete()`, no other caller can observe/reacquire an IN_PROGRESS
+   * record) makes this safe TODAY, but relies on that invariant holding forever rather than being
+   * enforced by the write itself - the exact fragility that made `begin()`'s and `abort()`'s own
+   * blind updates real bugs once an edge case (TTL-delayed physical deletion, a future code path)
+   * violated the assumption. Hardened to the same `transitionIfStatus()` pattern its siblings
+   * already use, conditioned on the record still being IN_PROGRESS - a failure here means the
+   * exclusivity invariant was violated by something else, surfaced loudly rather than silently
+   * overwriting whatever that something else wrote.
+   */
   async complete(input: IdempotencyCompleteInput): Promise<void> {
     const { PK, SK } = buildIdempotencyKey(this.tableName, input.tenantId, input.operation, input.key);
     const existing = await this.client.get({ PK, SK });
     if (!existing) {
       throw new InternalError(`Cannot complete unknown idempotency record: ${input.operation}/${input.key}`);
     }
-    await this.client.update({
-      ...existing,
-      status: "COMPLETED",
-      responseRef: input.responseRef,
-      completedAt: this.now(),
-    });
+    const completed = await this.client.transitionIfStatus(
+      {
+        ...existing,
+        status: "COMPLETED",
+        responseRef: input.responseRef,
+        completedAt: this.now(),
+      },
+      "IN_PROGRESS",
+    );
+    if (!completed) {
+      throw new InternalError(`Cannot complete idempotency record no longer IN_PROGRESS: ${input.operation}/${input.key}`);
+    }
   }
 
   /**

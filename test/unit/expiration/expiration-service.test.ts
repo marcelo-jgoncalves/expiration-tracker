@@ -104,7 +104,16 @@ describe("ExpirationService", () => {
 
   it("createItem: KNOWN LIMITATION shared with renewItem (pre-existing, not introduced by this change) - if the process dies between commit() and idempotency.complete(), the record is stuck IN_PROGRESS forever and a legitimate retry gets ConcurrentOperationError instead of the reconciled item. Documented here so the behavior is explicit, not a silent duplicate: the item is still created exactly once, never twice.", async () => {
     const input = { name: "Alvará", category: "Licenças", dueDate: "2026-09-10T00:00:00.000Z" };
-    vi.spyOn(store, "update").mockRejectedValueOnce(new Error("simulated crash before idempotency.complete()"));
+    // idempotency.complete() now routes through transactWrite (transitionIfStatus(), hardened
+    // away from a blind update() - data-architecture audit eixo (b), 2026-09-29) - intercept only
+    // THAT specific single-entry, status-conditioned transaction, never the real commit()
+    // transaction that must still succeed first.
+    const originalTransactWrite = store.transactWrite.bind(store);
+    vi.spyOn(store, "transactWrite").mockImplementation(async (entries) => {
+      const isIdempotencyCompletion = entries.length === 1 && "Update" in entries[0]! && entries[0].Update.ConditionExpression === "#status = :expected";
+      if (isIdempotencyCompletion) throw new Error("simulated crash before idempotency.complete()");
+      return originalTransactWrite(entries);
+    });
 
     await expect(service.createItem(ctx(), input, "crash-key")).rejects.toThrow("simulated crash");
     expect(store.allItems().filter((i) => i["entityType"] === "ExpirationItem")).toHaveLength(1); // the item WAS created - commit() already succeeded before the simulated crash
@@ -379,11 +388,24 @@ describe("ExpirationService", () => {
   it("renewItem: if idempotency.complete() fails after a successful commit, the lock is left IN_PROGRESS (never wrongly reset to ABORTED) and a same-key retry can never create a duplicate successor (Codex Round B finding, fixed)", async () => {
     const source = await service.createItem(ctx(), { name: "a", category: "b", dueDate: "2026-09-10T00:00:00.000Z" });
 
-    const updateSpy = vi.spyOn(store, "update").mockRejectedValueOnce(new Error("simulated complete() failure"));
+    // idempotency.complete() now routes through transactWrite (transitionIfStatus(), hardened
+    // away from a blind update() - data-architecture audit eixo (b), 2026-09-29) - intercept only
+    // THAT specific single-entry, status-conditioned transaction, once, never the real renewItem
+    // commit transaction that must still succeed first.
+    const originalTransactWrite = store.transactWrite.bind(store);
+    let failedOnce = false;
+    const transactWriteSpy = vi.spyOn(store, "transactWrite").mockImplementation(async (entries) => {
+      const isIdempotencyCompletion = entries.length === 1 && "Update" in entries[0]! && entries[0].Update.ConditionExpression === "#status = :expected";
+      if (isIdempotencyCompletion && !failedOnce) {
+        failedOnce = true;
+        throw new Error("simulated complete() failure");
+      }
+      return originalTransactWrite(entries);
+    });
     await expect(
       service.renewItem(ctx(), source.itemId, { newDueDate: "2027-09-10T00:00:00.000Z" }, source.version, "same-key"),
     ).rejects.toThrow("simulated complete() failure");
-    updateSpy.mockRestore();
+    transactWriteSpy.mockRestore();
 
     // The transactional write itself DID succeed (source RENEWED, one successor created) -
     // only idempotency bookkeeping failed afterward, and must not have been silently discarded

@@ -1,6 +1,84 @@
 import type { EntityKey, DocumentStore, TransactWriteEntry } from "../../../src/modules/document/ports/document-store.js";
 import { tenantLifecycleKey } from "../../../src/shared/tenant-lifecycle/tenant-lifecycle-record.js";
 
+/** Ported from test/unit/import/in-memory-store.ts (D-076 item 3 fix, 2026-09-29 data-architecture
+ * audit eixo (b)): this fake's original Update handling only recognized the literal
+ * `attribute_exists(PK)` + `version`/`tenantId` shape `buildVersionedUpdate()` produces, silently
+ * treating any OTHER ConditionExpression as unconditioned success and any OTHER SET/REMOVE
+ * placeholder as a no-op - including `transitionIdempotencyStatus()`'s `#status = :expected`
+ * condition and named (`#status`/`#requestHash`/...) SET clauses, never the `#setN` convention.
+ * `IdempotencyStore.complete()` (idempotency.ts) started routing through that exact shape once it
+ * was hardened to use `transitionIfStatus()` instead of a blind `update()` - this fake silently
+ * "succeeding" without ever actually persisting `status: "COMPLETED"` left retried idempotency
+ * keys stuck IN_PROGRESS forever (real test failures, not a production bug - confirmed the same
+ * fix already exists in `import`'s fake for the same reason). */
+function splitTopLevelAnd(expr: string): string[] {
+  const clauses: string[] = [];
+  let depth = 0;
+  let current = "";
+  const tokens = expr.split(/(\s+AND\s+)/);
+  for (const token of tokens) {
+    if (/^\s+AND\s+$/.test(token) && depth === 0) {
+      clauses.push(current.trim());
+      current = "";
+      continue;
+    }
+    for (const ch of token) {
+      if (ch === "(") depth += 1;
+      if (ch === ")") depth -= 1;
+    }
+    current += token;
+  }
+  if (current.trim()) clauses.push(current.trim());
+  return clauses;
+}
+
+function evaluateEqualityClause(
+  clause: string,
+  names: Record<string, string>,
+  values: Record<string, unknown>,
+  existing: (Record<string, unknown> & EntityKey) | undefined,
+): boolean {
+  let c = clause.trim();
+  while (c.startsWith("(") && c.endsWith(")")) c = c.slice(1, -1).trim();
+  const match = /^(#\S+)\s*=\s*(:\S+)$/.exec(c);
+  if (!match) return true; // unrecognized clause shape - ignore, not a hard failure.
+  const nameKey = match[1];
+  const valueKey = match[2];
+  if (nameKey === undefined || valueKey === undefined) return true;
+  const fieldName = names[nameKey];
+  if (fieldName === undefined || !(valueKey in values)) return true;
+  return existing !== undefined && existing[fieldName] === values[valueKey];
+}
+
+function applyUpdateExpression(
+  expr: string,
+  names: Record<string, string>,
+  values: Record<string, unknown>,
+  target: Record<string, unknown>,
+): void {
+  const setMatch = /SET\s+(.+?)(?:\s+REMOVE\s+(.+))?$/.exec(expr);
+  if (!setMatch) return;
+  const setPart = setMatch[1];
+  const removePart = setMatch[2];
+  for (const assignment of (setPart ?? "").split(",")) {
+    const m = /^\s*(#\S+)\s*=\s*(:\S+)\s*$/.exec(assignment);
+    if (!m) continue;
+    const nameKey = m[1];
+    const valueKey = m[2];
+    if (nameKey === undefined || valueKey === undefined) continue;
+    const fieldName = names[nameKey];
+    if (fieldName === undefined || !(valueKey in values)) continue;
+    target[fieldName] = values[valueKey];
+  }
+  if (removePart) {
+    for (const nameKey of removePart.split(",").map((s) => s.trim())) {
+      const fieldName = names[nameKey];
+      if (fieldName !== undefined) delete target[fieldName];
+    }
+  }
+}
+
 /** W3-07 (evidence-mutation worker fencing): the 4 evidence-mutation workers now fence through
  * TenantBusinessMutation, which requires a TenantLifecycleRecord to exist. Every test file below
  * seeds this synchronously via `new InMemoryDocumentStore([activeLifecycleRecord("t1")])` rather
@@ -95,15 +173,17 @@ export class InMemoryDocumentStore implements DocumentStore {
       } else if ("Update" in entry) {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key));
-        if (entry.Update.ConditionExpression.includes("attribute_exists(PK)")) {
-          if (!existing) {
-            reasons[i] = { Code: "ConditionalCheckFailed" };
-            anyFailed = true;
-            return;
-          }
-          const expectedVersion = entry.Update.ExpressionAttributeValues[":expectedVersion"];
-          const expectedTenantId = entry.Update.ExpressionAttributeValues[":tenantId"];
-          if (existing["version"] !== expectedVersion || existing["tenantId"] !== expectedTenantId) {
+        const cond = entry.Update.ConditionExpression;
+        if (cond.includes("attribute_exists(PK)") && !existing) {
+          reasons[i] = { Code: "ConditionalCheckFailed" };
+          anyFailed = true;
+          return;
+        }
+        const names = entry.Update.ExpressionAttributeNames ?? {};
+        const values = entry.Update.ExpressionAttributeValues ?? {};
+        for (const clause of splitTopLevelAnd(cond)) {
+          if (clause.startsWith("attribute_exists(") || clause.startsWith("attribute_not_exists(")) continue;
+          if (!evaluateEqualityClause(clause, names, values, existing)) {
             reasons[i] = { Code: "ConditionalCheckFailed" };
             anyFailed = true;
             return;
@@ -123,17 +203,12 @@ export class InMemoryDocumentStore implements DocumentStore {
         const key = entry.Update.Key;
         const existing = this.items.get(this.k(key)) ?? { ...key };
         const next: Record<string, unknown> & EntityKey = { ...existing };
-        for (const [name, placeholder] of Object.entries(entry.Update.ExpressionAttributeNames ?? {})) {
-          if (placeholder === "version") {
-            next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
-          } else if (placeholder === "updatedAt") {
-            next["updatedAt"] = entry.Update.ExpressionAttributeValues[":now"];
-          } else if (name.startsWith("#set")) {
-            const valueKey = `:${name.slice(1)}`;
-            next[placeholder] = entry.Update.ExpressionAttributeValues[valueKey];
-          } else if (name.startsWith("#rem")) {
-            delete next[placeholder];
-          }
+        applyUpdateExpression(entry.Update.UpdateExpression, entry.Update.ExpressionAttributeNames ?? {}, entry.Update.ExpressionAttributeValues ?? {}, next);
+        // Only bump `version` if this update's own placeholders actually reference it
+        // (occ.ts's buildVersionedUpdate convention) - transitionIdempotencyStatus's update has
+        // no notion of a version field at all, idempotency records never carry one.
+        if (Object.values(entry.Update.ExpressionAttributeNames ?? {}).includes("version")) {
+          next["version"] = ((existing["version"] as number | undefined) ?? 0) + 1;
         }
         this.items.set(this.k(key), next);
       }

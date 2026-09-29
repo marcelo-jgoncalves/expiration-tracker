@@ -122,10 +122,11 @@ class FakeExtractedFieldStore implements ExtractedFieldStore {
 
 function makeDeps(table: InMemoryTable): ConfirmRejectFieldDeps {
   // IdempotencyStore's own bookkeeping records are a separate concern from the entities
-  // confirm/reject read/write (InMemoryTable's write() is OCC-conditional, but idempotency
-  // records need unconditional overwrite - the exact same distinction ExpirationService's own
-  // DynamoLike adapter draws around its store, expiration-service.ts) - a tiny dedicated map.
-  const idemStore = new Map<string, Parameters<DynamoLike["update"]>[0]>();
+  // confirm/reject read/write (InMemoryTable's write() is OCC-conditional against ITS OWN
+  // version scheme; idempotency records use IdempotencyStore's own status-conditioned
+  // transitionIfStatus() instead, the exact same distinction ExpirationService's own DynamoLike
+  // adapter draws around its store, expiration-service.ts) - a tiny dedicated map.
+  const idemStore = new Map<string, Parameters<DynamoLike["transitionIfStatus"]>[0]>();
   const adapter: DynamoLike = {
     putIfAbsent: async (item) => {
       const k = `${item.PK}#${item.SK}`;
@@ -134,9 +135,6 @@ function makeDeps(table: InMemoryTable): ConfirmRejectFieldDeps {
       return "PUT";
     },
     get: async (key) => idemStore.get(`${key.PK}#${key.SK}`),
-    update: async (item) => {
-      idemStore.set(`${item.PK}#${item.SK}`, item);
-    },
     transitionIfStatus: async (item, expectedStatus) => {
       const k = `${item.PK}#${item.SK}`;
       const existing = idemStore.get(k);

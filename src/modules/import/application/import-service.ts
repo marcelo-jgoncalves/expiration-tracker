@@ -171,7 +171,6 @@ export class ImportService {
     const adapter: DynamoLike = {
       putIfAbsent: async (item) => ((await this.store.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
       get: (key) => this.store.get(key),
-      update: (item) => this.store.update(item),
       transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(this.store, this.tableName, item, expectedStatus),
     };
     this.idempotency = new IdempotencyStore(adapter, this.tableName, this.now);

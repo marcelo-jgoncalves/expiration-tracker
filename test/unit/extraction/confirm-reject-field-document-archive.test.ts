@@ -132,7 +132,7 @@ class FakeExtractedFieldStore implements ExtractedFieldStore {
 }
 
 function makeDeps(table: InMemoryTable): ConfirmRejectFieldDocumentArchiveDeps {
-  const idemStore = new Map<string, Parameters<DynamoLike["update"]>[0]>();
+  const idemStore = new Map<string, Parameters<DynamoLike["transitionIfStatus"]>[0]>();
   const adapter: DynamoLike = {
     putIfAbsent: async (item) => {
       const k = `${item.PK}#${item.SK}`;
@@ -141,9 +141,6 @@ function makeDeps(table: InMemoryTable): ConfirmRejectFieldDocumentArchiveDeps {
       return "PUT";
     },
     get: async (key) => idemStore.get(`${key.PK}#${key.SK}`),
-    update: async (item) => {
-      idemStore.set(`${item.PK}#${item.SK}`, item);
-    },
     transitionIfStatus: async (item, expectedStatus) => {
       const k = `${item.PK}#${item.SK}`;
       const existing = idemStore.get(k);

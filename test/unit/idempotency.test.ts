@@ -18,9 +18,6 @@ function fakeClient(): DynamoLike & { store: Map<string, any> } {
     async get(key) {
       return store.get(`${key.PK}#${key.SK}`);
     },
-    async update(item) {
-      store.set(`${item.PK}#${item.SK}`, item);
-    },
     async transitionIfStatus(item, expectedStatus) {
       const k = `${item.PK}#${item.SK}`;
       const current = store.get(k);
@@ -162,6 +159,24 @@ describe("IdempotencyStore", () => {
 
     const result = await store.begin(input);
     expect(result).toBe("COMPLETED_SAME_REQUEST"); // the real success is still there, never discarded
+  });
+
+  it("complete() is conditioned on the record still being IN_PROGRESS, never a blind overwrite (data-architecture audit eixo (b), 2026-09-29)", async () => {
+    const client = fakeClient();
+    const store = new IdempotencyStore(client, "IdempotencyTable");
+    const input = { tenantId: "t_01", operation: "expiration.renewItem", key: "k1", requestHash: "hash_a", expiresAt: "2026-08-20T00:00:00.000Z" };
+    await store.begin(input);
+
+    // Simulate the record having been moved out of IN_PROGRESS by something else (e.g. abort())
+    // between complete()'s own get() and its conditional write, by aborting it directly first.
+    await store.abort({ tenantId: "t_01", operation: "expiration.renewItem", key: "k1" });
+
+    await expect(store.complete({ tenantId: "t_01", operation: "expiration.renewItem", key: "k1", responseRef: "item-1" })).rejects.toThrow(
+      /no longer IN_PROGRESS/,
+    );
+    // The ABORTED state must survive untouched - never clobbered by complete()'s blind write.
+    const retry = await store.begin({ ...input, requestHash: "hash_b" });
+    expect(retry).toBe("ACQUIRED");
   });
 
   it("scopes idempotency keys per tenant and operation", async () => {

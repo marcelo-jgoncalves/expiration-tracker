@@ -47,7 +47,7 @@ export function buildExtractionStarterWorkerDepsForDocumentArchive(
 /** M7 item 8 (§1.7) — the confirm/reject field HTTP routes. `DynamoDbExpirationStore` already
  * implements `EntityReader`'s narrow `get()` surface (structural typing, same reuse pattern as
  * `DocumentReader` above) AND `IdempotencyStore`'s full `DynamoLike` backing surface (get/
- * putIfAbsent/update/transactWrite) - the exact same adapter shape ExpirationService itself
+ * putIfAbsent/transactWrite) - the exact same adapter shape ExpirationService itself
  * builds around its own store (expiration-service.ts), reused here rather than re-declared. */
 export function buildFieldConfirmationDeps(client: DynamoDBDocumentClient, tableName: string): ConfirmRejectFieldDeps {
   const documents = new DynamoDbDocumentStore(client, tableName);
@@ -58,7 +58,6 @@ export function buildFieldConfirmationDeps(client: DynamoDBDocumentClient, table
   const idempotencyAdapter: DynamoLike = {
     putIfAbsent: async (item) => ((await items.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
     get: (key) => items.get(key),
-    update: (item) => items.update(item),
     transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(items, tableName, item, expectedStatus),
   };
   const idempotency = new IdempotencyStore(idempotencyAdapter, tableName);
@@ -70,7 +69,7 @@ export function buildFieldConfirmationDeps(client: DynamoDBDocumentClient, table
  * (`confirmFieldForDocumentArchive`/`rejectFieldForDocumentArchive`) has existed since D-193, but
  * had no composition wiring because nothing called it over HTTP yet. Reuses `DynamoDbExpirationStore`
  * purely as the idempotency backing (same opportunistic reuse `buildFieldConfirmationDeps` above
- * already does) - it's a generic get/putIfAbsent/update/transitionIfStatus adapter over arbitrary
+ * already does) - it's a generic get/putIfAbsent/transitionIfStatus adapter over arbitrary
  * EntityKeys, not a dependency on the `expiration` module's domain; `document-archive` has no
  * store of its own that implements this full surface yet. */
 export function buildFieldConfirmationDepsForDocumentArchive(client: DynamoDBDocumentClient, tableName: string): ConfirmRejectFieldDocumentArchiveDeps {
@@ -82,7 +81,6 @@ export function buildFieldConfirmationDepsForDocumentArchive(client: DynamoDBDoc
   const idempotencyAdapter: DynamoLike = {
     putIfAbsent: async (item) => ((await idempotencyBacking.putIfAbsent(item)) ? "PUT" : "ALREADY_EXISTS"),
     get: (key) => idempotencyBacking.get(key),
-    update: (item) => idempotencyBacking.update(item),
     transitionIfStatus: (item, expectedStatus) => transitionIdempotencyStatus(idempotencyBacking, tableName, item, expectedStatus),
   };
   const idempotency = new IdempotencyStore(idempotencyAdapter, tableName);
