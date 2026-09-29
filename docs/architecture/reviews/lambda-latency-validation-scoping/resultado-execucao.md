@@ -56,6 +56,28 @@ durante provisionamento em rajada, comportamento documentado da AWS), exatamente
 metodologia proíbe usar amostra sintética na comparação estatística. Preservado aqui só como contexto,
 não como achado.
 
+### Complemento: amostra "quente" (warm) dos 4 handlers sem tráfego natural suficiente
+
+Pedido explícito de Marcelo - após a rajada fria, disparadas mais 3 invocações sequenciais por
+handler (mesmo evento), reaproveitando os ambientes já aquecidos pela rajada. Confirmado pelo próprio
+REPORT (sem campo `Init Duration`) que as 3 de cada handler saíram genuinamente quentes, `FunctionError`
+ausente nas 12. **Descritivo, nunca comparação estatística** (n=3, muito abaixo do piso, e são
+amostras sintéticas — mesma regra que já vale pro resto do relatório):
+
+| Handler | Quente "antes" (mediana, n) | Quente "depois" sintético (mediana, n=3) |
+|---|---|---|
+| `document-archive-handler` | 1563,43ms (n=7 reais) | 149,69ms |
+| `items-handler` | sem dado (as 4 amostras "antes" foram todas frias) | 246,33ms |
+| `documents-handler` | sem dado (zero tráfego "antes") | 102,98ms |
+| `memberships-handler` | sem dado (zero tráfego "antes") | 185,25ms |
+
+`document-archive-handler` é o único caso com comparação "antes" real (n=7) - a diferença parece
+grande (~90%), mas **não é tratada como achado confirmado**: n=3 no "depois" está bem abaixo do piso
+de 8, é amostra sintética (proibida na estatística por desenho), e a primeira das 3 chamadas de cada
+handler (759ms/796ms/557ms/739ms) já veio bem mais lenta que a 2ª/3ª - sinal de que mesmo "quente" há
+variância real de ambiente que uma amostra de 3 não resolve. Registrado como direção promissora,
+não como resultado.
+
 ## Worker (escopo global de B): `outbox-sweeper-handler`
 
 Invocado real (`exptrk-dev-outbox-sweeper-reminder-dispatch`, qualifier `live`). `FunctionError`
