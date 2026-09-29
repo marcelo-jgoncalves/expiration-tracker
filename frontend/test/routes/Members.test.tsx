@@ -238,6 +238,74 @@ describe("Members", () => {
     expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
   });
 
+  // D-348 (transfer ownership UI) - only the OWNER themselves can offer this action, never an
+  // ADMIN, and never on the acting owner's own row (nothing to transfer to yourself) or an
+  // already-OWNER row (a different backend error entirely, handled by the change-role gate
+  // instead). Mutation: showing this to a non-owner or on the wrong rows would fail this case.
+  it("shows 'Transferir titularidade' only to the OWNER, only on eligible target rows", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members")
+        return Promise.resolve({
+          members: [member({ userId: "owner-1", email: "owner@acme.com", displayName: "Dona Proprietária", role: "OWNER", version: 3 }), member({ userId: "user-2", role: "MEMBER" })],
+        });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members", { email: "owner@acme.com" });
+
+    await waitFor(() => expect(screen.getByText("ana@example.com")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Transferir titularidade para Ana Exemplo" })).toBeInTheDocument();
+    // Never on the acting owner's own row, never on an already-OWNER row.
+    expect(screen.queryByRole("button", { name: /Transferir titularidade para Dona Proprietária/ })).not.toBeInTheDocument();
+  });
+
+  // Mutation: offering transfer to an ADMIN actor would fail this case (backend would 403).
+  it("hides 'Transferir titularidade' from an ADMIN actor", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members") return Promise.resolve({ members: [member({ userId: "user-2", role: "MEMBER" })] });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "ADMIN", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members");
+
+    await waitFor(() => expect(screen.getByText("ana@example.com")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Transferir titularidade/ })).not.toBeInTheDocument();
+  });
+
+  // Mutation: submitting before the typed name matches, or sending the wrong versions/body shape,
+  // would fail this case.
+  it("requires the typed target name before confirming, then transfers with both OCC versions", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/organizations/members")
+        return Promise.resolve({
+          members: [member({ userId: "owner-1", email: "owner@acme.com", displayName: "Dona Proprietária", role: "OWNER", version: 3 }), member({ userId: "user-2", role: "MEMBER", version: 5 })],
+        });
+      if (path === "/organizations/invitations") return Promise.resolve({ invitations: [] });
+      throw new Error(`unexpected path ${path}`);
+    });
+    postMock.mockResolvedValue(undefined);
+    fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role: "OWNER", version: 1 }] });
+
+    renderAtRoute("/members", <Members />, "/members", { email: "owner@acme.com" });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Transferir titularidade para Ana Exemplo" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Transferir titularidade para Ana Exemplo" }));
+
+    const confirmButton = screen.getByRole("button", { name: "Transferir titularidade" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Digite "Ana Exemplo"/), { target: { value: "nome errado" } });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Digite "Ana Exemplo"/), { target: { value: "Ana Exemplo" } });
+    expect(confirmButton).not.toBeDisabled();
+
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/organizations/members/user-2/transfer-ownership", { expectedCallerVersion: 3 }, { expectedVersion: 5 }));
+  });
+
   // Holistic frontend review finding: a failed member removal had no error rendering at all -
   // the button just went back to its idle state with no feedback that nothing happened.
   // Mutation: removing without confirmation or hiding a removal failure would fail this case.

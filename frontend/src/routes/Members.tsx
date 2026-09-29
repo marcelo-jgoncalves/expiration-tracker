@@ -6,9 +6,10 @@ import { useInviteMember } from "../hooks/useInviteMember.js";
 import { useRevokeInvitation } from "../hooks/useRevokeInvitation.js";
 import { useChangeMemberRole } from "../hooks/useChangeMemberRole.js";
 import { useRemoveMember } from "../hooks/useRemoveMember.js";
+import { useTransferOwnership } from "../hooks/useTransferOwnership.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { useActiveOrganization } from "../auth/ActiveOrganizationContext.js";
-import { ApiError, isConflict, isResponsibilityReassignmentRequiredError } from "../api/errors.js";
+import { ApiError, isConflict, isResponsibilityReassignmentRequiredError, isOwnershipTransferTargetError } from "../api/errors.js";
 import type { Member, MembershipRole, Invitation } from "../api/types.js";
 import { presentMembershipRole } from "../api/presentation.js";
 import { CollectionSkeleton, ErrorState } from "../components/AsyncStates.js";
@@ -56,41 +57,65 @@ function InviteForm() {
   </section>;
 }
 
-type MemberAction = { kind: "remove"; member: Member } | { kind: "role"; member: Member; next: MembershipRole };
-function Roster({ members, canManage }: { members: Member[]; canManage: boolean }) {
+type MemberAction = { kind: "remove"; member: Member } | { kind: "role"; member: Member; next: MembershipRole } | { kind: "transfer"; member: Member };
+function Roster({ members, canManage, isOwner }: { members: Member[]; canManage: boolean; isOwner: boolean }) {
   const { email } = useActiveOrganization();
   const changeRole = useChangeMemberRole();
   const remove = useRemoveMember();
+  const transfer = useTransferOwnership();
   const [action, setAction] = useState<MemberAction>();
+  const [confirmation, setConfirmation] = useState("");
   const [failure, setFailure] = useState("");
-  const pending = changeRole.isPending || remove.isPending;
+  const pending = changeRole.isPending || remove.isPending || transfer.isPending;
+  // D-348: transferring ownership requires the ACTING owner's own Membership version, not just
+  // the target's - `GET /organizations/members` never carries "which row is me" as a flag (the
+  // BFF session deliberately never exposes userId, same reason `current` below matches by email),
+  // so this finds it the same way `current` does, over the full active roster (never excluded
+  // from `members` itself, only from `editable`/being a transfer target).
+  const myself = members.find(m => email && m.email?.toLowerCase() === email.toLowerCase());
   async function confirm() {
     if (!action || pending) return;
     setFailure("");
     try {
       if (action.kind === "role") await changeRole.mutateAsync({ userId: action.member.userId, role: action.next, expectedVersion: action.member.version });
-      else await remove.mutateAsync({ userId: action.member.userId, expectedVersion: action.member.version });
+      else if (action.kind === "remove") await remove.mutateAsync({ userId: action.member.userId, expectedVersion: action.member.version });
+      else {
+        if (!myself) throw new Error("Could not resolve the acting owner's own membership row.");
+        await transfer.mutateAsync({ userId: action.member.userId, expectedCallerVersion: myself.version, expectedTargetVersion: action.member.version });
+      }
       setAction(undefined);
       document.getElementById("active-members")?.focus();
     } catch (error) {
-      setFailure(isResponsibilityReassignmentRequiredError(error) ? "Reatribua os vencimentos sob responsabilidade desta pessoa antes de removê-la." : isConflict(error) ? "Este membro foi alterado em outra sessão. Recarregue para revisar o papel atual." : "Não foi possível concluir a alteração. Tente novamente.");
+      setFailure(
+        isResponsibilityReassignmentRequiredError(error) ? "Reatribua os vencimentos sob responsabilidade desta pessoa antes de removê-la."
+        : isOwnershipTransferTargetError(error) ? (error instanceof ApiError ? error.message : "Este membro não pode receber a titularidade agora.")
+        : isConflict(error) ? "Este membro foi alterado em outra sessão. Recarregue para revisar o estado atual."
+        : "Não foi possível concluir a alteração. Tente novamente.",
+      );
     }
   }
   return <><ul className="ov-member-list">{members.map(member => {
     const current = Boolean(email && member.email?.toLowerCase() === email.toLowerCase());
     const editable = canManage && member.role !== "OWNER" && !current;
+    const canTransferTo = isOwner && member.role !== "OWNER" && !current;
     const label = memberLabel(member);
     return <li key={member.userId}><span className="ov-member-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
       <div className="ov-member-identity"><strong>{member.email || label}</strong><span>{current ? "Você · acesso atual" : member.displayName || "Ativo"}</span></div>
       <div className="ov-member-role">{editable ? <select aria-label={"Papel de " + label} value={member.role} onChange={e => { setFailure(""); setAction({ kind: "role", member, next: e.target.value as MembershipRole }); }}>{ROLE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <strong>{presentMembershipRole(member.role)}</strong>}<span className="ov-member-status">Ativo</span></div>
+      {canTransferTo && <Button variant="tertiary" size="sm" aria-label={"Transferir titularidade para " + label} onClick={() => { setFailure(""); setConfirmation(""); setAction({ kind: "transfer", member }); }}>Transferir titularidade</Button>}
       {editable && <Button variant="tertiary" size="sm" aria-label={"Remover " + label} onClick={() => { setFailure(""); setAction({ kind: "remove", member }); }}>Remover</Button>}
     </li>;
   })}</ul>
-    {action && <Dialog title={action.kind === "role" ? "Alterar papel?" : "Remover membro?"} onClose={() => { if (!pending) setAction(undefined); }}>
-      <Button disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
-      <p>{action.kind === "remove" ? `“${memberLabel(action.member)}” perderá acesso a esta organização. Os dados da organização permanecerão nela.` : `O papel de “${memberLabel(action.member)}” mudará de ${presentMembershipRole(action.member.role)} para ${presentMembershipRole(action.next)}. As permissões de acesso serão atualizadas.`}</p>
+    {/* alertdialog, not the default "dialog" - transferring ownership is hard to reverse (the
+        acting OWNER becomes ADMIN, permanently until someone transfers it back) - same
+        destructive-confirmation posture (typed-name confirmation) as SubjectsCollection.tsx's
+        delete flow. */}
+    {action && <Dialog title={action.kind === "role" ? "Alterar papel?" : action.kind === "remove" ? "Remover membro?" : "Transferir titularidade?"} variant={action.kind === "transfer" ? "alertdialog" : "dialog"} onClose={() => { if (!pending) setAction(undefined); }}>
+      <Button variant="secondary" disabled={pending} onClick={() => setAction(undefined)}>Cancelar</Button>
+      <p>{action.kind === "remove" ? `“${memberLabel(action.member)}” perderá acesso a esta organização. Os dados da organização permanecerão nela.` : action.kind === "role" ? `O papel de “${memberLabel(action.member)}” mudará de ${presentMembershipRole(action.member.role)} para ${presentMembershipRole(action.next)}. As permissões de acesso serão atualizadas.` : `Você deixará de ser o proprietário desta organização e passará a ter o papel de Administrador. “${memberLabel(action.member)}” se tornará o novo proprietário. Esta ação pode ser desfeita depois, mas exige que a nova pessoa proprietária transfira de volta.`}</p>
+      {action.kind === "transfer" && <TextField label={`Digite "${memberLabel(action.member)}" para confirmar`} value={confirmation} onChange={setConfirmation} />}
       {failure && <InlineNotice tone="critical" announce="alert">{failure}</InlineNotice>}
-      <Button variant={action.kind === "remove" ? "danger" : "primary"} pending={pending} onClick={() => void confirm()}>{action.kind === "remove" ? "Remover membro" : "Alterar papel"}</Button>
+      <Button variant={action.kind === "remove" || action.kind === "transfer" ? "danger" : "primary"} pending={pending} disabled={action.kind === "transfer" && confirmation !== memberLabel(action.member)} onClick={() => void confirm()}>{action.kind === "remove" ? "Remover membro" : action.kind === "transfer" ? "Transferir titularidade" : "Alterar papel"}</Button>
     </Dialog>}
   </>;
 }
@@ -125,7 +150,7 @@ function MembersContent() {
       {manage && <InviteForm />}
       <div className="members__main">
         <section aria-labelledby="active-members"><header className="ov-members-section-heading"><h2 id="active-members" tabIndex={-1}>Membros ativos {query.data && <span>{members.length}</span>}</h2><p>Gerencie o acesso de quem já faz parte da organização.</p></header>
-          <div className="ov-members-list-card">{query.isPending ? <CollectionSkeleton label="Carregando membros…" /> : query.isError ? <ErrorState message="Não foi possível carregar os membros." onRetry={() => void query.refetch()} /> : <Roster members={members} canManage={manage} />}</div>
+          <div className="ov-members-list-card">{query.isPending ? <CollectionSkeleton label="Carregando membros…" /> : query.isError ? <ErrorState message="Não foi possível carregar os membros." onRetry={() => void query.refetch()} /> : <Roster members={members} canManage={manage} isOwner={role === "OWNER"} />}</div>
         </section>
         {manage && <PendingInvitations />}
       </div>

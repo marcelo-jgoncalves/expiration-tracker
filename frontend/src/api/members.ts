@@ -31,6 +31,16 @@ export function removeMember(userId: string, expectedVersion: number): Promise<v
   return apiClient.delete(`/organizations/members/${encodeURIComponent(userId)}`, { expectedVersion });
 }
 
+/** D-348 - `expectedTargetVersion` follows the same If-Match/expectedVersion convention every
+ * other membership mutation route already uses (travels as a header); the CALLER's own expected
+ * version (`expectedCallerVersion`) has no header precedent to reuse (there is no "target
+ * resource" for it, it's the acting OWNER's own Membership row), so it travels in the body -
+ * mirrors `src/modules/organization/http/membership-handlers.ts:handleTransferOwnership`'s own
+ * doc comment exactly. */
+export function transferOwnership(userId: string, expectedCallerVersion: number, expectedTargetVersion: number): Promise<void> {
+  return apiClient.post(`/organizations/members/${encodeURIComponent(userId)}/transfer-ownership`, { expectedCallerVersion }, { expectedVersion: expectedTargetVersion });
+}
+
 /** Wave B2B-14 (D-120) - `handleLeaveOrganization`/`POST /organizations/members/leave` has been
  * fully wired (Lambda dispatch, API Gateway route, proxy allowlist) since Wave B2B-8/D-099, but
  * no frontend call site ever existed. */

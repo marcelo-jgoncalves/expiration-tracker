@@ -143,3 +143,11 @@ export function isLastOwnerError(err: unknown): err is ApiError {
 export function isResponsibilityReassignmentRequiredError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.category === "BUSINESS_RULE" && err.code === "RESPONSIBILITY_REASSIGNMENT_REQUIRED";
 }
+
+/** `OwnershipTransferTargetAlreadyOwnerError`/`OwnershipTransferTargetIneligibleError` (D-348) -
+ * same helper-parity pattern as `isLastOwnerError` - the target can't receive ownership right now
+ * for a reason distinct from a plain version conflict (already OWNER, or their account isn't
+ * currently active), worth a specific message instead of the generic conflict copy. */
+export function isOwnershipTransferTargetError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.category === "BUSINESS_RULE" && (err.code === "OWNERSHIP_TRANSFER_TARGET_ALREADY_OWNER" || err.code === "OWNERSHIP_TRANSFER_TARGET_INELIGIBLE");
+}
