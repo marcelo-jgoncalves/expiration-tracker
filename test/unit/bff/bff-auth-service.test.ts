@@ -505,6 +505,86 @@ describe("BffAuthService.resolveSession", () => {
     await expect(ctx.service.resolveSession(result.sessionToken)).rejects.toBeInstanceOf(AuthenticationError);
   });
 
+  it("a healthy session already renewed by a concurrent refresh is never revoked by a stale INVALID_GRANT response (real bug found scanning dev, 2026-09-26)", async () => {
+    // The old code called `sessionStore.update()` - an unconditioned PutCommand - with the
+    // PRE-lease session snapshot when Cognito returned INVALID_GRANT. Under a slow Cognito call
+    // that outlasts the 5s lease, a second request can legitimately win its own refresh in the
+    // meantime; the stale call's late INVALID_GRANT response would then blindly overwrite that
+    // newer, healthy session back to revoked. Simulated here by injecting the "winning" refresh
+    // right after this call's own lease-acquisition commit.
+    const rawStore = new InMemorySessionStore();
+    const identityStore = new InMemoryIdentityStore();
+    const organizations = new InMemoryOrganizationStore();
+    const bootstrap = new IdentityBootstrapService(identityStore, TABLE);
+    const globalUsers = new GlobalUserRepository(identityStore);
+    const createOrganization = new CreateOrganizationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" });
+    const acceptInvitation = new AcceptInvitationService(organizations, TABLE, { newOrganizationId: () => "org-1", newMembershipId: () => "membership-1", newInvitationId: () => "invitation-1", newAuditEventId: () => "audit-1" }, "test-pepper");
+    const cognitoClient = new FakeCognitoOidcClient();
+    const cognitoAuthClient = new FakeCognitoAuthClient();
+    const idTokenVerifier = new FakeIdTokenVerifier();
+    const tokenEncryptor = new FakeTokenEncryptor();
+    let userCounter = 0;
+    let deviceCounter = 0;
+    let clock = "2026-08-24T12:00:00.000Z";
+    const now = () => clock;
+    const depsBase = {
+      cognitoClient,
+      cognitoAuthClient,
+      idTokenVerifier,
+      tokenEncryptor,
+      bootstrap,
+      globalUsers,
+      organizations,
+      mainTableName: TABLE,
+      createOrganization,
+      acceptInvitation,
+      pepper: "test-pepper",
+      redirectUri: "https://app.example.com/bff/callback",
+      authorizeUrl: "https://auth.example.com/oauth2/authorize",
+      clientId: "client-1",
+      now,
+      newUserId: () => `user-${++userCounter}`,
+      newDeviceId: () => `device-${++deviceCounter}`,
+    };
+
+    const setupService = new BffAuthService({ ...depsBase, sessionStore: rawStore });
+    const started = await setupService.startLogin("/");
+    const state = new URL(started.redirectUrl).searchParams.get("state")!;
+    const { sessionToken } = await setupService.handleCallback({ loginCookie: started.loginToken, code: "c", state });
+
+    clock = "2026-08-24T12:20:00.000Z"; // access token expired - triggers a refresh
+    cognitoClient.nextRefreshOutcome = { kind: "INVALID_GRANT" }; // this call's own (stale) outcome
+
+    let injected = false;
+    const hookableStore = new HookableSessionStore(rawStore, undefined, async (item) => {
+      const record = item as unknown as { refreshState?: string; version?: number };
+      if (!injected && record.refreshState === "IN_PROGRESS") {
+        injected = true;
+        // Another request's refresh wins in the meantime: commits a healthy, renewed session
+        // at the next version, lease released.
+        const stored = (await rawStore.get<import("../../../src/modules/bff/domain/session.js").Session>(item))!;
+        await rawStore.updateConditional<import("../../../src/modules/bff/domain/session.js").Session>(
+          { ...stored, refreshState: "IDLE", refreshLeaseId: undefined, refreshLeaseUntil: undefined, accessToken: "winner-token", updatedAt: clock, version: stored.version + 1 },
+          { version: stored.version },
+        );
+      }
+    });
+    const serviceUnderTest = new BffAuthService({ ...depsBase, sessionStore: hookableStore });
+
+    const error = await serviceUnderTest.resolveSession(sessionToken).catch((e: unknown) => e);
+    // Never AuthenticationError - the session is actually healthy, this call's own stale
+    // INVALID_GRANT must not be able to kill it.
+    expect(error).toBeInstanceOf(DependencyUnavailableError);
+
+    // The winner's commit must survive untouched - never clobbered back to revoked by the loser.
+    const selector = sessionToken.split(".")[0]!;
+    const { createHmac } = await import("node:crypto");
+    const selectorHash = createHmac("sha256", "test-pepper").update(selector).digest("hex");
+    const current = await rawStore.get<import("../../../src/modules/bff/domain/session.js").Session>({ PK: `SESSION#${selectorHash}`, SK: "POINTER" });
+    expect(current?.revokedAt).toBeUndefined();
+    expect(current?.accessToken).toBe("winner-token");
+  });
+
   it("TRANSIENT_TRANSPORT_FAILURE on refresh surfaces as DependencyUnavailableError and preserves the session for a later retry", async () => {
     const ctx = buildService();
     const { result } = await loginOnce(ctx);

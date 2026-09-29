@@ -538,7 +538,32 @@ export class BffAuthService {
     }
 
     if (cognitoOutcome.kind === "INVALID_GRANT") {
-      await this.deps.sessionStore.update<Session>({ ...session, refreshState: "IDLE", revokedAt: now, updatedAt: now, version: session.version + 2 });
+      // Real bug found scanning `dev` (2026-09-26: a healthy, just-renewed session getting
+      // revoked moments after a fresh login pattern in the session table - traced to this exact
+      // unconditioned write). This used to call `deps.sessionStore.update()` - an unconditioned
+      // `PutCommand` - with the PRE-lease `session` snapshot. Under a slow Cognito call that
+      // outlasts the 5s lease (`leaseUntil` above), a second request can legitimately acquire its
+      // own lease and succeed a real refresh in the meantime; when this stale call's Cognito
+      // response finally comes back as INVALID_GRANT (correct, since ITS copy of the refresh
+      // token was already consumed by the other request's rotation), a blind `update()` would
+      // silently overwrite that other request's successful, newer session state back to
+      // `revokedAt` - killing a session that is actually fine. Conditioned on the version THIS
+      // call's own lease acquisition set (`session.version + 1`), same OCC-conditional pattern
+      // every other write in this function already uses.
+      const revoked = await this.deps.sessionStore.updateConditional<Session>(
+        { ...session, refreshState: "IDLE", revokedAt: now, updatedAt: now, version: session.version + 2 },
+        { version: session.version + 1 },
+      );
+      if (!revoked) {
+        // Something else (a concurrent successful refresh, or a real logout) already moved the
+        // session past the version this lease set - re-read rather than presuming our own stale
+        // INVALID_GRANT still applies.
+        const current = await this.deps.sessionStore.get<Session>(sessionKey(session.selectorHash));
+        if (!current || current.revokedAt) {
+          return { kind: "DEFINITIVE_AUTH_FAILURE", reason: "invalid_grant" };
+        }
+        return { kind: "UNKNOWN_OUTCOME" };
+      }
       return { kind: "DEFINITIVE_AUTH_FAILURE", reason: "invalid_grant" };
     }
     if (cognitoOutcome.kind === "TRANSIENT_FAILURE") {
