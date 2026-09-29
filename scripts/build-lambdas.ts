@@ -7,12 +7,24 @@
  * before any Terraform command that touches the lambda-function module.
  *
  * Bundles each handler in src/runtime/aws/handlers/*.ts to
- * dist/lambda/<handler-name>/index.js, replicating bundleEntry's exact esbuild options
- * (bundle:true, platform:"node", target:"node24", format:"cjs", sourcemap:"external",
- * minify:false - AWS SDK v3 bundled IN, stack traces stay auditable, per
- * docs/architecture/m3.5-runtime-design.md). CJS output (not ESM, despite the project being
- * "type": "module") so the bundle needs no package.json/extension gymnastics inside the
- * Lambda zip - just index.js + index.handler, same rationale as the CDK version.
+ * dist/lambda/<handler-name>/index.js (bundle:true, platform:"node", target:"node24",
+ * format:"cjs" - AWS SDK v3 bundled IN, per docs/architecture/m3.5-runtime-design.md). CJS
+ * output (not ESM, despite the project being "type": "module") so the bundle needs no
+ * package.json/extension gymnastics inside the Lambda zip - just index.js + index.handler,
+ * same rationale as the CDK version.
+ *
+ * D-350 (cold-start latency finding, docs/architecture/reviews/lambda-latency-optimization-
+ * scoping/estado-final-consolidado.md): minify:true + keepNames:true + sourcemap:"linked".
+ * `"linked"` (not `"external"`) is required because only `"linked"` emits the
+ * `//# sourceMappingURL=` comment the Node runtime needs to find the adjacent .map file at
+ * all - `"external"` writes the same .map file but the runtime never looks for it without
+ * that comment. `keepNames:true` preserves function/class names through minification so a
+ * resolved stack trace still names real functions, not `minified_symbol_name`-style noise.
+ * The .map file lands in the same outDir as index.js, so Terraform's `archive_file` (module
+ * lambda-function, zips source_dir wholesale) includes it in the deployed zip automatically -
+ * no separate wiring needed here. `NODE_OPTIONS=--enable-source-maps` (the other half of
+ * making this resolve at runtime) is set in the Lambda's environment, not here - see
+ * `local.common_env` in infra/main.tf.
  *
  * Run via `npm run build:lambdas`. Output directory name (kebab-case, minus "-handler"
  * suffix) is what the Terraform lambda-function module's `handler_name`/`source_dir`
@@ -163,8 +175,6 @@ async function buildHandler(name: string): Promise<void> {
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, "index.js");
 
-  // Exact esbuild options from infra/lib/scoped-lambda-function.ts's bundleEntry() - must
-  // stay in sync until the CDK path is removed per ADR-0009's final decision.
   await esbuild.build({
     entryPoints: [entry],
     outfile: outFile,
@@ -172,8 +182,9 @@ async function buildHandler(name: string): Promise<void> {
     platform: "node",
     target: "node24",
     format: "cjs",
-    sourcemap: "external",
-    minify: false,
+    sourcemap: "linked",
+    minify: true,
+    keepNames: true,
     // Real production bug found in M5 (2026-08-21): esbuild's ESM->CJS export transform
     // defines `exports.handler` as a getter-only accessor with `configurable: false` (live-
     // binding emulation for `export async function handler(...)`). The ADOT Lambda layer's

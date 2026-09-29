@@ -39,7 +39,10 @@ module "auth" {
 # silently expanded).
 
 locals {
-  common_env = { TABLE_NAME = module.table.table_name }
+  # D-350: NODE_OPTIONS=--enable-source-maps - required alongside build-lambdas.ts's
+  # sourcemap:"linked" (the two are independent; either alone leaves stack traces unresolved) -
+  # see docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md.
+  common_env = { TABLE_NAME = module.table.table_name, NODE_OPTIONS = "--enable-source-maps" }
   dist_dir   = "${path.module}/../dist/lambda"
   # D-300 (reminder-producer-implementation-plan-scoping/DECISION.md §8, rollback incident
   # 2026-09-15): single source of truth for SCAN_MODE, consumed by BOTH reminder_producer and
@@ -134,6 +137,9 @@ module "items_handler" {
   source_dir            = "${local.dist_dir}/items-handler"
   adot_layer_arn        = var.adot_layer_arn
   environment_variables = local.common_env
+  # D-350: 512MB override (module default 256MB) - tenant-facing HTTP route, cold-start latency
+  # finding (docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md).
+  memory_size = 512
   # Wave B2B-14 (D-116): gsi4_read_policy_json - see test_ping_handler's comment above.
   policy_documents_json = [module.table.tenant_facing_read_write_policy_json, module.table.gsi4_read_policy_json]
   tags                  = { Project = local.project_name, Environment = var.environment }
@@ -292,6 +298,9 @@ module "memberships_handler" {
   handler_name   = "memberships-handler"
   source_dir     = "${local.dist_dir}/memberships-handler"
   adot_layer_arn = var.adot_layer_arn
+  # D-350: 512MB override (module default 256MB) - tenant-facing HTTP route, cold-start latency
+  # finding (docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md).
+  memory_size = 512
   environment_variables = merge(local.common_env, {
     GUEST_TOKEN_PEPPER = random_password.guest_token_pepper.result
     # Wave B2B-14 (D-120): SES_FROM_ADDRESS/SES_CONFIGURATION_SET/INVITATION_BASE_URL sempre
@@ -797,6 +806,9 @@ module "document_archive_handler" {
   handler_name   = "document-archive-handler"
   source_dir     = "${local.dist_dir}/document-archive-handler"
   adot_layer_arn = var.adot_layer_arn
+  # D-350: 512MB override (module default 256MB) - tenant-facing HTTP route, cold-start latency
+  # finding (docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md).
+  memory_size = 512
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
     # D-205 fatia 3 (decision 9): the dossier download route presigns a GetObject against the
@@ -1164,6 +1176,9 @@ module "bff_handler" {
   handler_name   = "bff-handler"
   source_dir     = "${local.dist_dir}/bff-handler"
   adot_layer_arn = var.adot_layer_arn
+  # D-350: 512MB override (module default 256MB) - tenant-facing HTTP route, cold-start latency
+  # finding (docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md).
+  memory_size = 512
   environment_variables = merge(local.common_env, {
     BFF_SESSION_TABLE_NAME = module.bff_session_table.table_name
     SESSION_TOKEN_PEPPER   = random_password.session_token_pepper.result
@@ -2182,6 +2197,9 @@ module "documents_handler" {
   handler_name   = "documents-handler"
   source_dir     = "${local.dist_dir}/documents-handler"
   adot_layer_arn = var.adot_layer_arn
+  # D-350: 512MB override (module default 256MB) - tenant-facing HTTP route, cold-start latency
+  # finding (docs/architecture/reviews/lambda-latency-optimization-scoping/estado-final-consolidado.md).
+  memory_size = 512
   environment_variables = merge(local.common_env, {
     QUARANTINE_BUCKET_NAME = module.document_buckets.quarantine_bucket_name
   })
