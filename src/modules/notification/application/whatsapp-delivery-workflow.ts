@@ -99,16 +99,15 @@ export async function processWhatsAppDelivery(deps: WhatsAppDeliveryWorkflowDeps
   if (action.action === "SKIP_RESOLVED") return { kind: "SKIPPED_RESOLVED" };
 
   if (action.action === "RECONCILE_UNKNOWN") {
-    try {
-      await deps.store.update({
-        ...attempt,
-        status: "UNKNOWN",
-        version: attempt.version + 1,
-        updatedAt: now,
-      });
-    } catch {
-      // Best-effort - a concurrent writer already resolved this attempt out of SUBMITTING.
-    }
+    // D-337 (Codex, real pre-existing bug, same class found in email-delivery-workflow.ts):
+    // this used to call `deps.store.update()` directly - an unconditioned `PutCommand` with no
+    // OCC check, unlike every other write in this file (e.g. NOT_SENT_STALE below already uses
+    // `tryConditionalUpdate`). A concurrent writer that already resolved this same attempt to
+    // ACCEPTED/DELIVERED between this function's read and this write would get silently
+    // clobbered back to UNKNOWN. Fixed to reuse the OCC-conditional helper already defined in
+    // this file.
+    const reconciled = await tryConditionalUpdate(deps, attempt, { status: "UNKNOWN" }, now);
+    if (!reconciled) return { kind: "SKIPPED_LOST_LEASE_RACE" };
     return { kind: "RECONCILED_UNKNOWN" };
   }
 

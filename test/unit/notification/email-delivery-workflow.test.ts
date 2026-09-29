@@ -204,6 +204,39 @@ describe("processEmailDelivery", () => {
     expect(attempt?.status).toBe("UNKNOWN");
   });
 
+  /** D-337 Rodada 1 (Codex, real bug): RECONCILE_UNKNOWN used to call `deps.store.update()`
+   * directly - an unconditioned `PutCommand` with no OCC check - so a concurrent writer (e.g.
+   * SesCallbackWorker) that already resolved this exact attempt to ACCEPTED between this
+   * function's read and its own write would get silently clobbered back to UNKNOWN. Simulated
+   * here via a store wrapper whose `get()` returns a stale (SUBMITTING/expired-lease) snapshot
+   * while the real underlying row has already moved on to ACCEPTED at a bumped version -
+   * reproducing the exact read-then-write race window, not just the happy path. */
+  it("attempt already resolved to ACCEPTED by a concurrent writer since this read -> SKIPPED_LOST_LEASE_RACE, never clobbers it back to UNKNOWN", async () => {
+    const staleAttempt = makeAttempt({ status: "SUBMITTING", leaseExpiresAt: "2026-09-10T11:00:00.000Z" });
+    await seed({ attempt: staleAttempt });
+    // Concurrent writer (SesCallbackWorker) resolves the SAME attempt to ACCEPTED, bumping its
+    // version - happens for real between this test's `seed()` and the call below.
+    await store.update({ ...staleAttempt, status: "ACCEPTED", providerMessageId: "ses-msg-concurrent", version: staleAttempt.version + 1, updatedAt: NOW });
+    const staleReadStore: EmailDeliveryWorkflowDeps["store"] = {
+      get: (async (key: unknown) => {
+        const k = key as { PK: string; SK: string };
+        if (k.SK === staleAttempt.SK) return staleAttempt; // the stale snapshot this invocation "already read"
+        return store.get(k as never);
+      }) as EmailDeliveryWorkflowDeps["store"]["get"],
+      putIfAbsent: store.putIfAbsent.bind(store),
+      update: store.update.bind(store),
+      transactWrite: store.transactWrite.bind(store),
+      queryAttemptsByIntent: store.queryAttemptsByIntent.bind(store),
+      queryWhatsAppPortfolioQuotaWindow: store.queryWhatsAppPortfolioQuotaWindow.bind(store),
+    };
+    const outcome = await processEmailDelivery({ ...deps, store: staleReadStore }, makeCommand());
+    expect(outcome).toEqual({ kind: "SKIPPED_LOST_LEASE_RACE" });
+    expect(sendCalls).toHaveLength(0);
+    const attempt = await store.get<NotificationAttempt>(notificationAttemptKey(TENANT, INTENT_ID, 1, ATTEMPT_ID));
+    expect(attempt?.status).toBe("ACCEPTED"); // never clobbered back to UNKNOWN
+    expect(attempt?.providerMessageId).toBe("ses-msg-concurrent");
+  });
+
   it("item version changed since intent was routed -> NOT_SENT_STALE REPLACEMENT, no SES call, creates a new intent", async () => {
     await seed({ item: makeItem({ version: 4 }) }); // command still says expectedItemVersion: 3
     const outcome = await processEmailDelivery(deps, makeCommand());
