@@ -106,6 +106,25 @@ describe("RequirementsCollection (A11)", () => {
     expect(screen.getByRole("button", { name: /^Todos/ })).toHaveTextContent("3");
   });
 
+  // Reconciliação visual 2026-09-29 (protocolo Claude<->Codex, a11-requisitos-visual-
+  // reconciliation, R3): o botão "Atualizar" precisa disparar uma NOVA chamada para os 5
+  // endpoints de status, não só reaproveitar a contagem inicial de 5 - `mockClear()` isola as
+  // chamadas do clique das chamadas da carga inicial.
+  it("'Atualizar' refetches all 5 status queries, tenant-wide only", async () => {
+    getMock.mockResolvedValue({ items: [], cursor: null });
+    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar" })).toBeInTheDocument());
+    getMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => {
+      for (const status of ["MISSING", "PENDING", "SATISFIED", "NOT_SATISFIED", "NOT_APPLICABLE"]) {
+        expect(getMock).toHaveBeenCalledWith(expect.stringContaining(`status=${status}`), expect.anything());
+      }
+    });
+  });
+
   it("shows the EMPTY_TRUE state when the organization has no requirements at all", async () => {
     getMock.mockResolvedValue({ items: [], cursor: null });
     renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");

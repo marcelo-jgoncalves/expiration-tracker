@@ -1,11 +1,19 @@
-/* Status metric tiles (protótipo `expiration-tracker-requisitos-documentais.html`, Marcelo
-   2026-09-22): substituem a antiga fileira de pill-buttons por cartões maiores com a contagem
-   real de cada status - também são o próprio controle de filtro (um clique troca a aba ativa),
-   evitando duplicar a mesma escolha em duas fileiras separadas como o protótipo estático faz.
+/* Status metric tiles ("Visão por situação", reconciliação visual 2026-09-29 - protocolo
+   Claude<->Codex convergido 9,2/9,2, `docs/architecture/reviews/a11-requisitos-visual-
+   reconciliation/estado-final-consolidado.md`): substituem a antiga fileira de pill-buttons por
+   cartões maiores com a contagem real de cada status - também são o próprio controle de filtro
+   (um clique troca a aba ativa), evitando duplicar a mesma escolha em duas fileiras separadas.
    Cor sempre visível nos cartões (pedido direto de Marcelo, 2026-09-22, não só quando
    selecionado); o card selecionado ganha um anel extra por cima da própria cor (`box-shadow`,
    nunca muda o tamanho da caixa). "Todos"/"Não se aplica" continuam neutros por padrão, coloridos
-   só quando selecionados - nenhum dos dois tem um "lado ruim" a destacar permanentemente. */
+   só quando selecionados - nenhum dos dois tem um "lado ruim" a destacar permanentemente.
+
+   Hex literais (não os tokens `--color-status-*`/`--color-accent-*`, que têm um tom levemente
+   diferente - mesma prática já documentada em `SubjectHub.css`): accent `#4c1d95`/`#f1ebff` e
+   critical/warning `#b91c1c`/`#fff2f1`/`#a94a05`/`#fff7e8` vêm de `Overview.css`; success
+   `#047857`/`#ecfdf5` vem de `Members.css`; neutro repouso/ativo (`#e8e4f1`/`#55507a`) é a mesma
+   dupla de borda/texto-secundário onipresente em `ItemsCollection.css`/`SubjectsCollection.css`.
+   Borda 2px sempre visível nos 3 tons semânticos (era 1px) - o "efeito de borda" pedido. */
 .requirements-metrics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -19,8 +27,8 @@
   align-items: flex-start;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-default);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
+  background: white;
+  border: 2px solid #e8e4f1;
   border-radius: var(--radius-lg);
   cursor: pointer;
   text-align: left;
@@ -30,7 +38,7 @@
 }
 
 .requirements-metric:hover {
-  border-color: var(--color-border-strong);
+  border-color: #55507a;
 }
 
 .requirements-metric__label {
@@ -47,55 +55,74 @@
 }
 
 .requirements-metric--accent.requirements-metric--active {
-  background: var(--color-accent-50);
-  border-color: var(--color-accent-600);
+  background: #f1ebff;
+  border-color: #4c1d95;
 }
 .requirements-metric--accent.requirements-metric--active .requirements-metric__value {
-  color: var(--color-accent-700);
+  color: #4c1d95;
 }
 
 .requirements-metric--neutral.requirements-metric--active {
-  background: var(--color-surface-selected);
-  border-color: var(--color-border-strong);
+  background: #f8f7fc;
+  border-color: #55507a;
 }
 
 /* Em falta / Não satisfeito - vermelho sempre, não só quando selecionado. */
 .requirements-metric--critical {
-  background: var(--color-status-critical-bg);
-  border-color: var(--color-status-critical-fg);
+  background: #fff2f1;
+  border-color: #b91c1c;
 }
 .requirements-metric--critical .requirements-metric__value {
-  color: var(--color-status-critical-fg);
+  color: #b91c1c;
 }
 
 /* Pendente - amarelo sempre. */
 .requirements-metric--warning {
-  background: var(--color-status-warning-bg);
-  border-color: var(--color-status-warning-fg);
+  background: #fff7e8;
+  border-color: #a94a05;
 }
 .requirements-metric--warning .requirements-metric__value {
-  color: var(--color-status-warning-fg);
+  color: #a94a05;
 }
 
 /* Satisfeito - verde sempre (pedido direto de Marcelo; ver comentário de `STATUS_METRICS` em
    RequirementsCollection.tsx sobre por que isso é diferente do tom da badge por linha). */
 .requirements-metric--success {
-  background: var(--color-status-success-bg);
-  border-color: var(--color-status-success-fg);
+  background: #ecfdf5;
+  border-color: #047857;
 }
 .requirements-metric--success .requirements-metric__value {
-  color: var(--color-status-success-fg);
+  color: #047857;
 }
 
 /* Anel de seleção por cima da cor permanente - nunca muda o tamanho da caixa. */
 .requirements-metric--critical.requirements-metric--active {
-  box-shadow: inset 0 0 0 2px var(--color-status-critical-fg);
+  box-shadow: inset 0 0 0 2px #b91c1c;
 }
 .requirements-metric--warning.requirements-metric--active {
-  box-shadow: inset 0 0 0 2px var(--color-status-warning-fg);
+  box-shadow: inset 0 0 0 2px #a94a05;
 }
 .requirements-metric--success.requirements-metric--active {
-  box-shadow: inset 0 0 0 2px var(--color-status-success-fg);
+  box-shadow: inset 0 0 0 2px #047857;
+}
+
+/* `forced-colors` (achado real do protocolo, R2/R3): o anel de seleção acima é só `box-shadow`,
+   descartado nesse modo - mesmo precedente já usado por `base.css`'s
+   `.app-shell__link[aria-current="page"]` (cor de sistema `SelectedItem`, sempre renderizada).
+   As 5 combinações têm a MESMA especificidade (0,2,0) das regras `--active` acima (nunca uma
+   genérica `.requirements-metric--active` sozinha, que perderia a cascata) e uma borda esquerda
+   de 4px - o DOBRO da borda de repouso de 2px acima - para criar uma distinção de FORMA real,
+   não só de cor (que `forced-colors` ignora para cores de autor). */
+@media (forced-colors: active) {
+  .requirements-metric--accent.requirements-metric--active,
+  .requirements-metric--neutral.requirements-metric--active,
+  .requirements-metric--critical.requirements-metric--active,
+  .requirements-metric--warning.requirements-metric--active,
+  .requirements-metric--success.requirements-metric--active {
+    box-shadow: none;
+    border-left-width: 4px;
+    border-left-color: SelectedItem;
+  }
 }
 
 @media (max-width: 1050px) {
@@ -123,4 +150,46 @@
 .requirements-search-result-count {
   margin: var(--space-3) 0 0;
   font-size: var(--font-size-100);
+}
+
+/* Densidade de tabela compacta (reconciliação visual 2026-09-29) - mesma paleta/tamanho de
+   `ItemsCollection.css`/`SubjectsCollection.css`, aplicada tanto na visão tenant-wide quanto na
+   aninhada (Hub do Fornecedor) - a tabela em si não distingue os dois modos. Regras de cor/peso
+   de fonte não competem com o layout mobile de `DataTable.css` (não mudam largura/altura), então
+   ficam sem gate de media query; padding/altura sim (achado real do protocolo, R2/R3: um reset
+   fora do `min-width` colidia por especificidade com os paddings de célula primária/ações do
+   layout mobile de `DataTable.css:190-207`, 8px->4px) - por isso ficam só a partir de 821px,
+   nunca abaixo do breakpoint 820px que `DataTable.css` já usa para o layout empilhado. */
+.ov-requirements .ui-table { font-size: 11px; }
+.ov-requirements .ui-table thead th { font-size: 10px; text-transform: uppercase; background: #fbfafe; }
+.ov-requirements .ui-table__group-header th { background: #f8f7fc; font-size: 11px; }
+/* Botão real (não um link, D-339), abre `RequirementDetail` num diálogo - por isso sem sublinhado
+   de hover (o fundo de `.ui-button--tertiary:hover`, Button.css, já é a affordance correta para
+   "abre algo aqui", diferente da convenção de link das telas irmãs que estilizam `<a>`). Achado
+   real do protocolo (R1/R2): `min-height:44px` eleva o alvo de toque do próprio `size="sm"`
+   (32px, tokens.css) sem remover nada herdado do Button. */
+.ov-requirements .ui-table__cell--primary .ui-button {
+  color: #4c1d95;
+  font-weight: 800;
+  font-size: 11px;
+  padding-inline: 0;
+  min-height: 44px;
+}
+@media (min-width: 821px) {
+  .ov-requirements .ui-table td { padding: 12px 19px; height: 76px; }
+  .ov-requirements .ui-table thead th { padding: 15px 19px; }
+}
+
+/* Wrapper que faltava (achado real do protocolo, R2): sem ele, as `IconButton size="sm"` de
+   Editar/Excluir ficam nos 32px de `--control-height-sm`, nunca alcançando o alvo de 44px que
+   `SubjectsCollection.css`'s `.ov-subject-actions` já garante para o mesmo par de ações lá. */
+.ov-requirements-actions { display: flex; justify-content: flex-end; gap: 2px; }
+.ov-requirements-actions > .ui-icon-button { min-height: 44px; min-width: 44px; }
+
+.ov-requirements-footer {
+  padding: 15px 19px;
+  margin: 0;
+  font-size: 11px;
+  color: #55507a;
+  border-top: 1px solid #e8e4f1;
 }

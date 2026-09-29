@@ -44,7 +44,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, FileCheck2 } from "lucide-react";
+import { Plus, Pencil, Trash2, FileCheck2, RotateCw } from "lucide-react";
 import { useOrgPath } from "../routing/useOrgPath.js";
 import { useRequirementsSearch } from "../hooks/useRequirementsSearch.js";
 import { useRequirementsForSubject } from "../hooks/useRequirementsForSubject.js";
@@ -58,7 +58,7 @@ import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { OmniHero } from "../components/OmniHero.js";
 import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
-import { PageHeader, Panel, Section } from "../components/ui/Layout.js";
+import { PageHeader, Panel, Section, Toolbar } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { IconButton } from "../components/ui/IconButton.js";
 import { Dialog } from "../components/ui/Dialog.js";
@@ -200,7 +200,7 @@ export function RequirementsCollection() {
       ).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
 
   return (
-    <div>
+    <div className="ov-requirements">
       {/* D-339: dentro da casca do fornecedor (`nested`), o próprio `SubjectLayout` já mostra o
           nome/tipo/ações do fornecedor - um segundo cabeçalho aqui seria duplicado. Fora dela
           (rota tenant-wide antiga), o cabeçalho continua completo, sem mudança. */}
@@ -244,7 +244,8 @@ export function RequirementsCollection() {
       {showCreate ? <CreateRequirementForm defaultSubjectId={filterSubjectId} onClose={() => setShowCreate(false)} /> : null}
       {effectiveViewing ? <RequirementDetail subjectId={effectiveViewing.subjectId} requirementId={effectiveViewing.requirementId} onClose={closeRequirement} /> : null}
       {filterSubjectId ? null : (
-        <div className="requirements-metrics" role="group" aria-label="Filtrar por status">
+        <Section heading="Visão por situação" headingId="requirements-status-view">
+        <div className="requirements-metrics" role="group" aria-labelledby="requirements-status-view">
           <button
             type="button"
             className={`requirements-metric requirements-metric--accent${isAll ? " requirements-metric--active" : ""}`}
@@ -277,26 +278,46 @@ export function RequirementsCollection() {
             );
           })}
         </div>
+        </Section>
       )}
-      <Panel padded>
-        {/* Hint deliberately generic, never a specific example document name (Marcelo, 2026-09-22,
-            achado real de CI): "Ex.: Certidão Negativa de Débitos." collided in strict mode with
-            an e2e fixture using that exact real-sounding name on this same page
-            (E2E-B3-07, block3-subjects-requirements.spec.ts) - getByText("Certidão Negativa de
-            Débitos") matched both the hint and the actual row. */}
-        <TextField
-          id="requirements-search"
-          label={filterSubjectId ? "Buscar por nome do requisito" : "Buscar por nome"}
-          value={searchTerm}
-          onChange={setSearchTerm}
-          hint="Vazio mostra todos os requisitos."
-        />
-        {filterSubjectId && searchTerm.trim() ? (
-          <p aria-live="polite" className="u-text-secondary requirements-search-result-count">
-            {requirements.length} {requirements.length === 1 ? "resultado" : "resultados"} para &quot;{searchTerm.trim()}&quot;
-          </p>
-        ) : null}
-      </Panel>
+      {filterSubjectId ? (
+        <Panel padded>
+          {/* Hint deliberately generic, never a specific example document name (Marcelo,
+              2026-09-22, achado real de CI): "Ex.: Certidão Negativa de Débitos." collided in
+              strict mode with an e2e fixture using that exact real-sounding name on this same
+              page (E2E-B3-07, block3-subjects-requirements.spec.ts) - getByText("Certidão
+              Negativa de Débitos") matched both the hint and the actual row. */}
+          <TextField
+            id="requirements-search"
+            label="Buscar por nome do requisito"
+            value={searchTerm}
+            onChange={setSearchTerm}
+            hint="Vazio mostra todos os requisitos."
+          />
+          {searchTerm.trim() ? (
+            <p aria-live="polite" className="u-text-secondary requirements-search-result-count">
+              {requirements.length} {requirements.length === 1 ? "resultado" : "resultados"} para &quot;{searchTerm.trim()}&quot;
+            </p>
+          ) : null}
+        </Panel>
+      ) : (
+        // Reconciliação visual 2026-09-29: busca + Atualizar num Toolbar só na visão tenant-wide,
+        // mesma convenção de `ItemsCollection.tsx`/`SubjectsCollection.tsx` - o modo aninhado
+        // mantém o campo isolado (acima) porque o Hub do Fornecedor não tem "Atualizar" em
+        // nenhuma tela irmã aninhada (D-339).
+        <Toolbar>
+          <TextField id="requirements-search" label="Buscar por nome" hideLabel value={searchTerm} onChange={setSearchTerm} placeholder="Buscar por nome" />
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={RotateCw}
+            disabled={queriesList.some((q) => q.isFetching)}
+            onClick={() => queriesList.forEach((q) => void q.refetch())}
+          >
+            {queriesList.some((q) => q.isFetching) ? "Atualizando…" : "Atualizar"}
+          </Button>
+        </Toolbar>
+      )}
       <Section heading="Requisitos" headingId="requirements-list" annotation={`(${filterSubjectId ? subjectTotalCount : requirements.length})`}>
         <Panel>
           {requirements.length === 0 ? (
@@ -379,6 +400,14 @@ export function RequirementsCollection() {
           ]}
             />
           )}
+          {/* Rodapé de contagem só tenant-wide (reconciliação visual 2026-09-29, mesma convenção
+              de `ov-items-footer`/`ov-subjects-footer`) - a anotação "(N)" do heading acima
+              permanece para os dois modos, o teste do modo aninhado depende dela. */}
+          {!filterSubjectId && requirements.length > 0 ? (
+            <p className="ov-requirements-footer" aria-live="polite">
+              {requirements.length} {requirements.length === 1 ? "requisito" : "requisitos"} nesta visualização
+            </p>
+          ) : null}
         </Panel>
       </Section>
     </div>
@@ -405,20 +434,22 @@ function RowActions({ requirement }: { requirement: Requirement }) {
 
   return (
     <>
-      <IconButton size="sm" variant="tertiary" label={`Editar ${requirement.name}`} onClick={() => setAction("edit")}>
-        <Pencil size={16} aria-hidden="true" />
-      </IconButton>{" "}
-      <IconButton
-        size="sm"
-        variant="danger"
-        label={`Excluir ${requirement.name}`}
-        onClick={() => {
-          setDeleteError(undefined);
-          setAction("delete");
-        }}
-      >
-        <Trash2 size={16} aria-hidden="true" />
-      </IconButton>
+      <span className="ov-requirements-actions">
+        <IconButton size="sm" variant="tertiary" label={`Editar ${requirement.name}`} onClick={() => setAction("edit")}>
+          <Pencil size={16} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          size="sm"
+          variant="danger"
+          label={`Excluir ${requirement.name}`}
+          onClick={() => {
+            setDeleteError(undefined);
+            setAction("delete");
+          }}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </IconButton>
+      </span>
       {action === "edit" ? <EditRequirementForm requirement={requirement} onClose={() => setAction(undefined)} /> : null}
       {action === "delete" ? (
         <Dialog title="Excluir requisito?" variant="alertdialog" onClose={() => (deleteMutation.isPending ? undefined : setAction(undefined))}>
