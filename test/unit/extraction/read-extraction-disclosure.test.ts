@@ -147,6 +147,7 @@ describe("readExtractionDisclosure (core)", () => {
     const result = await readExtractionDisclosure({ runs, fields }, T1, "doc1", "1");
     expect(result?.runId).toBe(runId);
     expect(result?.runStatus).toBe("COMPLETED");
+    expect(result?.runVersion).toBe(1);
     expect(result?.fields).toHaveLength(1);
     expect(result?.fields[0]).toMatchObject({ fieldName: "expirationDate", state: "CONFIRMED" });
   });

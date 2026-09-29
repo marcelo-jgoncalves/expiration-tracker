@@ -8,7 +8,7 @@
  * spec calls out explicitly.
  */
 import { apiClient } from "./apiClient.js";
-import type { DocumentDownloadResponse, DocumentResponse, DocumentsListResponse, ExtractionDisclosureResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
+import type { DisclosedExtractedField, DocumentDownloadResponse, DocumentResponse, DocumentsListResponse, ExtractionDisclosureResponse, ReserveUploadInput, ReserveUploadResult } from "./types.js";
 
 export function listDocuments(itemId: string, options?: { signal?: AbortSignal }): Promise<DocumentsListResponse> {
   return apiClient.get<DocumentsListResponse>(`/items/${encodeURIComponent(itemId)}/documents`, { signal: options?.signal });
@@ -26,6 +26,41 @@ export function getDocumentExtraction(itemId: string, documentId: string, option
 
 export function reserveDocumentUpload(itemId: string, input: ReserveUploadInput, idempotencyKey: string): Promise<ReserveUploadResult> {
   return apiClient.post<ReserveUploadResult>(`/items/${encodeURIComponent(itemId)}/documents`, input, { idempotencyKey });
+}
+
+export interface ConfirmDocumentFieldInput {
+  expectedItemVersion: number;
+  expectedDocumentVersion: number;
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  confirmedValue: string;
+}
+
+/** D-349 - A07's confirm route (`extraction:confirm`, `confirm-reject-field.ts`). All 4 expected
+ * versions are OCC guards on 4 distinct aggregates (ExpirationItem/Document/ExtractionRun/
+ * ExtractedField) - a stale read on any one of them surfaces as a plain CONFLICT, same as every
+ * other multi-aggregate mutation in this codebase. */
+export function confirmDocumentField(itemId: string, documentId: string, runId: string, fieldName: string, input: ConfirmDocumentFieldInput, idempotencyKey: string): Promise<{ field: DisclosedExtractedField }> {
+  return apiClient.post<{ field: DisclosedExtractedField }>(
+    `/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}/extractions/${encodeURIComponent(runId)}/fields/${encodeURIComponent(fieldName)}/confirm`,
+    input,
+    { idempotencyKey },
+  );
+}
+
+export interface RejectDocumentFieldInput {
+  expectedDocumentVersion: number;
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  correctionReason?: string;
+}
+
+export function rejectDocumentField(itemId: string, documentId: string, runId: string, fieldName: string, input: RejectDocumentFieldInput, idempotencyKey: string): Promise<{ field: DisclosedExtractedField }> {
+  return apiClient.post<{ field: DisclosedExtractedField }>(
+    `/items/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(documentId)}/extractions/${encodeURIComponent(runId)}/fields/${encodeURIComponent(fieldName)}/reject`,
+    input,
+    { idempotencyKey },
+  );
 }
 
 export function deleteDocument(itemId: string, documentId: string): Promise<void> {

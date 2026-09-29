@@ -57,6 +57,26 @@ function doc(overrides: Partial<ItemDocument>): ItemDocument {
   };
 }
 
+const pendingDisclosure = {
+  disclosure: {
+    runId: "run-1",
+    runStatus: "COMPLETED",
+    runVersion: 2,
+    fields: [
+      {
+        fieldName: "expirationDate",
+        valueType: "DATE",
+        candidateValue: "2027-03-31",
+        confidence: 0.95,
+        sources: ["DETERMINISTIC_PARSER"],
+        agreement: "SINGLE_SOURCE",
+        state: "PENDING_CONFIRMATION",
+        version: 4,
+      },
+    ],
+  },
+};
+
 function mockAsRole(role: MembershipRole) {
   fetchOrganizationsMock.mockResolvedValue({ organizations: [{ organizationId: "org-1", displayName: "Acme", role, version: 1 }] });
 }
@@ -300,6 +320,78 @@ describe("ItemDocuments (A07)", () => {
       // No re-fetch of the document list was triggered by a failed upload.
       expect(getMock).not.toHaveBeenCalledWith("/items/item-1/documents", expect.anything());
       fetchSpy.mockRestore();
+    });
+  });
+
+  describe("D-349 confirm/reject a suggested extracted field", () => {
+    function mockWithPendingField() {
+      getMock.mockImplementation((path: string) => {
+        if (path === "/items/item-1") return Promise.resolve({ item: item({ version: 7 }) });
+        if (path === "/items/item-1/documents") return Promise.resolve({ documents: [doc({ version: 3 })] });
+        if (path === "/items/item-1/documents/doc-1/extractions") return Promise.resolve(pendingDisclosure);
+        return Promise.reject(new Error("unexpected path " + path));
+      });
+    }
+
+    it("VIEWER never sees Confirmar/Rejeitar (extraction:confirm is WRITE_ROLES, not READ_ONLY_ROLES)", async () => {
+      mockWithPendingField();
+      mockAsRole("VIEWER");
+      renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
+
+      await waitFor(() => expect(screen.getByText("2027-03-31")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: "Confirmar" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Rejeitar" })).not.toBeInTheDocument();
+    });
+
+    it("MEMBER confirms a pending field, sending every OCC version the backend requires (item/document/run/field)", async () => {
+      mockWithPendingField();
+      postMock.mockResolvedValue({ field: { fieldName: "expirationDate", state: "CONFIRMED" } });
+      mockAsRole("MEMBER");
+      renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith(
+          "/items/item-1/documents/doc-1/extractions/run-1/fields/expirationDate/confirm",
+          { expectedItemVersion: 7, expectedDocumentVersion: 3, expectedRunVersion: 2, expectedFieldVersion: 4, confirmedValue: "2027-03-31" },
+          { idempotencyKey: expect.any(String) },
+        ),
+      );
+    });
+
+    it("MEMBER rejects a pending field with an optional correction reason", async () => {
+      mockWithPendingField();
+      postMock.mockResolvedValue({ field: { fieldName: "expirationDate", state: "REJECTED" } });
+      mockAsRole("MEMBER");
+      renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Rejeitar" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Rejeitar" }));
+      fireEvent.change(screen.getByLabelText("Motivo da rejeição (opcional)"), { target: { value: "Data ilegível" } });
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar rejeição" }));
+
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith(
+          "/items/item-1/documents/doc-1/extractions/run-1/fields/expirationDate/reject",
+          { expectedDocumentVersion: 3, expectedRunVersion: 2, expectedFieldVersion: 4, correctionReason: "Data ilegível" },
+          { idempotencyKey: expect.any(String) },
+        ),
+      );
+    });
+
+    it("a conflicting confirm (someone else already decided) is surfaced as a visible error, never silently ignored", async () => {
+      mockWithPendingField();
+      const { ApiError } = await import("../../../src/api/errors.js");
+      postMock.mockRejectedValue(new ApiError({ code: "CONFLICT", category: "CONFLICT", message: "stale", retryable: false }));
+      mockAsRole("MEMBER");
+      renderAtRoute("", <ItemDocumentsDialog itemId="item-1" onClose={() => {}} />, "/");
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("O documento, o vencimento ou a extração mudaram"));
     });
   });
 });

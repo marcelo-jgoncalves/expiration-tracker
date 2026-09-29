@@ -36,6 +36,10 @@ export interface ReadExtractionDisclosureDeps {
 export interface ExtractionDisclosure {
   runId: string;
   runStatus: ExtractionRun["status"];
+  /** `ExtractionRun.version` (OCC) — D-349 confirm/reject item: the caller needs this to build
+   * `expectedRunVersion` for the confirm/reject request, since the run itself is never fetched
+   * by any other read route the UI has access to. */
+  runVersion: number;
   /** One entry per field the run's pipeline schema defines — a field the run hasn't produced a
    * row for yet (still `STARTED`, or genuinely no candidate) is simply absent from this array,
    * never a fabricated placeholder. */
@@ -50,7 +54,7 @@ export async function readExtractionDisclosure(deps: ReadExtractionDisclosureDep
   const schema = getFieldSchema(run.pipelineVersion);
   const fields = await Promise.all(schema.map((def) => deps.fields.get(extractedFieldKey(tenantId, documentId, def.fieldName, runId))));
 
-  return { runId, runStatus: run.status, fields: fields.filter((f): f is ExtractedField => f !== undefined) };
+  return { runId, runStatus: run.status, runVersion: run.version, fields: fields.filter((f): f is ExtractedField => f !== undefined) };
 }
 
 /** A07 (`document` module, OLD): `GET /items/{itemId}/documents/{documentId}/extractions`.

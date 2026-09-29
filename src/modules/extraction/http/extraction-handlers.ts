@@ -172,7 +172,7 @@ export async function handleGetExtractionDisclosureForItem(deps: ExtractionHttpD
     const documentId = requirePathParam(req, "documentId");
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const disclosure = await getExtractionDisclosureForItem(deps.disclosureForItem, context, itemId, documentId);
-    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, fields: disclosure.fields.map(presentField) } : null } };
+    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, runVersion: disclosure.runVersion, fields: disclosure.fields.map(presentField) } : null } };
   });
 }
 
@@ -185,7 +185,7 @@ export async function handleGetExtractionDisclosureForDocumentArchive(deps: Extr
     if (!Number.isInteger(seq) || seq < 1) throw new ValidationError("Invalid seq path parameter.");
     const context = await deps.resolver.resolve({ claims: req.claims, requestId: req.requestId, correlationId: req.correlationId, organizationIdHint: req.headers?.["x-organization-id"] });
     const disclosure = await getExtractionDisclosureForDocumentArchive(deps.disclosureForDocumentArchive, context, documentId, seq);
-    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, fields: disclosure.fields.map(presentField) } : null } };
+    return { statusCode: 200, body: { disclosure: disclosure ? { runId: disclosure.runId, runStatus: disclosure.runStatus, runVersion: disclosure.runVersion, fields: disclosure.fields.map(presentField) } : null } };
   });
 }
 

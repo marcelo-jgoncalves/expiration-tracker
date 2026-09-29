@@ -26,17 +26,18 @@ import { useDocuments, useDocumentExtraction } from "../../hooks/useDocuments.js
 import { useUploadDocument } from "../../hooks/useUploadDocument.js";
 import { useDeleteDocument } from "../../hooks/useDeleteDocument.js";
 import { useDownloadDocument } from "../../hooks/useDownloadDocument.js";
+import { useConfirmDocumentField, useRejectDocumentField } from "../../hooks/useDocumentFieldActions.js";
 import { useCurrentMembershipRole } from "../../hooks/useCurrentMembershipRole.js";
 import { presentDocumentStatus, formatAbsoluteDate } from "../../api/presentation.js";
 import { InitialLoading, CollectionSkeleton, ErrorState, EmptyState } from "../../components/AsyncStates.js";
-import { ApiError } from "../../api/errors.js";
+import { ApiError, isConflict } from "../../api/errors.js";
 import { Section, Panel } from "../../components/ui/Layout.js";
 import { Button } from "../../components/ui/Button.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { Dialog } from "../../components/ui/Dialog.js";
 import { ExtractionDisclosure } from "../../components/ExtractionDisclosure.js";
-import type { ItemDocument, MembershipRole } from "../../api/types.js";
+import type { DisclosedExtractedField, ItemDocument, MembershipRole } from "../../api/types.js";
 import "./ItemDocuments.css";
 
 const WRITE_ROLES: ReadonlySet<MembershipRole> = new Set(["OWNER", "ADMIN", "MEMBER"]);
@@ -97,7 +98,7 @@ function UploadForm({ itemId }: { itemId: string }) {
   );
 }
 
-function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; itemId: string; canDelete: boolean }) {
+function DocumentRow({ document, itemId, itemVersion, canDelete, canConfirmExtraction }: { document: ItemDocument; itemId: string; itemVersion: number; canDelete: boolean; canConfirmExtraction: boolean }) {
   const presentation = presentDocumentStatus(document.status);
   const deleteMutation = useDeleteDocument(itemId);
   const downloadMutation = useDownloadDocument(itemId);
@@ -106,6 +107,49 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
   // query for a document that can't possibly have a run yet, same "CLEAN"-gated discipline the
   // download button above already follows.
   const extractionQuery = useDocumentExtraction(itemId, document.status === "CLEAN" ? document.documentId : "");
+  const confirmFieldMutation = useConfirmDocumentField(itemId, document.documentId);
+  const rejectFieldMutation = useRejectDocumentField(itemId, document.documentId);
+  const [fieldActionError, setFieldActionError] = useState<{ fieldName: string; message: string } | undefined>();
+  const disclosure = extractionQuery.data?.disclosure;
+
+  async function handleConfirmField(field: DisclosedExtractedField, confirmedValue: string) {
+    if (!disclosure) return;
+    setFieldActionError(undefined);
+    try {
+      await confirmFieldMutation.mutateAsync({
+        runId: disclosure.runId,
+        fieldName: field.fieldName,
+        expectedItemVersion: itemVersion,
+        expectedDocumentVersion: document.version,
+        expectedRunVersion: disclosure.runVersion,
+        expectedFieldVersion: field.version,
+        confirmedValue,
+      });
+    } catch (err) {
+      setFieldActionError({ fieldName: field.fieldName, message: isConflict(err) ? "O documento, o vencimento ou a extração mudaram — recarregue e tente novamente." : err instanceof ApiError ? err.message : "Não foi possível confirmar este campo." });
+    } finally {
+      confirmFieldMutation.newIntent();
+    }
+  }
+
+  async function handleRejectField(field: DisclosedExtractedField, correctionReason?: string) {
+    if (!disclosure) return;
+    setFieldActionError(undefined);
+    try {
+      await rejectFieldMutation.mutateAsync({
+        runId: disclosure.runId,
+        fieldName: field.fieldName,
+        expectedDocumentVersion: document.version,
+        expectedRunVersion: disclosure.runVersion,
+        expectedFieldVersion: field.version,
+        correctionReason,
+      });
+    } catch (err) {
+      setFieldActionError({ fieldName: field.fieldName, message: isConflict(err) ? "O documento ou a extração mudaram — recarregue e tente novamente." : err instanceof ApiError ? err.message : "Não foi possível rejeitar este campo." });
+    } finally {
+      rejectFieldMutation.newIntent();
+    }
+  }
 
   if (document.status === "DELETED") return null;
 
@@ -131,7 +175,22 @@ function DocumentRow({ document, itemId, canDelete }: { document: ItemDocument; 
             {downloadMutation.error instanceof ApiError ? downloadMutation.error.message : "Não foi possível baixar este arquivo."}
           </p>
         ) : null}
-        {document.status === "CLEAN" ? <ExtractionDisclosure disclosure={extractionQuery.data?.disclosure} /> : null}
+        {document.status === "CLEAN" ? (
+          <ExtractionDisclosure
+            disclosure={disclosure}
+            actions={
+              canConfirmExtraction
+                ? {
+                    onConfirm: handleConfirmField,
+                    onReject: handleRejectField,
+                    pendingFieldName: confirmFieldMutation.isPending || rejectFieldMutation.isPending ? (confirmFieldMutation.variables ?? rejectFieldMutation.variables)?.fieldName : undefined,
+                    errorFieldName: fieldActionError?.fieldName,
+                    errorMessage: fieldActionError?.message,
+                  }
+                : undefined
+            }
+          />
+        ) : null}
       </div>
       <StatusBadge presentation={presentation} srPrefix="Status do arquivo" />
       {/* Mirrors the backend's own gate (DocumentService.downloadDocument: status!=="CLEAN" ->
@@ -222,7 +281,7 @@ export function ItemDocumentsDialog({ itemId, onClose }: { itemId: string; onClo
         ) : (
           <ul className="ui-list">
             {documentsQuery.data.documents.map((document) => (
-              <DocumentRow key={document.documentId} document={document} itemId={itemId} canDelete={canDelete} />
+              <DocumentRow key={document.documentId} document={document} itemId={itemId} itemVersion={item.version} canDelete={canDelete} canConfirmExtraction={canUpload} />
             ))}
           </ul>
         )}

@@ -34,6 +34,8 @@ import {
   useClaimDocumentVersion,
   useAcceptDocumentVersion,
   useRejectDocumentVersion,
+  useConfirmDocumentArchiveField,
+  useRejectDocumentArchiveField,
 } from "../hooks/useDocumentVersionActions.js";
 import { useCurrentMembershipRole } from "../hooks/useCurrentMembershipRole.js";
 import { uploadFileBytes, computeChecksumSha256 } from "../api/documentArchive.js";
@@ -46,7 +48,7 @@ import { SelectField } from "../components/forms/SelectField.js";
 import { ApiError, isConflict } from "../api/errors.js";
 import { formatAbsoluteDate } from "../api/presentation.js";
 import { ExtractionDisclosure } from "../components/ExtractionDisclosure.js";
-import type { DocumentArchiveVersion, RejectionReason, DocumentVersionState } from "../api/types.js";
+import type { DisclosedExtractedField, DocumentArchiveVersion, RejectionReason, DocumentVersionState } from "../api/types.js";
 // ADR-0015 v2 reskin (2026-09-21): `.a12-version-timeline`/`.a12-version-header`/
 // `.a12-upload-wizard` only existed as bare class names with no CSS anywhere in the codebase
 // until this file started owning the stylesheet that defines them (same "screen owns its own
@@ -172,6 +174,47 @@ function VersionCard({
   // for a version whose file is still scanning/infected, same gate `isScanPending`/`isInfected`
   // already express for the accept/reject actions below.
   const extractionQuery = useDocumentVersionExtraction(documentId, !isScanPending && !isInfected ? version.seq : 0);
+  const confirmFieldMutation = useConfirmDocumentArchiveField(documentId, version.seq);
+  const rejectFieldMutation = useRejectDocumentArchiveField(documentId, version.seq);
+  const [fieldActionError, setFieldActionError] = useState<{ fieldName: string; message: string } | undefined>();
+  const disclosure = extractionQuery.data?.disclosure;
+
+  async function handleConfirmField(field: DisclosedExtractedField, confirmedValue: string) {
+    if (!disclosure) return;
+    setFieldActionError(undefined);
+    try {
+      await confirmFieldMutation.mutateAsync({
+        runId: disclosure.runId,
+        fieldName: field.fieldName,
+        expectedDocumentVersionVersion: version.version,
+        expectedRunVersion: disclosure.runVersion,
+        expectedFieldVersion: field.version,
+        confirmedValue,
+      });
+    } catch (err) {
+      setFieldActionError({ fieldName: field.fieldName, message: isConflict(err) ? "A versão do documento ou a extração mudaram — recarregue e tente novamente." : err instanceof ApiError ? err.message : "Não foi possível confirmar este campo." });
+    } finally {
+      confirmFieldMutation.newIntent();
+    }
+  }
+
+  async function handleRejectField(field: DisclosedExtractedField, correctionReason?: string) {
+    if (!disclosure) return;
+    setFieldActionError(undefined);
+    try {
+      await rejectFieldMutation.mutateAsync({
+        runId: disclosure.runId,
+        fieldName: field.fieldName,
+        expectedRunVersion: disclosure.runVersion,
+        expectedFieldVersion: field.version,
+        correctionReason,
+      });
+    } catch (err) {
+      setFieldActionError({ fieldName: field.fieldName, message: isConflict(err) ? "A extração mudou — recarregue e tente novamente." : err instanceof ApiError ? err.message : "Não foi possível rejeitar este campo." });
+    } finally {
+      rejectFieldMutation.newIntent();
+    }
+  }
 
   async function handleClaim() {
     setActionError(undefined);
@@ -245,7 +288,22 @@ function VersionCard({
         ) : null}
       </dl>
 
-      {!isScanPending && !isInfected ? <ExtractionDisclosure disclosure={extractionQuery.data?.disclosure} /> : null}
+      {!isScanPending && !isInfected ? (
+        <ExtractionDisclosure
+          disclosure={disclosure}
+          actions={
+            canWrite
+              ? {
+                  onConfirm: handleConfirmField,
+                  onReject: handleRejectField,
+                  pendingFieldName: confirmFieldMutation.isPending || rejectFieldMutation.isPending ? (confirmFieldMutation.variables ?? rejectFieldMutation.variables)?.fieldName : undefined,
+                  errorFieldName: fieldActionError?.fieldName,
+                  errorMessage: fieldActionError?.message,
+                }
+              : undefined
+          }
+        />
+      ) : null}
 
       {actionError ? (
         <InlineNotice tone="warning" announce="alert">

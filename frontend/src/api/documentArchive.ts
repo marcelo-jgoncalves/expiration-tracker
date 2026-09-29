@@ -8,6 +8,7 @@
  */
 import { apiClient } from "./apiClient.js";
 import type {
+  DisclosedExtractedField,
   DocumentArchiveDocument,
   DocumentArchiveVersion,
   CreateDocumentInput,
@@ -38,6 +39,42 @@ export function listDocumentVersions(documentId: string, options?: { signal?: Ab
  * hasn't produced a run yet for this version. */
 export function getDocumentVersionExtraction(documentId: string, seq: number, options?: { signal?: AbortSignal }): Promise<ExtractionDisclosureResponse> {
   return apiClient.get<ExtractionDisclosureResponse>(`/document-archive/documents/${encodeURIComponent(documentId)}/versions/${seq}/extractions`, { signal: options?.signal });
+}
+
+export interface ConfirmDocumentArchiveFieldInput {
+  expectedDocumentVersionVersion: number;
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  confirmedValue: string;
+}
+
+/** D-349 - A12's confirm route (`extraction:confirm`, `confirm-reject-field-document-archive.ts`).
+ * `expectedDocumentVersionVersion` is intentionally not a typo - it's `DocumentVersion.version`
+ * (the OCC field), distinct from `DocumentVersion.versionId` (the immutable identity the run
+ * itself is keyed on) - mirrors the backend service's own param name exactly. */
+export function confirmDocumentArchiveField(documentId: string, seq: number, runId: string, fieldName: string, input: ConfirmDocumentArchiveFieldInput, idempotencyKey: string): Promise<{ field: DisclosedExtractedField }> {
+  return apiClient.post<{ field: DisclosedExtractedField }>(
+    `/document-archive/documents/${encodeURIComponent(documentId)}/versions/${seq}/extractions/${encodeURIComponent(runId)}/fields/${encodeURIComponent(fieldName)}/confirm`,
+    input,
+    { idempotencyKey },
+  );
+}
+
+export interface RejectDocumentArchiveFieldInput {
+  expectedRunVersion: number;
+  expectedFieldVersion: number;
+  correctionReason?: string;
+}
+
+/** `seq` travels in the path (route template includes `/versions/{seq}/`, same as confirm) even
+ * though the handler never reads it - reject never touches `DocumentVersion`, so there is no
+ * `expectedDocumentVersionVersion` guard here, only the route shape is shared. */
+export function rejectDocumentArchiveField(documentId: string, seq: number, runId: string, fieldName: string, input: RejectDocumentArchiveFieldInput, idempotencyKey: string): Promise<{ field: DisclosedExtractedField }> {
+  return apiClient.post<{ field: DisclosedExtractedField }>(
+    `/document-archive/documents/${encodeURIComponent(documentId)}/versions/${seq}/extractions/${encodeURIComponent(runId)}/fields/${encodeURIComponent(fieldName)}/reject`,
+    input,
+    { idempotencyKey },
+  );
 }
 
 /** Upload step 1/3 — `POST .../versions` reserves a new DRAFT version. `docarchive:upload`. */

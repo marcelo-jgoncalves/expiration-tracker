@@ -513,6 +513,9 @@ export interface DisclosedExtractedField {
 export interface ExtractionDisclosure {
   runId: string;
   runStatus: string;
+  /** D-349 confirm/reject - the run's own OCC version, needed as `expectedRunVersion` on the
+   * confirm/reject request. */
+  runVersion: number;
   /** One entry per field the pipeline's schema defines that has a row - a field with no row yet
    * (run just started) is simply absent, never a fabricated placeholder. */
   fields: DisclosedExtractedField[];
