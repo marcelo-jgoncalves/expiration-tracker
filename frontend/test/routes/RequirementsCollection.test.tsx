@@ -185,4 +185,32 @@ describe("RequirementsCollection (A11)", () => {
     expect(rowgroups.some((el) => el.textContent?.includes("Fornecedor Alfa"))).toBe(true);
     expect(rowgroups.some((el) => el.textContent?.includes("Fornecedor Beta"))).toBe(true);
   });
+
+  // Item 18 (protótipo `OmniVence-requisitos-prototipo.html`, 2026-09-30): dropdown "Todos os
+  // fornecedores" filtra a lista tenant-wide inteiramente client-side, sem novo endpoint. Mutation:
+  // dropping the `supplierFilter` check from the `hits` filter (or wiring the select to a no-op)
+  // would still show both rows after selecting "Fornecedor Beta" - this assertion would catch it.
+  it("filters the tenant-wide list by fornecedor via the 'Todos os fornecedores' dropdown", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.includes("status=MISSING")) {
+        return Promise.resolve({
+          items: [
+            requirementHit({ requirementId: "req-1", name: "CND Federal" }, "Fornecedor Alfa"),
+            requirementHit({ requirementId: "req-2", subjectId: "subject-2", name: "Contrato Social" }, "Fornecedor Beta"),
+          ],
+          cursor: null,
+        });
+      }
+      return Promise.resolve({ items: [], cursor: null });
+    });
+    renderAtRoute("/requirements", <RequirementsCollection />, "/requirements");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "CND Federal" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Contrato Social" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Filtrar por fornecedor"), { target: { value: "subject-2" } });
+
+    expect(screen.queryByRole("button", { name: "CND Federal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Contrato Social" })).toBeInTheDocument();
+  });
 });

@@ -33,14 +33,19 @@
  * the Codex Block 3 finding-14 optimization on purpose) so the tile row always has real counts to
  * show, whichever tab is selected - the previously-separate single-status `query` was folded into
  * this same set (picking the matching one for the list), so this is not simply "5 always + 1
- * sometimes", it stays 5 total. Two elements from the prototype are deliberately NOT built:
- * "Tipo de documento" filter (the `Requirement` domain type has no document-type field anywhere -
- * `src/api/types.ts` - it would be a fabricated filter over data that doesn't exist) and
- * "Fornecedor" filter dropdown (the real search contract, `searchRequirements`, has no subjectId
- * parameter - only `status`/`namePrefix`/`assigneeUserId`). "Satisfeito" keeps the neutral (not
- * green) tone `presentRequirementDocStatus` already assigns it deliberately - `StatusBadge.tsx`'s
- * own header comment: a recorded evidence link is not a proof of compliance, never a stronger
- * visual claim than the data supports.
+ * sometimes", it stays 5 total. "Satisfeito" keeps the neutral (not green) tone
+ * `presentRequirementDocStatus` already assigns it deliberately - `StatusBadge.tsx`'s own header
+ * comment: a recorded evidence link is not a proof of compliance, never a stronger visual claim
+ * than the data supports.
+ *
+ * "Fornecedor" filter dropdown (item 18, protótipo `OmniVence-requisitos-prototipo.html`,
+ * 2026-09-30): built entirely CLIENT-SIDE over the hits the 5 status queries already fetch -
+ * `searchRequirements` still has no `subjectId` parameter, so this is not a new backend call, just
+ * a filter (+ the option list itself) derived from `RequirementSearchHit.requirement.subjectId`/
+ * `subjectDisplayName`, tenant-wide view only (the nested Hub do Fornecedor view is already
+ * scoped to one fornecedor). "Tipo de documento" filter from the same prototype is still NOT
+ * built - the `Requirement` domain type has no document-type field anywhere (`src/api/types.ts`),
+ * it would be a fabricated filter over data that doesn't exist.
  */
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -58,7 +63,7 @@ import { InlineNotice } from "../components/ui/InlineNotice.js";
 import { OmniHero } from "../components/OmniHero.js";
 import { DataTable, type DataTableGroup } from "../components/ui/DataTable.js";
 import { StatusBadge } from "../components/ui/StatusBadge.js";
-import { PageHeader, Panel, Section, Toolbar } from "../components/ui/Layout.js";
+import { PageHeader, Panel, Section, Toolbar, ToolbarSpacer } from "../components/ui/Layout.js";
 import { Button } from "../components/ui/Button.js";
 import { IconButton } from "../components/ui/IconButton.js";
 import { Dialog } from "../components/ui/Dialog.js";
@@ -107,6 +112,7 @@ export function RequirementsCollection() {
   const filterSubjectId = searchParams.get("subjectId") ?? routeParams.subjectId ?? undefined;
   const [statusTab, setStatusTab] = useState<"ALL" | RequirementStatus>("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [viewingRequirement, setViewingRequirement] = useState<{ subjectId: string; requirementId: string } | null>(null);
   const role = useCurrentMembershipRole();
@@ -174,9 +180,26 @@ export function RequirementsCollection() {
     }
     requirements = subjectRequirements.map((requirement) => ({ requirement }));
   } else {
-    const hits = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    let hits = isAll ? queriesList.flatMap((q) => q.data?.items ?? []) : (statusQueries[statusTab].data?.items ?? []);
+    if (supplierFilter) hits = hits.filter((hit) => hit.requirement.subjectId === supplierFilter);
     requirements = hits.map((hit: RequirementSearchHit) => ({ requirement: hit.requirement, subjectDisplayName: hit.subjectDisplayName }));
   }
+  // Option list for the "Fornecedor" filter select: derived from ALL 5 status queries (never just
+  // the active tab/current supplier selection) so switching status tabs doesn't shrink the list of
+  // fornecedores the user can filter by - same convention as the prototype, whose own `<select>`
+  // rebuilds its options from the full unfiltered `items` array.
+  const supplierOptions = filterSubjectId
+    ? []
+    : Array.from(
+        queriesList
+          .flatMap((q) => q.data?.items ?? [])
+          .reduce<Map<string, string>>((map, hit) => {
+            if (!map.has(hit.requirement.subjectId)) map.set(hit.requirement.subjectId, hit.subjectDisplayName ?? hit.requirement.subjectId);
+            return map;
+          }, new Map()),
+      )
+        .map(([subjectId, label]) => ({ subjectId, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
   // Item 37 (spec §3/§6): "Requisitos (N)" no hub do fornecedor é sempre o TOTAL sem busca - antes
   // desta correção, a anotação usava `requirements.length` (já filtrado por busca), então digitar
   // na busca mudava o total exibido no título da seção, contradizendo a regra explícita da spec
@@ -307,6 +330,21 @@ export function RequirementsCollection() {
         // nenhuma tela irmã aninhada (D-339).
         <Toolbar>
           <TextField id="requirements-search" label="Buscar por nome" hideLabel value={searchTerm} onChange={setSearchTerm} placeholder="Buscar por nome" />
+          <label className="u-visually-hidden" htmlFor="requirements-supplier-filter">
+            Filtrar por fornecedor
+          </label>
+          <select id="requirements-supplier-filter" className="requirements-supplier-filter" value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)}>
+            <option value="">Todos os fornecedores</option>
+            {supplierOptions.map((option) => (
+              <option key={option.subjectId} value={option.subjectId}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ToolbarSpacer />
+          <span className="requirements-result-count" aria-live="polite">
+            {requirements.length} {requirements.length === 1 ? "requisito" : "requisitos"}
+          </span>
           <Button
             variant="secondary"
             size="sm"
@@ -535,6 +573,10 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
   const [selectedSubject, setSelectedSubject] = useState<TrackedSubject | null>(null);
   const [name, setName] = useState("");
   const [applicability, setApplicability] = useState<RequirementApplicability>("APPLICABLE");
+  // Protótipo `OmniVence-requisitos-prototipo.html` (item 18): "Observação" opcional - o campo já
+  // existe no contrato (`Requirement.notes`/`CreateRequirementInput.notes`), só nunca tinha sido
+  // exposto neste formulário.
+  const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -546,7 +588,7 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
     }
     setErrors([]);
     try {
-      await mutation.mutateAsync({ subjectId: effectiveSubjectId, name: name.trim(), applicability });
+      await mutation.mutateAsync({ subjectId: effectiveSubjectId, name: name.trim(), applicability, notes: notes.trim() || undefined });
       onClose();
     } catch (err) {
       setErrors([err instanceof ApiError ? err.message : "Não foi possível criar este requisito."]);
@@ -570,7 +612,7 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
             placeholder={subjectsQuery.isPending ? "Carregando fornecedores…" : "Buscar por nome"}
           />
         )}
-        <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required />
+        <TextField id="req-name" label="Nome do requisito" value={name} onChange={setName} required maxLength={120} />
         <SelectField
           id="req-applicability"
           label="Aplicabilidade"
@@ -581,6 +623,7 @@ function CreateRequirementForm({ onClose, defaultSubjectId }: { onClose: () => v
             { value: "NOT_APPLICABLE", label: "Não se aplica" },
           ]}
         />
+        <TextField id="req-notes" label="Observação" value={notes} onChange={setNotes} maxLength={120} hint="Ex.: renovar anualmente." />
         <div className="ui-form__actions">
           <Button type="submit" variant="primary" pending={mutation.isPending}>
             {mutation.isPending ? "Criando…" : "Criar requisito"}

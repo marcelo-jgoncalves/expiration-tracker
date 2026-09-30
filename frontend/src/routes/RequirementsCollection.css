@@ -152,6 +152,31 @@
   font-size: var(--font-size-100);
 }
 
+/* Item 18 (protótipo `OmniVence-requisitos-prototipo.html`, 2026-09-30): dropdown "Todos os
+   fornecedores" no Toolbar tenant-wide, mesmo par de cor/borda de repouso que `.ui-field__control`
+   já usa (Form.css) - não é um `SelectField` (que sempre mostra o rótulo + "(obrigatório)/
+   (opcional)" abaixo dele, errado para um controle de filtro compacto numa barra de ferramentas). */
+.requirements-supplier-filter {
+  height: 39px;
+  border: 1px solid #e5e0ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #4c1d95;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 0 10px;
+}
+.requirements-supplier-filter:focus-visible {
+  outline: 3px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+.requirements-result-count {
+  font-size: 11px;
+  color: #716b86;
+  white-space: nowrap;
+}
+
 /* Densidade de tabela compacta (reconciliação visual 2026-09-29) - mesma paleta/tamanho de
    `ItemsCollection.css`/`SubjectsCollection.css`, aplicada tanto na visão tenant-wide quanto na
    aninhada (Hub do Fornecedor) - a tabela em si não distingue os dois modos. Regras de cor/peso
