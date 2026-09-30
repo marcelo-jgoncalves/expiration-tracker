@@ -127,7 +127,7 @@ export function DossierExport() {
     );
   }
 
-  if (subjectQuery.isPending) return <InitialLoading label="Carregando fornecedor…" />;
+  if (subjectQuery.isPending) return <InitialLoading label="Carregando fornecedor…" size="page" />;
   if (subjectQuery.isError) {
     const message = subjectQuery.error instanceof ApiError ? subjectQuery.error.message : "Não foi possível carregar este fornecedor.";
     return <ErrorState message={message} onRetry={() => void subjectQuery.refetch()} />;

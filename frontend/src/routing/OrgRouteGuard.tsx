@@ -55,7 +55,7 @@ export function OrgRouteGuard({ children }: { children: ReactNode }) {
   if (!orgId || orgId === organizationId) return <>{children}</>;
 
   if (switching || attemptedOrgId !== orgId || !sawSwitchingForAttempt.current) {
-    return <InitialLoading label="Carregando organização…" />;
+    return <InitialLoading label="Carregando organização…" size="page" />;
   }
 
   // The select() attempt for this exact orgId was actually observed in flight (switching went

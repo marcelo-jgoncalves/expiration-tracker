@@ -282,7 +282,7 @@ export function ItemDetail() {
   }
 
   if (query.isPending) {
-    return <InitialLoading label="Carregando vencimento…" />;
+    return <InitialLoading label="Carregando vencimento…" size="page" />;
   }
 
   if (query.isError) {

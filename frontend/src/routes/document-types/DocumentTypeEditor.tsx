@@ -61,7 +61,7 @@ export function DocumentTypeEditor() {
   const query = useDocumentType(documentTypeId);
 
   if (query.isPending) {
-    return <InitialLoading label="Carregando tipo de documento…" />;
+    return <InitialLoading label="Carregando tipo de documento…" size="page" />;
   }
   if (query.isError) {
     const message = query.error instanceof ApiError ? query.error.message : "Não foi possível carregar este tipo de documento.";

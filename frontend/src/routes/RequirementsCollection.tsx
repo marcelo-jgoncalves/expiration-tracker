@@ -162,7 +162,7 @@ export function RequirementsCollection() {
   const totalCount = queriesList.reduce((sum, q) => sum + (q.data?.items.length ?? 0), 0);
 
   if (isPending) {
-    return <InitialLoading label="Carregando requisitos…" />;
+    return <InitialLoading label="Carregando requisitos…" size="page" />;
   }
   if (isFullyError) {
     const first = allQueries[0];

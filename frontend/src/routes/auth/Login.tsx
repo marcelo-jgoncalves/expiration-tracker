@@ -73,7 +73,7 @@ export function Login() {
     });
   }
 
-  if (state.status === "SESSION_REFRESHING" || state.status === "AUTHENTICATED") return <InitialLoading />;
+  if (state.status === "SESSION_REFRESHING" || state.status === "AUTHENTICATED") return <InitialLoading size="page" />;
 
   return <div className="ov-login-layout">
     <aside className="ov-login-story" aria-label="Apresentação da OmniVence">

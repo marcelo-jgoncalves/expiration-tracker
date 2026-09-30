@@ -49,7 +49,7 @@ export function DocumentTypesCollection() {
   const failedCount = queries.filter((q) => q.isError).length;
 
   if (isPending) {
-    return <InitialLoading label="Carregando catálogo de tipos de documento…" />;
+    return <InitialLoading label="Carregando catálogo de tipos de documento…" size="page" />;
   }
   if (isFullyError) {
     const first = queries[0];

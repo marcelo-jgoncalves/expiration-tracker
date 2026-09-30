@@ -69,7 +69,7 @@ export function SubjectsCollection() {
   }, [allSubjects, searchTerm]);
 
   if (query.isPending) {
-    return <InitialLoading label="Carregando fornecedores…" />;
+    return <InitialLoading label="Carregando fornecedores…" size="page" />;
   }
 
   if (query.isError) {

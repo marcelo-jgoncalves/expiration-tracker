@@ -346,7 +346,7 @@ export function ItemReminderPolicy() {
   }
 
   if (itemQuery.isPending || policyQuery.isPending) {
-    return <InitialLoading label="Carregando lembretes…" />;
+    return <InitialLoading label="Carregando lembretes…" size="page" />;
   }
   if (itemQuery.isError) {
     if (itemQuery.error instanceof ApiError && itemQuery.error.category === "AUTHORIZATION") {

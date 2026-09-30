@@ -26,11 +26,17 @@ import "./AsyncStates.css";
  * (com fade suave, nunca um "pop" abrupto) quando a espera é longa o bastante para o usuário
  * realmente perceber. `prefers-reduced-motion: reduce` já neutraliza toda duração de animação
  * globalmente (`styles/base.css`), então nenhum tratamento extra é necessário aqui.
+ *
+ * `size="page"` (item 22, pedido de Marcelo 2026-09-30): maior e centralizado, só para o estado de
+ * carregamento inicial de uma tela/modal inteira (nada mais já está renderizado ao redor). Default
+ * `"inline"` (inalterado) continua para um painel/seção que carrega dentro de um layout já visível
+ * (cabeçalho, abas ou outros painéis já na tela) — usar `"page"` ali deslocaria o spinner para o
+ * centro da área de conteúdo inteira, longe do painel a que ele pertence.
  */
-export function InitialLoading({ label = "Carregando…" }: { label?: string }) {
+export function InitialLoading({ label = "Carregando…", size = "inline" }: { label?: string; size?: "inline" | "page" }) {
   return (
-    <div className="ui-inline-loading" role="status" aria-live="polite">
-      <span className="ui-spinner" aria-hidden="true" />
+    <div className={size === "page" ? "ui-inline-loading ui-inline-loading--page" : "ui-inline-loading"} role="status" aria-live="polite">
+      <span className={size === "page" ? "ui-spinner ui-spinner--lg" : "ui-spinner"} aria-hidden="true" />
       <span>{label}</span>
     </div>
   );

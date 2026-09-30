@@ -21,7 +21,7 @@ export function OnboardingGate({ children }: { children: ReactNode }) {
     // this renders, ActiveOrganizationProvider's session query almost always already has a
     // fresh cached result from AuthProvider's own fetch (same queryKey/staleTime), so this
     // resolves near-instantly rather than triggering a second network round-trip.
-    return <InitialLoading />;
+    return <InitialLoading size="page" />;
   }
 
   if (!organizationId) {

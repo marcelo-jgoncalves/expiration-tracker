@@ -69,7 +69,7 @@ export function RequirementTemplatesScreen() {
   const failedCount = queries.filter((q) => q.isError).length;
 
   if (isPending) {
-    return <InitialLoading label="Carregando templates de requisitos…" />;
+    return <InitialLoading label="Carregando templates de requisitos…" size="page" />;
   }
   if (isFullyError) {
     const first = queries[0];

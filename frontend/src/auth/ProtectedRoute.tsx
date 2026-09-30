@@ -27,7 +27,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       // session") exposed to the user (Marcelo's real report). Shares the exact component
       // OnboardingGate uses for its own pending state, so the two stages of the startup
       // sequence read as one continuous load, not two distinct messages.
-      return <InitialLoading />;
+      return <InitialLoading size="page" />;
     case "SESSION_MISSING":
     case "SESSION_EXPIRED":
     case "REFRESH_FAILED":
@@ -35,6 +35,6 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       // A full-page redirect is already in flight (or about to be, via the effect above) -
       // this is the brief structural placeholder shown in the instant before navigation
       // actually happens, never a dead end the user could get stuck on.
-      return <InitialLoading label="Redirecionando…" />;
+      return <InitialLoading label="Redirecionando…" size="page" />;
   }
 }

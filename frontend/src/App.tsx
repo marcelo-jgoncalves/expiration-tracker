@@ -161,7 +161,7 @@ export function App() {
             {/* PERF-09 - one Suspense boundary above the whole route tree. Every route component
                 above is now a separate lazy chunk; this fallback is what renders while that
                 chunk downloads/parses on first visit to a given route. */}
-            <Suspense fallback={<InitialLoading />}>
+            <Suspense fallback={<InitialLoading size="page" />}>
             <Routes>
               <Route
                 path="app/:orgId"

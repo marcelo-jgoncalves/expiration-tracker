@@ -90,7 +90,7 @@ export function DocumentDetail() {
   }
 
   if (documentQuery.isPending || versionsQuery.isPending) {
-    return <InitialLoading label="Carregando documento…" />;
+    return <InitialLoading label="Carregando documento…" size="page" />;
   }
 
   if (documentQuery.isError) {

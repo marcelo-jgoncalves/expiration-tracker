@@ -76,7 +76,7 @@ export function SubjectLayout() {
   if (!subjectId) return null; // unreachable - the route always supplies :subjectId
 
   if (subjectQuery.isPending) {
-    return <InitialLoading label="Carregando fornecedor…" />;
+    return <InitialLoading label="Carregando fornecedor…" size="page" />;
   }
   if (subjectQuery.isError) {
     const error = subjectQuery.error;
