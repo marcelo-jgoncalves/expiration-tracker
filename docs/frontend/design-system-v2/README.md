@@ -46,6 +46,7 @@ produto escreve o nome em tipo. Não foi desenhado nenhum símbolo nem substitu�
 | --- | --- |
 | `core/` | **Button**, **ButtonLink**, **StatusBadge**, **UrgencyIndicator**, **InlineNotice** |
 | `layout/` | **PageHeader**, **Section**, **Toolbar** (+ **ToolbarSpacer**), **Panel**, **FilterGroup**, **DetailList** |
+| (raiz `components/`) | **OmniHero** — banner roxo opcional abaixo do `PageHeader`, ver critério abaixo |
 | `data/` | **DataTable** (+ **CellSecondary**) |
 | `forms/` | **TextField**, **FormErrorSummary** |
 | `feedback/` | **EmptyState**, **ErrorState**, **CollectionSkeleton**, **InitialLoading**, **BackgroundRefreshIndicator**, **AsyncFeedback** |
@@ -57,6 +58,17 @@ de markup que o produto já escreve à mão, nenhuma nova ideia de UI):
 - **FilterGroup** — `Layout.css` já define `.ui-filter`, mas o markup vive solto em
   `ItemsCollection.tsx`. Virou componente para que o filtro de status seja uma decisão só.
 - **DetailList** — existia como componente local dentro de `ItemDetail.tsx`.
+
+**Critério do `OmniHero`** (banner roxo, `components/OmniHero.tsx` — decidido por Marcelo em
+2026-09-30, D-355/D-357, depois de auditoria confirmar que o componente já era reutilizável mas seu
+critério de uso nunca tinha sido escrito): usar em qualquer tela que seja um **registro** — uma
+lista persistente de "coisas" do mesmo tipo que a organização acumula e revisita (Vencimentos,
+Fornecedores, Membros, Atividade, Requisitos, Tipos de documento, Templates de requisitos) — sempre
+junto com (nunca no lugar de) o `PageHeader` da tela. Nunca usar numa fila operacional que existe
+para ser esvaziada (`ReviewQueue`), num wizard de ação única (`ImportWizard`) ou numa tela de
+configuração/administração (`Settings`, `NotificationPreferences`, `Reports` — catálogo fixo de
+tipos de relatório, não um registro de dados da organização). Frequência de uso ou papel do usuário
+não entra no critério.
 
 ---
 

@@ -16,7 +16,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Ban, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Ban, FileType, Pencil, Plus, RotateCcw } from "lucide-react";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useDocumentTypes } from "../../hooks/useDocumentTypes.js";
 import { useCreateDocumentType } from "../../hooks/useCreateDocumentType.js";
@@ -28,6 +28,7 @@ import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { DataTable } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { PageHeader, Panel } from "../../components/ui/Layout.js";
+import { OmniHero } from "../../components/OmniHero.js";
 import { Button, ButtonLink } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
@@ -66,6 +67,11 @@ export function DocumentTypesCollection() {
         description="Catálogo compartilhado, com campos de metadados customizados."
         actions={isAdmin ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo tipo</Button> : undefined}
       />
+      {/* Item 22/D-356's critério de banner (condição 1: é um registro que a organização acumula e
+          revisita, não uma fila/wizard/config) - catálogo de tipos de documento se qualifica pela
+          mesma régua de Vencimentos/Fornecedores/Membros/Atividade/Requisitos. */}
+      <OmniHero icon={FileType} eyebrow="Catálogo compartilhado" title="Um padrão para cada tipo de documento." description="Defina os campos que cada tipo de documento deve ter, para toda a organização."
+        summary={<><strong>{(activeQuery.data?.documentTypes.length ?? 0).toLocaleString("pt-BR")}</strong><span>{activeQuery.data?.documentTypes.length === 1 ? "tipo ativo" : "tipos ativos"}</span></>} />
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
           Não foi possível carregar {failedCount} de {queries.length} categorias de status — a lista abaixo está incompleta.

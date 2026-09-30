@@ -24,7 +24,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Archive, ChevronDown, ChevronUp, Copy, Pencil, Plus, RotateCcw, Send } from "lucide-react";
+import { Archive, ChevronDown, ChevronUp, Copy, LayoutTemplate, Pencil, Plus, RotateCcw, Send } from "lucide-react";
 import "./RequirementTemplates.css";
 import { useOrgPath } from "../../routing/useOrgPath.js";
 import { useRequirementTemplates } from "../../hooks/useRequirementTemplates.js";
@@ -42,6 +42,7 @@ import { InlineNotice } from "../../components/ui/InlineNotice.js";
 import { DataTable, CellSecondary } from "../../components/ui/DataTable.js";
 import { StatusBadge } from "../../components/ui/StatusBadge.js";
 import { PageHeader, Panel, Section } from "../../components/ui/Layout.js";
+import { OmniHero } from "../../components/OmniHero.js";
 import { Button } from "../../components/ui/Button.js";
 import { TextField } from "../../components/forms/TextField.js";
 import { FormErrorSummary } from "../../components/forms/FormErrorSummary.js";
@@ -93,6 +94,11 @@ export function RequirementTemplatesScreen() {
         description="Checklists reutilizáveis de Requisitos, aplicáveis a um fornecedor de uma vez."
         actions={isAdmin ? <Button variant="primary" icon={Plus} onClick={() => setShowCreate((v) => !v)}>Novo template</Button> : undefined}
       />
+      {/* Item 22/D-356's critério de banner (condição 1: é um registro que a organização acumula e
+          revisita, não uma fila/wizard/config) - catálogo de templates se qualifica pela mesma
+          régua de Vencimentos/Fornecedores/Membros/Atividade/Requisitos. */}
+      <OmniHero icon={LayoutTemplate} eyebrow="Checklists reutilizáveis" title="Aplique o mesmo padrão, sempre que precisar." description="Monte um checklist uma vez e reaplique a qualquer fornecedor que precise dele."
+        summary={<><strong>{templates.length.toLocaleString("pt-BR")}</strong><span>{templates.length === 1 ? "template carregado" : "templates carregados"}</span></>} />
       {failedCount > 0 && !isFullyError ? (
         <InlineNotice tone="warning" announce="status">
           Não foi possível carregar {failedCount} de {queries.length} categorias de status — o catálogo abaixo está incompleto.
