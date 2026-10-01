@@ -112,7 +112,8 @@ locals {
 }
 
 module "test_ping_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-test-ping-handler"
   handler_name          = "test-ping-handler"
@@ -130,7 +131,8 @@ module "test_ping_handler" {
 }
 
 module "items_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-items-handler"
   handler_name          = "items-handler"
@@ -151,7 +153,8 @@ module "items_handler" {
 # without changing every other /items* route's budget). Same GSI1 read as items_handler's
 # dashboard route — no new policy beyond tenant_facing_read_write_policy_json.
 module "export_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-export-handler"
   handler_name          = "export-handler"
@@ -172,7 +175,8 @@ module "export_handler" {
 # export_handler's 2.000-item/3-GSI1-page budget, each report here caps at 5 pages/125 items
 # per underlying status query (reports-service.ts), well inside the 10s default.
 module "reports_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-reports-handler"
   handler_name   = "reports-handler"
@@ -198,7 +202,8 @@ module "reports_handler" {
 # /items* route's budget). Resolves RequestContext like every other route Lambda —
 # gsi4_read_policy_json required (Wave B2B-14/D-116's finding class).
 module "bulk_actions_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-bulk-actions-handler"
   handler_name          = "bulk-actions-handler"
@@ -223,7 +228,8 @@ resource "random_password" "guest_token_pepper" {
 }
 
 module "subjects_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   # TrackedSubject CRUD only. ADR-0016 Decision A (2026-09-25) retired RequirementAssignment/
   # DocumentRequest(subject)/guest-upload (M9/M10 cluster 4) this handler used to also serve —
@@ -245,7 +251,8 @@ module "subjects_handler" {
 }
 
 module "reminders_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-reminders-handler"
   handler_name          = "reminders-handler"
@@ -258,7 +265,8 @@ module "reminders_handler" {
 }
 
 module "notifications_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   # Item 26 (NEXT_SESSION_PROMPT.md, 2026-09-23): WhatsApp phone-ownership confirmation
   # (request-confirmation/confirm routes) needs the SAME Cloud API secret + AppConfig flags as
@@ -289,7 +297,8 @@ module "notifications_handler" {
 }
 
 module "memberships_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   # Wave B2B-8 (D-099): Invitations/Team. GUEST_TOKEN_PEPPER reaproveitado (não um secret novo,
   # ver src/runtime/aws/composition/organization.ts para a justificativa completa) - o mesmo
@@ -332,7 +341,8 @@ module "memberships_handler" {
 }
 
 module "reminder_producer" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name = "${local.name_prefix}-reminder-producer"
   handler_name  = "reminder-producer-handler"
@@ -422,7 +432,8 @@ resource "aws_lambda_event_source_mapping" "reminder_producer_from_scan_queue" {
 }
 
 module "reminder_dispatch" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name                  = "${local.name_prefix}-reminder-dispatch"
   handler_name                   = "reminder-dispatch-handler"
@@ -438,7 +449,8 @@ module "reminder_dispatch" {
 }
 
 module "reminder_reconciliation" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-reminder-reconciliation"
   handler_name   = "reminder-reconciliation-handler"
@@ -478,7 +490,8 @@ module "reminder_reconciliation" {
 # in this module family that must never be able to reach GSI3, proven structurally by
 # infra/tests/stack.tftest.hcl's new run block.
 module "reminder_claim_consumer" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-reminder-claim-consumer"
   handler_name   = "reminder-claim-consumer-handler"
@@ -506,6 +519,7 @@ module "reminder_claim_consumer" {
 # the shared pair still owns on the main table's stream.
 module "reminder_dispatch_outbox_relay" {
   source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
   function_name  = "${local.name_prefix}-reminder-dispatch-outbox-relay"
   handler_name   = "reminder-dispatch-outbox-relay-handler"
   source_dir     = "${local.dist_dir}/reminder-dispatch-outbox-relay-handler"
@@ -524,6 +538,7 @@ module "reminder_dispatch_outbox_relay" {
 
 module "reminder_dispatch_outbox_sweeper" {
   source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
   function_name  = "${local.name_prefix}-reminder-dispatch-outbox-sweeper"
   handler_name   = "reminder-dispatch-outbox-sweeper-handler"
   source_dir     = "${local.dist_dir}/reminder-dispatch-outbox-sweeper-handler"
@@ -659,7 +674,8 @@ data "aws_iam_policy_document" "dispatch_outbox_relay_stream_read" {
 }
 
 module "dispatch_outbox_relay" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-dispatch-outbox-relay"
   handler_name   = "dispatch-outbox-relay-handler"
@@ -705,7 +721,8 @@ module "dispatch_outbox_relay" {
 }
 
 module "outbox_sweeper" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   # Name preserved as-is (not renamed to reflect its now-broader M4 scope) - this function
   # is already deployed in the dev account since M3.5; renaming an aws_lambda_function forces
@@ -800,7 +817,8 @@ resource "random_password" "docarchive_share_link_pepper" {
 }
 
 module "document_archive_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-document-archive-handler"
   handler_name   = "document-archive-handler"
@@ -849,7 +867,8 @@ resource "random_password" "document_archive_guest_access_pepper" {
 }
 
 module "document_archive_guest_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-document-archive-guest-handler"
   handler_name   = "document-archive-guest-handler"
@@ -901,7 +920,8 @@ data "aws_iam_policy_document" "external_share_clean_object_read" {
 }
 
 module "external_share_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-external-share-handler"
   handler_name   = "external-share-handler"
@@ -945,7 +965,8 @@ module "guest_credential_issuance_queue" {
 }
 
 module "document_request_credential_issuance_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-document-request-credential-issuance-handler"
   handler_name   = "document-request-credential-issuance-handler"
@@ -1016,7 +1037,8 @@ data "aws_iam_policy_document" "guest_credential_delivery_failures_send" {
 }
 
 module "guest_credential_delivery_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-guest-credential-delivery-handler"
   handler_name   = "guest-credential-delivery-handler"
@@ -1170,7 +1192,8 @@ resource "random_password" "session_token_pepper" {
 }
 
 module "bff_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-bff-handler"
   handler_name   = "bff-handler"
@@ -1384,7 +1407,8 @@ module "reminder_materialization_trigger_queue" {
 }
 
 module "reminder_materialization_trigger" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-reminder-materialization-trigger"
   handler_name   = "reminder-materialization-trigger-handler"
@@ -1590,7 +1614,8 @@ data "aws_iam_policy_document" "ses_send_email" {
 }
 
 module "notification_router" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-notification-router"
   handler_name   = "notification-router-handler"
@@ -1621,7 +1646,8 @@ resource "aws_lambda_event_source_mapping" "notification_router_from_stream" {
 }
 
 module "notification_email_outbox_relay" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-notification-email-outbox-relay"
   handler_name          = "notification-email-outbox-relay-handler"
@@ -1645,7 +1671,8 @@ resource "aws_lambda_event_source_mapping" "notification_email_outbox_relay_from
 }
 
 module "email_delivery" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-email-delivery"
   handler_name   = "email-delivery-handler"
@@ -1676,7 +1703,8 @@ resource "aws_lambda_event_source_mapping" "email_delivery_from_queue" {
 # fatia 5/5 wires the router. Deployed now so the relay -> queue -> worker chain is testable
 # end-to-end ahead of that wiring.
 module "notification_whatsapp_outbox_relay" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-notification-whatsapp-outbox-relay"
   handler_name          = "whatsapp-outbox-relay-handler"
@@ -1717,7 +1745,7 @@ module "observability_dashboard" {
     items    = module.items_handler.function_name
     subjects = module.subjects_handler.function_name
   }
-  synthetic_canary_name = module.synthetic_canary.canary_name
+  synthetic_canary_name = var.enable_synthetic_canary ? module.synthetic_canary[0].canary_name : "disabled"
 
   reminder_dispatch_function_name = module.reminder_dispatch.function_name
   reminder_dispatch_queue_name    = module.dispatch_queue.queue_name
@@ -1789,7 +1817,8 @@ data "aws_iam_policy_document" "whatsapp_secret_read" {
 # switch (D-10) fail-closed via the shared feature-flags module, same trio every AppConfig-gated
 # Lambda uses.
 module "whatsapp_delivery" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-whatsapp-delivery"
   handler_name   = "whatsapp-delivery-handler"
@@ -1828,7 +1857,8 @@ resource "aws_lambda_event_source_mapping" "whatsapp_delivery_from_queue" {
 # delivery worker (appSecret/verifyToken for signature/challenge verification - never the access
 # token in practice, but the secret is one JSON blob per D-10) and the same kill switch trio.
 module "whatsapp_webhook_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-whatsapp-webhook"
   handler_name   = "whatsapp-webhook-handler"
@@ -1849,7 +1879,8 @@ module "whatsapp_webhook_handler" {
 }
 
 module "ses_callback" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-ses-callback"
   handler_name          = "ses-callback-handler"
@@ -2159,7 +2190,8 @@ data "aws_iam_policy_document" "parser_sandbox_read_quarantine" {
 }
 
 module "parser_sandbox" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-parser-sandbox"
   handler_name    = "parser-sandbox-handler"
@@ -2191,7 +2223,8 @@ data "aws_iam_policy_document" "documents_presign_quarantine_put" {
 }
 
 module "documents_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-documents-handler"
   handler_name   = "documents-handler"
@@ -2275,7 +2308,8 @@ data "aws_iam_policy_document" "upload_finalizer_invoke_parser_sandbox" {
 }
 
 module "upload_finalizer_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-upload-finalizer-handler"
   handler_name    = "upload-finalizer-handler"
@@ -2345,7 +2379,8 @@ data "aws_iam_policy_document" "malware_result_object_access" {
 }
 
 module "malware_result_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-malware-result-handler"
   handler_name    = "malware-result-handler"
@@ -2396,7 +2431,8 @@ module "document_malware_protection" {
 # "upload-slot-reconciliation" and stack.tftest.hcl's updated GSI6 isolation assertions.
 
 module "upload_slot_reconciliation_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-upload-slot-reconciliation-handler"
   handler_name          = "upload-slot-reconciliation-handler"
@@ -2472,7 +2508,8 @@ resource "aws_scheduler_schedule" "upload_slot_reconciliation" {
 # a real TransactWriteCommand today, an action gap the general tenant-facing policy never covered
 # (same gap D-179/D-180 found and closed for membership_purge_handler).
 module "document_file_reconciliation_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-document-file-reconciliation-handler"
   handler_name          = "document-file-reconciliation-handler"
@@ -2558,7 +2595,8 @@ data "aws_iam_policy_document" "document_purge_object_access" {
 }
 
 module "document_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-document-purge-handler"
   handler_name   = "document-purge-handler"
@@ -2728,7 +2766,8 @@ data "aws_iam_policy_document" "import_parse_object_access" {
 }
 
 module "import_parse_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-import-parse-handler"
   handler_name    = "import-parse-handler"
@@ -2804,7 +2843,8 @@ module "requirement_evidence_refresh_queue" {
 }
 
 module "requirement_evidence_refresh_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-requirement-evidence-refresh-handler"
   handler_name          = "requirement-evidence-refresh-handler"
@@ -2838,7 +2878,8 @@ resource "aws_lambda_event_source_mapping" "requirement_evidence_refresh_from_qu
 # are `cross_tenant_scan_policy_json["requirement_evidence_daily_sweep"]` (Scan-only, D-234/E-018)
 # plus `sqs:SendMessage` on that one queue.
 module "requirement_evidence_daily_sweep_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-requirement-evidence-daily-sweep-handler"
   handler_name    = "requirement-evidence-daily-sweep-handler"
@@ -3012,7 +3053,8 @@ module "report_subscription_delivery_queue" {
 }
 
 module "report_subscription_delivery_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-report-subscription-delivery-handler"
   handler_name    = "report-subscription-delivery-handler"
@@ -3057,7 +3099,8 @@ module "dossier_export_queue" {
 }
 
 module "dossier_export_generation_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-dossier-export-generation-handler"
   handler_name    = "dossier-export-generation-handler"
@@ -3112,7 +3155,8 @@ data "aws_iam_policy_document" "import_commit_plan_object_access" {
 }
 
 module "import_commit_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-import-commit-handler"
   handler_name    = "import-commit-handler"
@@ -3171,7 +3215,8 @@ data "aws_iam_policy_document" "imports_presign_raw_put" {
 }
 
 module "imports_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-imports-handler"
   handler_name   = "imports-handler"
@@ -3272,7 +3317,8 @@ data "aws_iam_policy_document" "extraction_starter_start_execution" {
 }
 
 module "extraction_starter_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-extraction-starter-handler"
   handler_name   = "extraction-starter-handler"
@@ -3613,7 +3659,8 @@ locals {
 }
 
 module "textract_task_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-textract-task-handler"
   handler_name    = "textract-task-handler"
@@ -3706,7 +3753,8 @@ locals {
 }
 
 module "pdf_parser_task_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-pdf-parser-task-handler"
   handler_name    = "pdf-parser-task-handler"
@@ -3790,7 +3838,8 @@ locals {
 }
 
 module "bedrock_extraction_task_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-bedrock-extraction-task-handler"
   handler_name    = "bedrock-extraction-task-handler"
@@ -3858,7 +3907,8 @@ data "aws_iam_policy_document" "extraction_validation_task_s3_delete" {
 }
 
 module "extraction_validation_task_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-extraction-validation-task-handler"
   handler_name    = "extraction-validation-task-handler"
@@ -4003,6 +4053,7 @@ module "extraction_workflow" {
   bedrock_extraction_task_function_arn    = local.bedrock_extraction_task_handler_function_arn
   extraction_validation_task_function_arn = local.extraction_validation_task_handler_function_arn
   state_machine_role_arn                  = aws_iam_role.extraction_workflow_state_machine.arn
+  enable_xray_tracing                     = var.enable_xray_tracing
   tags                                    = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -4099,7 +4150,8 @@ data "aws_iam_policy_document" "tenant_purge_sweeper_session_table" {
 }
 
 module "tenant_purge_worker_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-tenant-purge-worker-handler"
   handler_name   = "tenant-purge-worker-handler"
@@ -4125,7 +4177,8 @@ module "tenant_purge_worker_handler" {
 # already put TenantLifecycleRecord in the main table, so tenant_facing_read_write_policy_json
 # already covers it - no new policy).
 module "tenant_lifecycle_transition_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-tenant-lifecycle-transition-handler"
   handler_name          = "tenant-lifecycle-transition-handler"
@@ -4212,6 +4265,7 @@ module "tenant_purge_workflow" {
   purge_worker_function_arn         = module.tenant_purge_worker_handler.live_alias_arn
   state_machine_role_arn            = aws_iam_role.tenant_purge_workflow_state_machine.arn
   alert_topic_arn                   = module.alert_topic.topic_arn
+  enable_xray_tracing               = var.enable_xray_tracing
   tags                              = { Project = local.project_name, Environment = var.environment }
 }
 
@@ -4254,7 +4308,8 @@ data "aws_iam_policy_document" "tenant_purge_describe_execution" {
 # approved design and is explicitly NOT load-bearing - the repair half is bounded by the 1-hour
 # staleness filter, not by how often this runs.
 module "tenant_purge_sweeper_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name   = "${local.name_prefix}-tenant-purge-sweeper-handler"
   handler_name    = "tenant-purge-sweeper-handler"
@@ -4344,7 +4399,8 @@ resource "aws_scheduler_schedule" "tenant_purge_sweeper" {
 # scoped to WORK#REQUIREMENT_REINDEX/DLQ#REQUIREMENT_REINDEX, same pattern as
 # document_file_reconciliation_handler above.
 module "requirement_reindex_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-requirement-reindex-handler"
   handler_name          = "requirement-reindex-handler"
@@ -4420,7 +4476,8 @@ resource "aws_scheduler_schedule" "requirement_reindex" {
 # D-234 (E-018): dedicated Scan+TransactWriteItems policy (base table only, no GSI - the real call
 # graph never queries an index), not the general tenant_facing_read_write_policy_json.
 module "document_request_recurrence_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-document-request-recurrence-handler"
   handler_name          = "document-request-recurrence-handler"
@@ -4443,7 +4500,8 @@ module "document_request_recurrence_handler" {
 # DLQ#CORE_USER_DATA, same pattern as delivery_record_purge_handler below (this worker also has a
 # tenant-ACTIVE fence AND a real `version` OCC counter on both entities).
 module "core_user_data_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-core-user-data-purge-handler"
   handler_name          = "core-user-data-purge-handler"
@@ -4522,7 +4580,8 @@ resource "aws_scheduler_schedule" "core_user_data_purge" {
 # tenant-ACTIVE fence AND a real `version` OCC counter on both entities, so the claim/delete
 # re-asserts version, not just createdAt).
 module "delivery_record_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-delivery-record-purge-handler"
   handler_name          = "delivery-record-purge-handler"
@@ -4599,7 +4658,8 @@ resource "aws_scheduler_schedule" "delivery_record_purge" {
 # scoped to WORK#SECURITY_AUDIT/DLQ#SECURITY_AUDIT, same pattern as quota_telemetry_purge_handler
 # above (this worker also has a tenant-ACTIVE fence, so it gets the same poison-record/DLQ shape).
 module "security_audit_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-security-audit-purge-handler"
   handler_name          = "security-audit-purge-handler"
@@ -4677,7 +4737,8 @@ resource "aws_scheduler_schedule" "security_audit_purge" {
 # gsi8_read_policy_json/worker_transact_write_policy_json scoped to WORK#QUOTA_TELEMETRY/
 # DLQ#QUOTA_TELEMETRY, same pattern as requirement_reindex_handler above.
 module "quota_telemetry_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-quota-telemetry-purge-handler"
   handler_name          = "quota-telemetry-purge-handler"
@@ -4757,7 +4818,8 @@ resource "aws_scheduler_schedule" "quota_telemetry_purge" {
 # gsi8_worker_types), scoped via dynamodb:LeadingKeys to exactly WORK#INVITATION_PURGE/
 # DLQ#INVITATION_PURGE, never a general GSI8 grant.
 module "invitation_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-invitation-purge-handler"
   handler_name          = "invitation-purge-handler"
@@ -4837,7 +4899,8 @@ resource "aws_scheduler_schedule" "invitation_purge" {
 # same pattern as security_audit_purge_handler above (this worker also has a tenant-ACTIVE fence,
 # so it gets the same poison-record/DLQ shape).
 module "transient_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-transient-purge-handler"
   handler_name          = "transient-purge-handler"
@@ -4918,7 +4981,8 @@ resource "aws_scheduler_schedule" "transient_purge" {
 # gsi8_worker_types), scoped via dynamodb:LeadingKeys to exactly WORK#MEMBERSHIP_PURGE/
 # DLQ#MEMBERSHIP_PURGE, never a general GSI8 grant.
 module "membership_purge_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-membership-purge-handler"
   handler_name          = "membership-purge-handler"
@@ -5058,7 +5122,8 @@ resource "aws_scheduler_schedule" "document_request_recurrence" {
 # fire at. Documented judgment call (decisions-log.md D-211) - open to being overridden if a
 # literal weekly cron was actually the intended reading.
 module "scheduled_reports_scheduler_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-scheduled-reports-scheduler-handler"
   handler_name          = "scheduled-reports-scheduler-handler"
@@ -5139,7 +5204,8 @@ resource "aws_scheduler_schedule" "scheduled_reports_scheduler" {
 # already uses - a daily-only poll would let a claim silently wait up to 24h if this specific tick
 # were ever skipped.
 module "whatsapp_digest_flush_handler" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name         = "${local.name_prefix}-whatsapp-digest-flush"
   handler_name          = "whatsapp-digest-flush-handler"
@@ -5205,7 +5271,8 @@ resource "aws_scheduler_schedule" "whatsapp_digest_flush" {
 }
 
 module "whatsapp_digest_delivery" {
-  source = "./modules/lambda-function"
+  source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
 
   function_name  = "${local.name_prefix}-whatsapp-digest-delivery"
   handler_name   = "whatsapp-digest-delivery-handler"
@@ -5246,6 +5313,7 @@ resource "aws_lambda_event_source_mapping" "whatsapp_digest_delivery_from_queue"
 
 module "synthetic_canary" {
   source = "./modules/synthetic-canary"
+  count  = var.enable_synthetic_canary ? 1 : 0
 
   name_prefix     = local.name_prefix
   aws_region      = var.aws_region
@@ -5259,6 +5327,7 @@ module "synthetic_canary" {
 # the dedicated scheduler follows the same global schedules switch used by the legacy path.
 module "reminder_scan_enumerator_v2" {
   source          = "./modules/lambda-function"
+  tracing_active  = var.enable_xray_tracing
   function_name   = "${local.name_prefix}-reminder-scan-enumerator-v2"
   handler_name    = "reminder-scan-enumerator-handler"
   source_dir      = "${local.dist_dir}/reminder-scan-enumerator-handler"
@@ -5274,6 +5343,7 @@ module "reminder_scan_enumerator_v2" {
 
 module "reminder_scan_page_v2" {
   source                         = "./modules/lambda-function"
+  tracing_active                 = var.enable_xray_tracing
   function_name                  = "${local.name_prefix}-reminder-scan-page-v2"
   handler_name                   = "reminder-scan-page-handler"
   source_dir                     = "${local.dist_dir}/reminder-scan-page-handler"
@@ -5297,6 +5367,7 @@ module "reminder_scan_page_v2" {
 
 module "reminder_scan_control_relay" {
   source         = "./modules/lambda-function"
+  tracing_active = var.enable_xray_tracing
   function_name  = "${local.name_prefix}-reminder-scan-control-relay"
   handler_name   = "reminder-scan-control-relay-handler"
   source_dir     = "${local.dist_dir}/reminder-scan-control-relay-handler"
@@ -5315,6 +5386,7 @@ module "reminder_scan_control_relay" {
 
 module "reminder_scan_control_reconciler" {
   source          = "./modules/lambda-function"
+  tracing_active  = var.enable_xray_tracing
   function_name   = "${local.name_prefix}-reminder-scan-control-reconciler"
   handler_name    = "reminder-scan-control-reconciler-handler"
   source_dir      = "${local.dist_dir}/reminder-scan-control-reconciler-handler"

@@ -13,6 +13,12 @@ variable "purge_worker_function_arn" {
   type        = string
 }
 
+variable "enable_xray_tracing" {
+  description = "D-358: whether the state machine participates in X-Ray tracing. Mirrors the lambda-function module's own tracing_active toggle so the orchestrator and the Lambdas it invokes are never split (one traced, the other not)."
+  type        = bool
+  default     = true
+}
+
 variable "state_machine_role_arn" {
   description = "IAM role for the state machine execution. Must grant lambda:InvokeFunction on exactly the two function ARNs above (2 ARNs, never a wildcard - D-121 Rodada 3 Fix 8's minimum IAM surface)."
   type        = string

@@ -38,7 +38,7 @@ resource "aws_sfn_state_machine" "tenant_purge" {
   tags     = var.tags
 
   tracing_configuration {
-    enabled = true
+    enabled = var.enable_xray_tracing
   }
 
   # include_execution_data = false: the execution input carries a tenantId and the purge envelope

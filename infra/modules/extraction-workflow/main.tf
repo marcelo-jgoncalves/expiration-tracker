@@ -28,7 +28,7 @@ resource "aws_sfn_state_machine" "document_extraction" {
   # (AGENTS.md §7, M5), so the state machine that orchestrates them participates in the same
   # trace, not a disconnected one.
   tracing_configuration {
-    enabled = true
+    enabled = var.enable_xray_tracing
   }
 
   logging_configuration {

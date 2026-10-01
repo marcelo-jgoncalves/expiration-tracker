@@ -16,6 +16,12 @@ variable "textract_task_function_arn" {
   type        = string
 }
 
+variable "enable_xray_tracing" {
+  description = "D-358: whether the state machine participates in X-Ray tracing. Mirrors the lambda-function module's own tracing_active toggle so the orchestrator and the Lambdas it invokes are never split (one traced, the other not)."
+  type        = bool
+  default     = true
+}
+
 variable "pdf_parser_task_function_arn" {
   description = "PdfParserTaskHandler Lambda ARN (item 5, not yet implemented)."
   type        = string

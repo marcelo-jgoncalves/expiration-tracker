@@ -1166,6 +1166,14 @@ run "event_source_mappings_use_partial_batch_failure" {
 run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
   command = plan
 
+  # D-358: this run asserts the canary's OWN wiring (name + failure alarm both real), so it
+  # needs the module actually created - the stack's real default is disabled (cost; dev has no
+  # real users to page on), but that's a deploy-time posture, not a reason to stop proving the
+  # module wires correctly when it IS enabled.
+  variables {
+    enable_synthetic_canary = true
+  }
+
   # m5-observability-design.md §3: every function gets the ADOT layer, never resolved
   # implicitly to "latest" - the pinned test ARN above is asserted on directly.
   assert {
@@ -1199,7 +1207,7 @@ run "adot_layer_attached_to_every_function_and_alarms_have_a_real_target" {
     error_message = "PERF-14 must keep native throttle alarms for BFF, Items, and Subjects"
   }
   assert {
-    condition     = module.synthetic_canary.canary_name != "" && module.synthetic_canary.failure_alarm_name != ""
+    condition     = module.synthetic_canary[0].canary_name != "" && module.synthetic_canary[0].failure_alarm_name != ""
     error_message = "PERF-14 external synthetic canary and its failure alarm must exist"
   }
   assert {

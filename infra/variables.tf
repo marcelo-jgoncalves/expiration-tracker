@@ -82,6 +82,18 @@ variable "reminder_scan_legacy_enabled" {
   default     = true
 }
 
+variable "enable_xray_tracing" {
+  description = "D-358 (Marcelo, 2026-10-01): kill switch for X-Ray active tracing across every Lambda (lambda-function module's tracing_active) and both Step Functions state machines (extraction-workflow, tenant-purge-workflow). Disabled by default - TracesStored cost scaled with ongoing dev traffic (~$22/month) on top of a one-time ~$105 spike from the now-closed 10k->100k->500k load-testing ladder (decisions-log.md D-350's own encerrado note). `dev` has no real users to debug traces for; re-enable on demand when investigating a real production incident."
+  type        = bool
+  default     = false
+}
+
+variable "enable_synthetic_canary" {
+  description = "D-358 (Marcelo, 2026-10-01): kill switch for the CloudWatch Synthetics canary (modules/synthetic-canary) that polls the live app every 5 minutes. Disabled by default - continuous synthetic traffic against a `dev` environment with no real users, costing ~$10/month in Canary-runs alone plus the Lambda/DynamoDB/X-Ray cost of every run's own real backend hits. Re-enable if uptime monitoring is needed again."
+  type        = bool
+  default     = false
+}
+
 variable "monthly_budget_usd" {
   description = "Monthly AWS Budgets ceiling in USD. Matches the cost-budget module's own default (50) unless overridden."
   type        = number
