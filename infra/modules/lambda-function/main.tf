@@ -89,11 +89,15 @@ resource "aws_lambda_function" "this" {
 
   reserved_concurrent_executions = var.reserved_concurrent_executions
 
-  dynamic "tracing_config" {
-    for_each = var.tracing_active ? [1] : []
-    content {
-      mode = "Active"
-    }
+  # D-358 real finding: the AWS provider treats tracing_config as Optional+Computed - omitting
+  # the block entirely (the previous `dynamic` with zero elements when tracing_active is false)
+  # does NOT tell Terraform "set this to PassThrough", it tells it "don't manage this attribute,
+  # keep whatever AWS already has" - a real apply against dev proved this (`terraform plan`
+  # showed the block as one of the function's "unchanged" attributes, and AWS kept reporting
+  # Mode=Active after apply). The block must always be present with an explicit mode so
+  # Terraform actually asserts the value both ways.
+  tracing_config {
+    mode = var.tracing_active ? "Active" : "PassThrough"
   }
 
   environment {
