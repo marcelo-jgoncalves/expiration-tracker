@@ -88,7 +88,18 @@ describe("GET /activity end-to-end (D-149): real ExpirationItem audit trail merg
     const quota = new TenantQuotaService(identityStore, "MainTable");
 
     const expirationStore = new InMemoryExpirationStore();
-    const expiration = new ExpirationService({ store: expirationStore, tableName: "MainTable", ids: makeExpirationIdGenerator(), members: allowAllMemberEligibilityChecker() });
+    // Fixed clock (same instant ActivityService's own `now` below uses) - without this, the real
+    // AuditEvent rows this test's mutations produce land in whatever month the wall clock says
+    // "now" is, while the 3 seeded sibling partitions below are hardcoded to "202609" - the two
+    // would silently drift apart the moment a run crosses a month boundary (e.g. this test
+    // started failing for real on 2026-10-01, long after it was written in September).
+    const expiration = new ExpirationService({
+      store: expirationStore,
+      tableName: "MainTable",
+      ids: makeExpirationIdGenerator(),
+      members: allowAllMemberEligibilityChecker(),
+      now: () => "2026-09-15T00:00:00.000Z",
+    });
     itemDeps = { resolver, expiration, quota };
 
     const bootstrapped = await bootstrapWithOrganization(identityStore, organizations, "MainTable", "sub-A");
